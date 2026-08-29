@@ -9,9 +9,9 @@
 ### 1.1 查找与覆盖顺序(后者覆盖前者)
 
 1. 内置默认值(编译进二进制);
-2. 系统级:Windows `%ProgramData%\vantage\config.toml`;Linux `/etc/vantage/config.toml`;
-3. 用户级:Windows `%APPDATA%\vantage\config.toml`;Linux `${XDG_CONFIG_HOME:-~/.config}/vantage/config.toml`;
-4. CLI 参数 / 环境变量(`VANTAGE_*`)。
+2. 系统级:Windows `%ProgramData%\sailbreak\config.toml`;Linux `/etc/sailbreak/config.toml`;
+3. 用户级:Windows `%APPDATA%\sailbreak\config.toml`;Linux `${XDG_CONFIG_HOME:-~/.config}/sailbreak/config.toml`;
+4. CLI 参数 / 环境变量(`SAILBREAK_*`)。
 
 ### 1.2 全字段 schema
 
@@ -227,13 +227,13 @@ on_temp_exceed = "silent-library"
 ## 3. profile 文件管理
 
 - 查找路径:`profiles.d` 目录(系统级/用户级,同 §1.1)+ 内置 5 套(07 §5)。
-- `vantage tune profile list` 合并展示并标来源(builtin/system/user);
+- `sailbreak tune profile list` 合并展示并标来源(builtin/system/user);
 - 同名覆盖:用户 > 系统 > 内置;
 - schema 版本:`schema = 1` 顶层键,未知版本拒绝解析。
 
 ## 4. daemon 运行时状态 `state.json`
 
-路径:Windows `%ProgramData%\vantage\state.json`;Linux `/run/vantage/state.json`(tmpfs,易失)。
+路径:Windows `%ProgramData%\sailbreak\state.json`;Linux `/run/sailbreak/state.json`(tmpfs,易失)。
 
 ```json
 {

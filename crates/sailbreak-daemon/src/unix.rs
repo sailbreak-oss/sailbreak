@@ -17,12 +17,13 @@ use crate::{
 };
 
 pub fn default_endpoint() -> PathBuf {
-    std::env::var_os("VANTAGE_SOCKET")
+    std::env::var_os("SAILBREAK_SOCKET")
         .map(PathBuf::from)
         .or_else(|| {
-            std::env::var_os("XDG_RUNTIME_DIR").map(|root| PathBuf::from(root).join("vantage.sock"))
+            std::env::var_os("XDG_RUNTIME_DIR")
+                .map(|root| PathBuf::from(root).join("sailbreak.sock"))
         })
-        .unwrap_or_else(|| PathBuf::from("/run/vantage.sock"))
+        .unwrap_or_else(|| PathBuf::from("/run/sailbreak.sock"))
 }
 
 pub fn run(events: Receiver<DaemonEvent>) -> Result<()> {

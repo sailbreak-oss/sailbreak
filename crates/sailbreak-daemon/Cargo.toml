@@ -1,17 +1,17 @@
 [package]
-name = "vantage-daemon"
+name = "sailbreak-daemon"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish = false
 repository.workspace = true
-description = "Optional local event daemon for Vantage hardware control"
+description = "Optional local event daemon for Sailbreak hardware control"
 
 [lib]
-name = "vantage_daemon"
+name = "sailbreak_daemon"
 
 [[bin]]
-name = "vantaged"
+name = "sailbreakd"
 path = "src/main.rs"
 
 [dependencies]

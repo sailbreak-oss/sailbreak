@@ -1,5 +1,5 @@
 [package]
-name = "vantage"
+name = "sailbreak"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
@@ -9,8 +9,8 @@ description = "Cross-platform Lenovo hardware control CLI"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-vantage-daemon = { path = "../crates/vantage-daemon" }
-vantage-cli = { path = "../crates/vantage-cli" }
+sailbreak-daemon = { path = "../crates/sailbreak-daemon" }
+sailbreak-cli = { path = "../crates/sailbreak-cli" }
 lctrl-core = { path = "../crates/lctrl-core" }
 lctrl-hal = { path = "../crates/lctrl-hal" }
 serde_json.workspace = true

@@ -1,4 +1,4 @@
-//! Command-line surface for `vantage`.
+//! Command-line surface for `sailbreak`.
 //!
 //! The command tree deliberately lives separately from host backends. Concrete
 //! platform composition roots opt into only the hardware services with safe,
@@ -213,9 +213,13 @@ pub fn render_result(result: &CommandResult, json: bool) -> String {
     }
 }
 
-/// Root parser for the `vantage` command.
+/// Root parser for the `sailbreak` command.
 #[derive(Clone, Debug, Parser, PartialEq, Eq)]
-#[command(name = "vantage", version, about = "Cross-platform hardware control")]
+#[command(
+    name = "sailbreak",
+    version,
+    about = "Independent cross-platform hardware control"
+)]
 pub struct Cli {
     /// Emit machine-readable JSON instead of terminal-oriented text.
     #[arg(long, global = true)]
@@ -245,7 +249,7 @@ impl Cli {
     }
 }
 
-/// Top-level `vantage` commands.
+/// Top-level `sailbreak` commands.
 #[derive(Clone, Debug, Subcommand, PartialEq, Eq)]
 pub enum Command {
     /// Report platform, hardware identity, and discovered capabilities.
@@ -1785,7 +1789,7 @@ fn execute_completions(shell: Shell) -> CommandResult {
     };
     let mut command = Cli::command();
     let mut generated = Vec::new();
-    clap_complete::generate(shell, &mut command, "vantage", &mut generated);
+    clap_complete::generate(shell, &mut command, "sailbreak", &mut generated);
     let completion = String::from_utf8(generated).map_err(|error| {
         LctrlError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
     })?;
@@ -1796,10 +1800,10 @@ fn execute_completions(shell: Shell) -> CommandResult {
 }
 
 fn load_profile_catalog() -> lctrl_core::Result<lctrl_tune::ProfileCatalog> {
-    let system_dir = env::var_os("VANTAGE_SYSTEM_PROFILE_DIR")
+    let system_dir = env::var_os("SAILBREAK_SYSTEM_PROFILE_DIR")
         .map(PathBuf::from)
         .or_else(default_system_profile_dir);
-    let user_dir = env::var_os("VANTAGE_USER_PROFILE_DIR")
+    let user_dir = env::var_os("SAILBREAK_USER_PROFILE_DIR")
         .map(PathBuf::from)
         .or_else(default_user_profile_dir);
     let system = system_dir.as_deref().map_or_else(
@@ -1815,19 +1819,19 @@ fn load_profile_catalog() -> lctrl_core::Result<lctrl_tune::ProfileCatalog> {
 
 fn default_system_profile_dir() -> Option<PathBuf> {
     if cfg!(windows) {
-        env::var_os("ProgramData").map(|root| PathBuf::from(root).join("vantage/profiles.d"))
+        env::var_os("ProgramData").map(|root| PathBuf::from(root).join("sailbreak/profiles.d"))
     } else {
-        Some(PathBuf::from("/etc/vantage/profiles.d"))
+        Some(PathBuf::from("/etc/sailbreak/profiles.d"))
     }
 }
 
 fn default_user_profile_dir() -> Option<PathBuf> {
     if cfg!(windows) {
-        env::var_os("APPDATA").map(|root| PathBuf::from(root).join("vantage/profiles.d"))
+        env::var_os("APPDATA").map(|root| PathBuf::from(root).join("sailbreak/profiles.d"))
     } else if let Some(root) = env::var_os("XDG_CONFIG_HOME") {
-        Some(PathBuf::from(root).join("vantage/profiles.d"))
+        Some(PathBuf::from(root).join("sailbreak/profiles.d"))
     } else {
-        env::var_os("HOME").map(|root| PathBuf::from(root).join(".config/vantage/profiles.d"))
+        env::var_os("HOME").map(|root| PathBuf::from(root).join(".config/sailbreak/profiles.d"))
     }
 }
 
@@ -2052,19 +2056,19 @@ fn saved_tune_setting(rollback: &TuneRollback) -> SavedTuneSetting {
 }
 
 fn tune_state_path() -> lctrl_core::Result<PathBuf> {
-    if let Some(path) = env::var_os("VANTAGE_STATE_PATH") {
+    if let Some(path) = env::var_os("SAILBREAK_STATE_PATH") {
         return Ok(PathBuf::from(path));
     }
     if cfg!(windows) {
         return env::var_os("ProgramData")
-            .map(|root| PathBuf::from(root).join("vantage/state.json"))
+            .map(|root| PathBuf::from(root).join("sailbreak/state.json"))
             .ok_or_else(|| LctrlError::ChannelUnavailable {
                 channel: "ProgramData environment variable".into(),
             });
     }
     Ok(env::var_os("XDG_RUNTIME_DIR").map_or_else(
-        || PathBuf::from("/run/vantage/state.json"),
-        |root| PathBuf::from(root).join("vantage/state.json"),
+        || PathBuf::from("/run/sailbreak/state.json"),
+        |root| PathBuf::from(root).join("sailbreak/state.json"),
     ))
 }
 
@@ -2392,21 +2396,21 @@ fn execute_tune_restore(services: &CommandServices<'_>) -> CommandResult {
 }
 
 fn managed_snapshot_path() -> lctrl_core::Result<PathBuf> {
-    if let Some(path) = env::var_os("VANTAGE_SNAPSHOT_PATH") {
+    if let Some(path) = env::var_os("SAILBREAK_SNAPSHOT_PATH") {
         return Ok(PathBuf::from(path));
     }
     if cfg!(windows) {
         return env::var_os("ProgramData")
-            .map(|root| PathBuf::from(root).join("vantage/snapshot.json"))
+            .map(|root| PathBuf::from(root).join("sailbreak/snapshot.json"))
             .ok_or_else(|| LctrlError::ChannelUnavailable {
                 channel: "ProgramData environment variable".into(),
             });
     }
     if let Some(root) = env::var_os("XDG_STATE_HOME") {
-        return Ok(PathBuf::from(root).join("vantage/snapshot.json"));
+        return Ok(PathBuf::from(root).join("sailbreak/snapshot.json"));
     }
     env::var_os("HOME")
-        .map(|root| PathBuf::from(root).join(".local/state/vantage/snapshot.json"))
+        .map(|root| PathBuf::from(root).join(".local/state/sailbreak/snapshot.json"))
         .ok_or_else(|| LctrlError::ChannelUnavailable {
             channel: "HOME or XDG_STATE_HOME".into(),
         })
@@ -3385,7 +3389,7 @@ fn execute_fnlock(
         confirmed,
         interactive,
         &format!(
-            "BIOS writes: HotkeyMode={} and F1-F12AsPrimaryFunction={}; effect after reboot; recovery: restore HotkeyMode={} and F1-F12AsPrimaryFunction={} with vantage bios set --save --yes",
+            "BIOS writes: HotkeyMode={} and F1-F12AsPrimaryFunction={}; effect after reboot; recovery: restore HotkeyMode={} and F1-F12AsPrimaryFunction={} with sailbreak bios set --save --yes",
             requested[0].value, requested[1].value, previous[0].value, previous[1].value,
         ),
     )?;
@@ -3590,7 +3594,7 @@ fn execute_persistent_bios_toggle(
         confirmed,
         interactive,
         &format!(
-            "BIOS write: key={name} value={requested_value}; effect timing may require reboot; recovery: vantage bios set {name} {} --save --yes",
+            "BIOS write: key={name} value={requested_value}; effect timing may require reboot; recovery: sailbreak bios set {name} {} --save --yes",
             previous.value
         ),
     )?;
@@ -3821,7 +3825,7 @@ fn execute_bios(
                 confirmed,
                 interactive,
                 &format!(
-                    "BIOS write: key={name} value={value}; effect timing may require reboot; recovery: vantage bios set {name} {} --save --yes",
+                    "BIOS write: key={name} value={value}; effect timing may require reboot; recovery: sailbreak bios set {name} {} --save --yes",
                     previous.value
                 ),
             )?;

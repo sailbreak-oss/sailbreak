@@ -4,7 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use clap::error::ErrorKind;
-use vantage_cli::{
+use sailbreak_cli::{
     Cli, Command as CliCommand, CommandOutput, CommandResult, DaemonCommand, execute_with_services,
     render_error, render_success,
 };
@@ -58,18 +58,18 @@ fn handle_daemon_command(cli: &Cli, json: bool) -> bool {
 fn execute_daemon_command(command: &DaemonCommand, dry_run: bool) -> CommandResult {
     match command {
         DaemonCommand::Status => {
-            daemon_request(vantage_daemon::DaemonRequest::Status, "daemon status")
+            daemon_request(sailbreak_daemon::DaemonRequest::Status, "daemon status")
         }
         DaemonCommand::Stop => {
-            daemon_request(vantage_daemon::DaemonRequest::Stop, "daemon stopped")
+            daemon_request(sailbreak_daemon::DaemonRequest::Stop, "daemon stopped")
         }
         DaemonCommand::Start => start_daemon(dry_run),
         DaemonCommand::Install => install_daemon(dry_run),
     }
 }
 
-fn daemon_request(request: vantage_daemon::DaemonRequest, human: &str) -> CommandResult {
-    let response = vantage_daemon::request(&request)?;
+fn daemon_request(request: sailbreak_daemon::DaemonRequest, human: &str) -> CommandResult {
+    let response = sailbreak_daemon::request(&request)?;
     if !response.ok {
         return Err(lctrl_core::LctrlError::ChannelUnavailable {
             channel: response
@@ -84,14 +84,14 @@ fn daemon_request(request: vantage_daemon::DaemonRequest, human: &str) -> Comman
 }
 
 fn daemon_binary() -> lctrl_core::Result<PathBuf> {
-    if let Some(path) = std::env::var_os("VANTAGE_DAEMON_BINARY") {
+    if let Some(path) = std::env::var_os("SAILBREAK_DAEMON_BINARY") {
         return Ok(PathBuf::from(path));
     }
     let executable = std::env::current_exe().map_err(lctrl_core::LctrlError::Io)?;
     let name = if cfg!(windows) {
-        "vantaged.exe"
+        "sailbreakd.exe"
     } else {
-        "vantaged"
+        "sailbreakd"
     };
     let path = executable
         .parent()
@@ -109,7 +109,7 @@ fn daemon_binary() -> lctrl_core::Result<PathBuf> {
 }
 
 fn start_daemon(dry_run: bool) -> CommandResult {
-    if let Ok(response) = vantage_daemon::request(&vantage_daemon::DaemonRequest::Status)
+    if let Ok(response) = sailbreak_daemon::request(&sailbreak_daemon::DaemonRequest::Status)
         && response.ok
     {
         return Ok(CommandOutput {
@@ -134,7 +134,7 @@ fn start_daemon(dry_run: bool) -> CommandResult {
 
     let mut last_error = None;
     for _ in 0..40 {
-        match vantage_daemon::request(&vantage_daemon::DaemonRequest::Status) {
+        match sailbreak_daemon::request(&sailbreak_daemon::DaemonRequest::Status) {
             Ok(response) if response.ok => {
                 return Ok(CommandOutput {
                     human: "daemon started\n".into(),
@@ -181,7 +181,7 @@ fn install_daemon_platform(binary: &Path, dry_run: bool) -> CommandResult {
         .ok_or_else(|| lctrl_core::LctrlError::ChannelUnavailable {
             channel: "HOME or XDG_CONFIG_HOME".into(),
         })?;
-    let unit_path = config_root.join("systemd/user/vantaged.service");
+    let unit_path = config_root.join("systemd/user/sailbreakd.service");
     let binary_text = binary.to_string_lossy();
     if binary_text.contains(['\n', '\r', '"']) {
         return Err(lctrl_core::LctrlError::InvalidArgument {
@@ -189,7 +189,7 @@ fn install_daemon_platform(binary: &Path, dry_run: bool) -> CommandResult {
         });
     }
     let unit = format!(
-        "[Unit]\nDescription=vantage hardware event daemon\n\n[Service]\nType=simple\nExecStart=\"{binary_text}\"\nRestart=on-failure\nNoNewPrivileges=true\n\n[Install]\nWantedBy=default.target\n"
+        "[Unit]\nDescription=sailbreak hardware event daemon\n\n[Service]\nType=simple\nExecStart=\"{binary_text}\"\nRestart=on-failure\nNoNewPrivileges=true\n\n[Install]\nWantedBy=default.target\n"
     );
     if !dry_run {
         if let Some(parent) = unit_path.parent() {
@@ -197,7 +197,7 @@ fn install_daemon_platform(binary: &Path, dry_run: bool) -> CommandResult {
         }
         write_atomic(&unit_path, unit.as_bytes())?;
         run_checked("systemctl", &["--user", "daemon-reload"])?;
-        run_checked("systemctl", &["--user", "enable", "vantaged.service"])?;
+        run_checked("systemctl", &["--user", "enable", "sailbreakd.service"])?;
     }
     Ok(CommandOutput {
         human: format!(
@@ -225,7 +225,7 @@ fn install_daemon_platform(binary: &Path, dry_run: bool) -> CommandResult {
             .args([
                 "/Create",
                 "/TN",
-                "vantage-daemon",
+                "sailbreak-daemon",
                 "/SC",
                 "ONLOGON",
                 "/TR",
@@ -257,7 +257,7 @@ fn install_daemon_platform(binary: &Path, dry_run: bool) -> CommandResult {
         ),
         json: serde_json::json!({
             "mode": if dry_run { "dry_run" } else { "commit" },
-            "task": "vantage-daemon",
+            "task": "sailbreak-daemon",
             "binary": binary,
         }),
     })
@@ -304,7 +304,7 @@ fn main() {
         return;
     }
     let hal = lctrl_hal_linux::LinuxHal::new();
-    let services = vantage_cli::CommandServices::new(&hal)
+    let services = sailbreak_cli::CommandServices::new(&hal)
         .with_battery(&hal)
         .with_conflict_detection(&hal)
         .with_diagnostics(&hal)
@@ -342,7 +342,7 @@ fn main() {
     let magicbay = lctrl_hal_win::NativeMagicBay;
     let peripherals = lctrl_hal_win::WindowsPeripheralController::new(lctrl_hal_win::NativeWmi);
     let power = lctrl_hal_win::WindowsPowerP0::new(lctrl_hal_win::NativePowerApi);
-    let services = vantage_cli::CommandServices::new(&hal)
+    let services = sailbreak_cli::CommandServices::new(&hal)
         .with_battery(&battery)
         .with_conflict_detection(&conflicts)
         .with_bios(&bios)
@@ -387,5 +387,5 @@ fn main() {
     if handle_daemon_command(&cli, json) {
         return;
     }
-    finish(vantage_cli::execute(cli, &UnavailableHal), json);
+    finish(sailbreak_cli::execute(cli, &UnavailableHal), json);
 }

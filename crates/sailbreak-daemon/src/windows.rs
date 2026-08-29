@@ -35,7 +35,7 @@ use crate::{
 const BUFFER_SIZE: u32 = 64 * 1024;
 
 pub fn default_endpoint() -> String {
-    std::env::var("VANTAGE_PIPE").unwrap_or_else(|_| r"\\.\pipe\vantage.sock".into())
+    std::env::var("SAILBREAK_PIPE").unwrap_or_else(|_| r"\\.\pipe\sailbreak.sock".into())
 }
 
 pub fn run(events: Receiver<DaemonEvent>) -> Result<()> {

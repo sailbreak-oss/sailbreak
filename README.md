@@ -1,19 +1,19 @@
-# Vantage
+# Sailbreak
 
 Cross-platform hardware control for Lenovo ThinkBook systems, with truthful capability reporting and verified readback for every supported write path.
 
-Repository: [vantage-oss/vantage-cli](https://github.com/vantage-oss/vantage-cli)
+Repository: [voyage-control/sailbreak](https://github.com/voyage-control/sailbreak)
 
 ## Scope
 
-Vantage targets Lenovo 21VG / ThinkBook Panther Lake hardware while keeping the platform boundary explicit:
+Sailbreak targets Lenovo 21VG / ThinkBook Panther Lake hardware while keeping the platform boundary explicit:
 
-- `vantage` — CLI for hardware status, control, tuning, diagnostics, and snapshots.
-- `vantaged` — optional local event daemon; it does not become a second source of hardware truth.
-- `vantage-gui` — read-only GPUI dashboard.
+- `sailbreak` — CLI for hardware status, control, tuning, diagnostics, and snapshots.
+- `sailbreakd` — optional local event daemon; it does not become a second source of hardware truth.
+- `sailbreak-gui` — read-only GPUI dashboard.
 - `crates/lctrl-*` — internal Rust HAL, domain, and tuning crates retained as implementation names.
 
-Unsupported or unverified hardware channels return structured errors or appear as `limited`/`unavailable` in `vantage info`. The project does not include vendor binaries, firmware packages, advertising, accounts, telemetry, or an application store.
+Unsupported or unverified hardware channels return structured errors or appear as `limited`/`unavailable` in `sailbreak info`. The project does not include vendor binaries, firmware packages, advertising, accounts, telemetry, or an application store.
 
 ## Build and test
 
@@ -34,22 +34,22 @@ The CI workflow exercises Linux and Windows. Hardware smoke tests are intentiona
 Read-only discovery is safe to run without a daemon:
 
 ```bash
-vantage info --json
-vantage doctor --json
-vantage battery status --json
-vantage perf temp --json
-vantage magicbay detect --json
+sailbreak info --json
+sailbreak doctor --json
+sailbreak battery status --json
+sailbreak perf temp --json
+sailbreak magicbay detect --json
 ```
 
 Mutating commands support `--dry-run`. Risky BIOS and persistent privacy operations require `--yes`; successful writes report the requested value and verified readback. Check the capability matrix before scripting a platform-specific command.
 
 ```bash
-vantage --dry-run perf mode performance
-vantage --dry-run tune profile apply balanced
-vantage bios list --json
+sailbreak --dry-run perf mode performance
+sailbreak --dry-run tune profile apply balanced
+sailbreak bios list --json
 ```
 
-The optional daemon uses a per-user Unix socket at `$XDG_RUNTIME_DIR/vantage.sock` (fallback `/run/vantage.sock`) or the Windows named pipe `\\.\pipe\vantage.sock`. Override those endpoints with `VANTAGE_SOCKET` or `VANTAGE_PIPE`.
+The optional daemon uses a per-user Unix socket at `$XDG_RUNTIME_DIR/sailbreak.sock` (fallback `/run/sailbreak.sock`) or the Windows named pipe `\\.\pipe\sailbreak.sock`. Override those endpoints with `SAILBREAK_SOCKET` or `SAILBREAK_PIPE`.
 
 ## Verified Windows boundary
 
@@ -61,18 +61,18 @@ On the documented 21VG Windows baseline, the following channels remain deliberat
 - panel refresh-rate mutation and persistent privacy writes;
 - MagicBay inventory association is limited to the separate SetupAPI service path.
 
-These states are reported by `vantage info`; they are not silently replaced with guessed IOCTLs, registry writes, or synthetic success.
+These states are reported by `sailbreak info`; they are not silently replaced with guessed IOCTLs, registry writes, or synthetic success.
 
 ## Configuration
 
-Profile and state locations use the `vantage` identity:
+Profile and state locations use the `sailbreak` identity:
 
-- System profiles: `/etc/vantage/profiles.d` or `%ProgramData%\\vantage\\profiles.d`.
-- User profiles: `${XDG_CONFIG_HOME:-~/.config}/vantage/profiles.d` or `%APPDATA%\\vantage\\profiles.d`.
-- Tune state: `/run/vantage/state.json` or `%ProgramData%\\vantage\\state.json`.
-- Managed snapshots: `${XDG_STATE_HOME:-~/.local/state}/vantage/snapshot.json` or `%ProgramData%\\vantage\\snapshot.json`.
+- System profiles: `/etc/sailbreak/profiles.d` or `%ProgramData%\\sailbreak\\profiles.d`.
+- User profiles: `${XDG_CONFIG_HOME:-~/.config}/sailbreak/profiles.d` or `%APPDATA%\\sailbreak\\profiles.d`.
+- Tune state: `/run/sailbreak/state.json` or `%ProgramData%\\sailbreak\\state.json`.
+- Managed snapshots: `${XDG_STATE_HOME:-~/.local/state}/sailbreak/snapshot.json` or `%ProgramData%\\sailbreak\\snapshot.json`.
 
-Environment overrides use `VANTAGE_SYSTEM_PROFILE_DIR`, `VANTAGE_USER_PROFILE_DIR`, `VANTAGE_STATE_PATH`, and `VANTAGE_SNAPSHOT_PATH`.
+Environment overrides use `SAILBREAK_SYSTEM_PROFILE_DIR`, `SAILBREAK_USER_PROFILE_DIR`, `SAILBREAK_STATE_PATH`, and `SAILBREAK_SNAPSHOT_PATH`.
 
 ## Clean-room boundary
 
@@ -96,7 +96,7 @@ Small focused pull requests are preferred. Keep platform-specific code in its HA
 Paste the following prompt into a fresh coding-agent session when delegating a change:
 
 ```text
-You are contributing to vantage-cli, a Rust 2024 workspace for cross-platform Lenovo hardware control. The toolchain baseline is Rust 1.85 or newer.
+You are contributing to sailbreak-cli, a Rust 2024 workspace for cross-platform Lenovo hardware control. The toolchain baseline is Rust 1.85 or newer.
 
 Goal: <one observable behavior>. Name the command or channel, relevant specification section, and acceptance evidence.
 Repository rules:

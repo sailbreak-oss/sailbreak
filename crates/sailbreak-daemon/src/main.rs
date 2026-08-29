@@ -2,13 +2,13 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use sailbreak_daemon::DaemonEvent;
 use serde_json::{Value, json};
-use vantage_daemon::DaemonEvent;
 
 fn main() {
     let (events, receiver) = mpsc::channel();
     spawn_event_source(events);
-    if let Err(error) = vantage_daemon::run(receiver) {
+    if let Err(error) = sailbreak_daemon::run(receiver) {
         eprintln!("{error}");
         std::process::exit(i32::from(error.exit_code()));
     }

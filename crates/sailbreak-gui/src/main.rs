@@ -1,5 +1,5 @@
 use lctrl_core::{LctrlError, Platform};
-use vantage_gui::{DashboardSnapshot, run};
+use sailbreak_gui::{DashboardSnapshot, run};
 
 #[cfg(target_os = "linux")]
 fn main() {

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, work/vantage-implementation]
+    branches: [main, work/sailbreak-implementation]
   pull_request:
 
 permissions:
@@ -32,14 +32,14 @@ jobs:
       - name: Upload release binaries
         uses: actions/upload-artifact@v4
         with:
-          name: vantage-${{ runner.os }}-${{ runner.arch }}
+          name: sailbreak-${{ runner.os }}-${{ runner.arch }}
           if-no-files-found: error
           path: |
-            target/release/vantage
-            target/release/vantage.exe
-            target/release/vantaged
-            target/release/vantaged.exe
-            target/release/vantage-gui
-            target/release/vantage-gui.exe
+            target/release/sailbreak
+            target/release/sailbreak.exe
+            target/release/sailbreakd
+            target/release/sailbreakd.exe
+            target/release/sailbreak-gui
+            target/release/sailbreak-gui.exe
     env:
       RUSTFLAGS: -Dwarnings

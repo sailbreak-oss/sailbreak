@@ -1,4 +1,4 @@
-//! Local authenticated IPC and bounded event buffering for the optional vantage daemon.
+//! Local authenticated IPC and bounded event buffering for the optional Sailbreak daemon.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -89,7 +89,7 @@ fn started_at_unix_ms() -> u64 {
 
 fn protocol_error(error: impl Into<String>) -> LctrlError {
     LctrlError::ChannelUnavailable {
-        channel: format!("vantage daemon IPC: {}", error.into()),
+        channel: format!("sailbreak daemon IPC: {}", error.into()),
     }
 }
 

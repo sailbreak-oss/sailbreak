@@ -1,4 +1,4 @@
-//! A read-only GPUI control-center shell for vantage.
+//! A read-only GPUI control-center shell for Sailbreak.
 //!
 //! The GUI deliberately has no hardware mutation path. It renders the state
 //! reported by [`lctrl_hal::Hal`] and marks every capability according to the
@@ -76,7 +76,7 @@ impl DashboardSnapshot {
     }
 }
 
-/// Open the vantage dashboard with a read-only snapshot.
+/// Open the Sailbreak dashboard with a read-only snapshot.
 ///
 /// A real Wayland or X11 session is required on Linux. Calling this from SSH
 /// or another headless session returns a normal channel error rather than
@@ -193,7 +193,7 @@ fn sidebar() -> impl IntoElement {
                     div()
                         .text_xs()
                         .text_color(rgb(SIGNAL))
-                        .child("VANTAGE / CONTROL"),
+                        .child("SAILBREAK / CONTROL"),
                 )
                 .child(
                     div()

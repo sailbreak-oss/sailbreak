@@ -11,7 +11,7 @@ use lctrl_hal::{
     BatteryControl, BiosControl, ControlConflictDetection, Hal, PerformanceControl, PowerControl,
     PrivacyControl,
 };
-use vantage_cli::{
+use sailbreak_cli::{
     Cli, CommandResult, CommandServices, execute, execute_with_services, render_error,
 };
 
@@ -63,8 +63,15 @@ impl Hal for FakeHal {
 }
 
 #[test]
+fn cli_advertises_sailbreak_binary_name() {
+    use clap::CommandFactory;
+
+    assert_eq!(Cli::command().get_name(), "sailbreak");
+}
+
+#[test]
 fn info_queries_hal_and_returns_machine_readable_payload() {
-    let cli = Cli::try_parse_from(["vantage", "--json", "info"]).expect("parse info");
+    let cli = Cli::try_parse_from(["sailbreak", "--json", "info"]).expect("parse info");
     let hal = FakeHal::new("ThinkBook 14+ 2026");
 
     let output = execute(cli, &hal).expect("info succeeds");
@@ -90,7 +97,7 @@ fn info_queries_hal_and_returns_machine_readable_payload() {
 
 #[test]
 fn info_human_output_contains_platform_and_hardware_values() {
-    let cli = Cli::try_parse_from(["vantage", "info"]).expect("parse info");
+    let cli = Cli::try_parse_from(["sailbreak", "info"]).expect("parse info");
     let output = execute(cli, &FakeHal::new("ThinkBook 14+ 2026")).expect("info succeeds");
 
     assert!(output.human.contains("platform: linux"));
@@ -115,43 +122,57 @@ fn json_error_is_exactly_the_core_error_report() {
 #[test]
 fn representative_command_paths_parse() {
     let cases: &[&[&str]] = &[
-        &["vantage", "info"],
-        &["vantage", "battery", "status"],
-        &["vantage", "battery", "adapter"],
-        &["vantage", "battery", "charge-mode", "rapid"],
-        &["vantage", "battery", "thresholds", "40", "80"],
-        &["vantage", "battery", "extreme-life", "on"],
-        &["vantage", "battery", "night-charge", "off"],
-        &["vantage", "battery", "temporary-mode"],
-        &["vantage", "battery", "watch"],
-        &["vantage", "usb", "always-on", "on", "--persistent"],
-        &["vantage", "usb", "charge-on-battery", "off"],
-        &["vantage", "power", "scheme", "list"],
-        &["vantage", "power", "scheme", "get", "balanced"],
-        &["vantage", "power", "scheme", "apply", "balanced"],
+        &["sailbreak", "info"],
+        &["sailbreak", "battery", "status"],
+        &["sailbreak", "battery", "adapter"],
+        &["sailbreak", "battery", "charge-mode", "rapid"],
+        &["sailbreak", "battery", "thresholds", "40", "80"],
+        &["sailbreak", "battery", "extreme-life", "on"],
+        &["sailbreak", "battery", "night-charge", "off"],
+        &["sailbreak", "battery", "temporary-mode"],
+        &["sailbreak", "battery", "watch"],
+        &["sailbreak", "usb", "always-on", "on", "--persistent"],
+        &["sailbreak", "usb", "charge-on-battery", "off"],
+        &["sailbreak", "power", "scheme", "list"],
+        &["sailbreak", "power", "scheme", "get", "balanced"],
+        &["sailbreak", "power", "scheme", "apply", "balanced"],
         &[
-            "vantage", "power", "scheme", "set", "subgroup", "setting", "ac", "42",
+            "sailbreak",
+            "power",
+            "scheme",
+            "set",
+            "subgroup",
+            "setting",
+            "ac",
+            "42",
         ],
-        &["vantage", "power", "saver-once"],
-        &["vantage", "perf", "mode", "performance"],
-        &["vantage", "perf", "fan", "status"],
-        &["vantage", "perf", "temp"],
-        &["vantage", "perf", "pl1", "15"],
-        &["vantage", "perf", "pl2", "25"],
-        &["vantage", "perf", "top"],
-        &["vantage", "tune", "profile", "list"],
-        &["vantage", "kbd", "backlight", "2", "--effect", "breath"],
-        &["vantage", "kbd", "fnlock", "on"],
-        &["vantage", "touchpad", "off"],
-        &["vantage", "panel", "rate", "120"],
-        &["vantage", "privacy", "cam", "off", "--runtime"],
-        &["vantage", "sense", "lock-on-leave", "on", "--distance", "2"],
-        &["vantage", "audio", "dolby", "movie"],
-        &["vantage", "bios", "get", "SecureBoot"],
-        &["vantage", "magicbay", "lte", "status"],
-        &["vantage", "osd", "enable"],
-        &["vantage", "daemon", "status"],
-        &["vantage", "completions", "bash"],
+        &["sailbreak", "power", "saver-once"],
+        &["sailbreak", "perf", "mode", "performance"],
+        &["sailbreak", "perf", "fan", "status"],
+        &["sailbreak", "perf", "temp"],
+        &["sailbreak", "perf", "pl1", "15"],
+        &["sailbreak", "perf", "pl2", "25"],
+        &["sailbreak", "perf", "top"],
+        &["sailbreak", "tune", "profile", "list"],
+        &["sailbreak", "kbd", "backlight", "2", "--effect", "breath"],
+        &["sailbreak", "kbd", "fnlock", "on"],
+        &["sailbreak", "touchpad", "off"],
+        &["sailbreak", "panel", "rate", "120"],
+        &["sailbreak", "privacy", "cam", "off", "--runtime"],
+        &[
+            "sailbreak",
+            "sense",
+            "lock-on-leave",
+            "on",
+            "--distance",
+            "2",
+        ],
+        &["sailbreak", "audio", "dolby", "movie"],
+        &["sailbreak", "bios", "get", "SecureBoot"],
+        &["sailbreak", "magicbay", "lte", "status"],
+        &["sailbreak", "osd", "enable"],
+        &["sailbreak", "daemon", "status"],
+        &["sailbreak", "completions", "bash"],
     ];
 
     for args in cases {
@@ -164,7 +185,7 @@ fn representative_command_paths_parse() {
 #[test]
 fn unsupported_commands_do_not_call_or_mutate_hal() {
     let hal = FakeHal::new("unused");
-    let cli = Cli::try_parse_from(["vantage", "battery", "charge-mode", "rapid"])
+    let cli = Cli::try_parse_from(["sailbreak", "battery", "charge-mode", "rapid"])
         .expect("parse unsupported command");
 
     let result: CommandResult = execute(cli, &hal);
@@ -179,7 +200,7 @@ fn unsupported_commands_do_not_call_or_mutate_hal() {
 
 #[test]
 fn unsupported_error_uses_core_exit_code_mapping() {
-    let cli = Cli::try_parse_from(["vantage", "tune"]).expect("parse tune");
+    let cli = Cli::try_parse_from(["sailbreak", "tune"]).expect("parse tune");
     let result = execute(cli, &FakeHal::new("unused"));
     let error = result.expect_err("tune is not implemented");
 
@@ -237,7 +258,7 @@ impl ControlConflictDetection for FakeConflicts {
 
 #[test]
 fn conflicting_vendor_controller_blocks_write_without_explicit_override() {
-    let cli = Cli::try_parse_from(["vantage", "battery", "charge-mode", "rapid"]).unwrap();
+    let cli = Cli::try_parse_from(["sailbreak", "battery", "charge-mode", "rapid"]).unwrap();
     let hal = FakeHal::new("unused");
     let battery = FakeBattery::new();
 
@@ -254,7 +275,7 @@ fn conflicting_vendor_controller_blocks_write_without_explicit_override() {
 
 #[test]
 fn battery_adapter_executes_through_explicit_service_only() {
-    let cli = Cli::try_parse_from(["vantage", "--json", "battery", "adapter"]).unwrap();
+    let cli = Cli::try_parse_from(["sailbreak", "--json", "battery", "adapter"]).unwrap();
     let hal = FakeHal::new("unused");
     let battery = FakeBattery::new();
 
@@ -269,7 +290,7 @@ fn battery_adapter_executes_through_explicit_service_only() {
 
 #[test]
 fn battery_adapter_stays_unsupported_without_service() {
-    let cli = Cli::try_parse_from(["vantage", "battery", "adapter"]).unwrap();
+    let cli = Cli::try_parse_from(["sailbreak", "battery", "adapter"]).unwrap();
     let hal = FakeHal::new("unused");
 
     assert!(matches!(
@@ -308,7 +329,8 @@ impl PerformanceControl for FakePerformance {
 
 #[test]
 fn global_dry_run_reaches_performance_service_without_commit() {
-    let cli = Cli::try_parse_from(["vantage", "--dry-run", "perf", "mode", "performance"]).unwrap();
+    let cli =
+        Cli::try_parse_from(["sailbreak", "--dry-run", "perf", "mode", "performance"]).unwrap();
     let hal = FakeHal::new("unused");
     let performance = FakePerformance::new();
 
@@ -368,7 +390,7 @@ impl PowerControl for FakePower {
 #[test]
 fn power_set_validates_service_range_before_dispatch() {
     let cli = Cli::try_parse_from([
-        "vantage",
+        "sailbreak",
         "--dry-run",
         "power",
         "scheme",
@@ -474,7 +496,7 @@ impl BiosControl for FakeBios {
 
 #[test]
 fn bios_set_requires_confirmation_before_staging() {
-    let cli = Cli::try_parse_from(["vantage", "bios", "set", "Camera", "Disable"]).unwrap();
+    let cli = Cli::try_parse_from(["sailbreak", "bios", "set", "Camera", "Disable"]).unwrap();
     let hal = FakeHal::new("unused");
     let bios = FakeBios::new();
 
@@ -488,7 +510,7 @@ fn bios_set_requires_confirmation_before_staging() {
 #[test]
 fn bios_set_rejects_unrecoverable_staged_only_commit() {
     let cli =
-        Cli::try_parse_from(["vantage", "bios", "set", "Camera", "Disable", "--yes"]).unwrap();
+        Cli::try_parse_from(["sailbreak", "bios", "set", "Camera", "Disable", "--yes"]).unwrap();
     let hal = FakeHal::new("unused");
     let bios = FakeBios::new();
 
@@ -502,7 +524,13 @@ fn bios_set_rejects_unrecoverable_staged_only_commit() {
 #[test]
 fn bios_set_save_validates_exact_selection_and_reads_back() {
     let cli = Cli::try_parse_from([
-        "vantage", "bios", "set", "Camera", "Disable", "--yes", "--save",
+        "sailbreak",
+        "bios",
+        "set",
+        "Camera",
+        "Disable",
+        "--yes",
+        "--save",
     ])
     .unwrap();
     let hal = FakeHal::new("unused");
@@ -521,7 +549,13 @@ fn bios_set_save_validates_exact_selection_and_reads_back() {
 #[test]
 fn bios_save_failure_discards_staged_transaction() {
     let cli = Cli::try_parse_from([
-        "vantage", "bios", "set", "Camera", "Disable", "--yes", "--save",
+        "sailbreak",
+        "bios",
+        "set",
+        "Camera",
+        "Disable",
+        "--yes",
+        "--save",
     ])
     .unwrap();
     let hal = FakeHal::new("unused");
@@ -537,8 +571,15 @@ fn bios_save_failure_discards_staged_transaction() {
 
 #[test]
 fn persistent_privacy_requires_confirmation_and_reads_back() {
-    let cli =
-        Cli::try_parse_from(["vantage", "privacy", "cam", "off", "--persistent", "--yes"]).unwrap();
+    let cli = Cli::try_parse_from([
+        "sailbreak",
+        "privacy",
+        "cam",
+        "off",
+        "--persistent",
+        "--yes",
+    ])
+    .unwrap();
     let hal = FakeHal::new("unused");
     let bios = FakeBios::new();
 
@@ -553,7 +594,7 @@ fn persistent_privacy_requires_confirmation_and_reads_back() {
 
 #[test]
 fn privacy_runtime_is_unavailable_without_verified_feature_id() {
-    let cli = Cli::try_parse_from(["vantage", "privacy", "cam", "off", "--runtime"]).unwrap();
+    let cli = Cli::try_parse_from(["sailbreak", "privacy", "cam", "off", "--runtime"]).unwrap();
     let hal = FakeHal::new("unused");
     let bios = FakeBios::new();
 
@@ -567,7 +608,7 @@ fn privacy_runtime_is_unavailable_without_verified_feature_id() {
 #[test]
 fn persistent_privacy_dry_run_never_stages_or_saves() {
     let cli = Cli::try_parse_from([
-        "vantage",
+        "sailbreak",
         "--dry-run",
         "privacy",
         "mic",
@@ -607,7 +648,7 @@ impl PrivacyControl for FakePrivacy {
 
 #[test]
 fn privacy_runtime_dispatches_to_runtime_service() {
-    let cli = Cli::try_parse_from(["vantage", "privacy", "cam", "off", "--runtime"]).unwrap();
+    let cli = Cli::try_parse_from(["sailbreak", "privacy", "cam", "off", "--runtime"]).unwrap();
     let hal = FakeHal::new("unused");
 
     let output =
@@ -619,7 +660,7 @@ fn privacy_runtime_dispatches_to_runtime_service() {
 #[test]
 fn tuning_profiles_are_listed_and_planned_without_writes() {
     let hal = FakeHal::new("unused");
-    let list = Cli::try_parse_from(["vantage", "tune", "profile", "list"]).unwrap();
+    let list = Cli::try_parse_from(["sailbreak", "tune", "profile", "list"]).unwrap();
     let output = execute(list, &hal).expect("built-in profiles list");
     assert!(
         output
@@ -629,7 +670,7 @@ fn tuning_profiles_are_listed_and_planned_without_writes() {
     );
 
     let apply = Cli::try_parse_from([
-        "vantage",
+        "sailbreak",
         "--dry-run",
         "tune",
         "profile",
@@ -649,32 +690,34 @@ struct SnapshotPathGuard;
 impl Drop for SnapshotPathGuard {
     fn drop(&mut self) {
         // This integration test serializes every access to this process-local test variable.
-        unsafe { std::env::remove_var("VANTAGE_SNAPSHOT_PATH") };
+        unsafe { std::env::remove_var("SAILBREAK_SNAPSHOT_PATH") };
     }
 }
 
 #[test]
 fn managed_snapshot_capture_diff_and_restore_use_persistent_baseline() {
     let _lock = SNAPSHOT_ENV_LOCK.lock().unwrap();
-    let path: PathBuf =
-        std::env::temp_dir().join(format!("vantage-snapshot-test-{}.json", std::process::id()));
+    let path: PathBuf = std::env::temp_dir().join(format!(
+        "sailbreak-snapshot-test-{}.json",
+        std::process::id()
+    ));
     let _ = std::fs::remove_file(&path);
     // This test holds SNAPSHOT_ENV_LOCK until the guard removes the variable.
-    unsafe { std::env::set_var("VANTAGE_SNAPSHOT_PATH", &path) };
+    unsafe { std::env::set_var("SAILBREAK_SNAPSHOT_PATH", &path) };
     let _path_guard = SnapshotPathGuard;
 
     let baseline_hal = FakeHal::new("baseline");
-    let capture = Cli::try_parse_from(["vantage", "snapshot", "capture"]).unwrap();
+    let capture = Cli::try_parse_from(["sailbreak", "snapshot", "capture"]).unwrap();
     let captured = execute(capture, &baseline_hal).unwrap();
     assert_eq!(captured.json["version"], 1);
     assert!(path.is_file());
 
-    let diff = Cli::try_parse_from(["vantage", "snapshot", "diff"]).unwrap();
+    let diff = Cli::try_parse_from(["sailbreak", "snapshot", "diff"]).unwrap();
     let unchanged = execute(diff, &baseline_hal).unwrap();
     assert_eq!(unchanged.json["equal"], true);
 
     let changed_hal = FakeHal::new("changed");
-    let diff = Cli::try_parse_from(["vantage", "snapshot", "diff"]).unwrap();
+    let diff = Cli::try_parse_from(["sailbreak", "snapshot", "diff"]).unwrap();
     let changed = execute(diff, &changed_hal).unwrap();
     assert_eq!(changed.json["equal"], false);
     assert!(
@@ -685,7 +728,7 @@ fn managed_snapshot_capture_diff_and_restore_use_persistent_baseline() {
             .any(|field| field == "hardware")
     );
 
-    let restore = Cli::try_parse_from(["vantage", "snapshot", "restore", "--dry-run"]).unwrap();
+    let restore = Cli::try_parse_from(["sailbreak", "snapshot", "restore", "--dry-run"]).unwrap();
     let restored = execute(restore, &baseline_hal).unwrap();
     assert_eq!(restored.json, serde_json::json!([]));
 

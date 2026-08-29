@@ -6,13 +6,13 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use vantage_daemon::{DaemonEvent, DaemonRequest, DaemonStatus, request_at, run_at};
+use sailbreak_daemon::{DaemonEvent, DaemonRequest, DaemonStatus, request_at, run_at};
 
 static NEXT_SOCKET: AtomicU64 = AtomicU64::new(0);
 
 fn socket_path() -> PathBuf {
     std::env::temp_dir().join(format!(
-        "vantage-daemon-test-{}-{}.sock",
+        "sailbreak-daemon-test-{}-{}.sock",
         std::process::id(),
         NEXT_SOCKET.fetch_add(1, Ordering::Relaxed)
     ))

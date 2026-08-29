@@ -4756,6 +4756,62 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
+name = "sailbreak"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "lctrl-core",
+ "lctrl-hal",
+ "lctrl-hal-linux",
+ "lctrl-hal-win",
+ "sailbreak-cli",
+ "sailbreak-daemon",
+ "serde_json",
+]
+
+[[package]]
+name = "sailbreak-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "clap_complete",
+ "lctrl-core",
+ "lctrl-hal",
+ "lctrl-tune",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "sailbreak-daemon"
+version = "0.1.0"
+dependencies = [
+ "lctrl-core",
+ "lctrl-hal",
+ "lctrl-hal-linux",
+ "lctrl-hal-win",
+ "libc",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "sailbreak-gui"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "idna_adapter",
+ "lctrl-core",
+ "lctrl-hal",
+ "lctrl-hal-linux",
+ "lctrl-hal-win",
+]
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6101,62 +6157,6 @@ dependencies = [
  "sval_json",
  "sval_ref",
  "sval_serde",
-]
-
-[[package]]
-name = "vantage"
-version = "0.1.0"
-dependencies = [
- "clap",
- "lctrl-core",
- "lctrl-hal",
- "lctrl-hal-linux",
- "lctrl-hal-win",
- "serde_json",
- "vantage-cli",
- "vantage-daemon",
-]
-
-[[package]]
-name = "vantage-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "clap_complete",
- "lctrl-core",
- "lctrl-hal",
- "lctrl-tune",
- "parking_lot",
- "serde",
- "serde_json",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "vantage-daemon"
-version = "0.1.0"
-dependencies = [
- "lctrl-core",
- "lctrl-hal",
- "lctrl-hal-linux",
- "lctrl-hal-win",
- "libc",
- "parking_lot",
- "serde",
- "serde_json",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "vantage-gui"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "idna_adapter",
- "lctrl-core",
- "lctrl-hal",
- "lctrl-hal-linux",
- "lctrl-hal-win",
 ]
 
 [[package]]

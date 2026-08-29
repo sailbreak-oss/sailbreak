@@ -1,11 +1,11 @@
 [package]
-name = "vantage-cli"
+name = "sailbreak-cli"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 publish = false
 repository.workspace = true
-description = "Command-line surface for Vantage hardware control"
+description = "Command-line surface for independent Lenovo hardware control"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
