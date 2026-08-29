@@ -2,13 +2,14 @@
 
 Cross-platform hardware control for Lenovo ThinkBook systems, with truthful capability reporting and verified readback for every supported write path.
 
-Repository: [voyage-control/sailbreak](https://github.com/voyage-control/sailbreak)
+Repository: [sailbreak-oss/sailbreak](https://github.com/sailbreak-oss/sailbreak)
 
 ## Scope
 
 Sailbreak targets Lenovo 21VG / ThinkBook Panther Lake hardware while keeping the platform boundary explicit:
 
 - `sailbreak` — CLI for hardware status, control, tuning, diagnostics, and snapshots.
+- `sailbreak-cli` — identical CLI entry point for scripts or PATH installations.
 - `sailbreakd` — optional local event daemon; it does not become a second source of hardware truth.
 - `sailbreak-gui` — read-only GPUI dashboard.
 - `crates/lctrl-*` — internal Rust HAL, domain, and tuning crates retained as implementation names.
@@ -28,6 +29,44 @@ cargo build --release --workspace
 ```
 
 The CI workflow exercises Linux and Windows. Hardware smoke tests are intentionally not part of CI; run them only on the target machine with the recovery path prepared.
+
+## GUI status
+
+The GUI is built with Rust [GPUI 0.2.2](https://github.com/zed-industries/zed/tree/v0.2.2/crates/gpui) and currently provides a read-only hardware status dashboard for Wayland, X11, and Windows entry points. It intentionally cannot mutate hardware in this release.
+
+The parity target is one shared service layer: every capability exposed by `sailbreak` should become available in the GUI with the same dry-run, permission, readback, rollback, and unavailable-channel semantics. Until that work is complete, the GUI must label controls as read-only or unavailable rather than imply parity.
+
+## Install
+
+Download the latest tested binaries from the [Releases page](https://github.com/sailbreak-oss/sailbreak/releases/latest):
+
+- Windows recommended: `sailbreak-v0.1.0-windows-x86_64-setup.exe` (NSIS installer)
+- Linux x86_64: `sailbreak-linux-x86_64.tar.gz`
+- Windows x86_64 portable: `sailbreak-windows-x86_64.zip` (contains `sailbreak.exe`, `sailbreak-cli.exe`, `sailbreakd.exe`, and `sailbreak-gui.exe`)
+
+The NSIS installer installs `sailbreak.exe`, `sailbreak-cli.exe`, `sailbreakd.exe`, and `sailbreak-gui.exe` under `%LOCALAPPDATA%\\Sailbreak`, adds that directory to the current user's `PATH`, and does not start the daemon automatically.
+
+For Linux, extract the archive and install the command and daemon into a directory on `PATH`:
+
+```bash
+sha256sum -c sailbreak-linux-x86_64.tar.gz.sha256
+tar -xzf sailbreak-linux-x86_64.tar.gz
+sudo install -m 0755 sailbreak /usr/local/bin/sailbreak
+sudo install -m 0755 sailbreak-cli /usr/local/bin/sailbreak-cli
+sudo install -m 0755 sailbreakd /usr/local/bin/sailbreakd
+sudo install -m 0755 sailbreak-gui /usr/local/bin/sailbreak-gui
+```
+
+For portable Windows use, compare the archive hash with `Get-FileHash .\\sailbreak-windows-x86_64.zip -Algorithm SHA256`, extract it, and add the extracted directory to `PATH` manually. Hardware writes still require the platform permissions and safety confirmations described below.
+
+If no release binary matches the host, build from source with the commands in [Build and test](#build-and-test). To install the CLI through Cargo:
+
+```bash
+cargo install --path . --locked --bin sailbreak
+ln -sf "$HOME/.cargo/bin/sailbreak" "$HOME/.cargo/bin/sailbreak-cli"
+```
+
+The release alias `sailbreak-cli` and the source-built `sailbreak` invoke the same command surface.
 
 ## Quick start
 
@@ -50,6 +89,20 @@ sailbreak bios list --json
 ```
 
 The optional daemon uses a per-user Unix socket at `$XDG_RUNTIME_DIR/sailbreak.sock` (fallback `/run/sailbreak.sock`) or the Windows named pipe `\\.\pipe\sailbreak.sock`. Override those endpoints with `SAILBREAK_SOCKET` or `SAILBREAK_PIPE`.
+
+## Daemon management
+
+The daemon is optional. Use the CLI to inspect and manage its lifecycle; `status` reports a structured channel error when it is not running:
+
+```bash
+sailbreak daemon status
+sailbreak daemon install --dry-run
+sailbreak daemon install
+sailbreak daemon start
+sailbreak daemon stop
+```
+
+Run `sailbreak daemon install --dry-run` first. Linux installs a systemd user unit; Windows installs a scheduled task with the required elevation policy. The installer only places binaries and PATH entries; it never enables a background service implicitly.
 
 ## Verified Windows boundary
 

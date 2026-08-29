@@ -7,6 +7,11 @@ publish = false
 repository.workspace = true
 description = "Cross-platform Lenovo hardware control CLI"
 
+[[bin]]
+name = "sailbreak"
+path = "src/main.rs"
+
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 sailbreak-daemon = { path = "../crates/sailbreak-daemon" }
