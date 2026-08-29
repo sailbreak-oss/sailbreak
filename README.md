@@ -32,9 +32,9 @@ The CI workflow exercises Linux and Windows. Hardware smoke tests are intentiona
 
 ## GUI status
 
-The GUI is built with Rust [GPUI 0.2.2](https://github.com/zed-industries/zed/tree/v0.2.2/crates/gpui) and currently provides a read-only hardware status dashboard for Wayland, X11, and Windows entry points. It intentionally cannot mutate hardware in this release.
+The GUI is built with Rust [GPUI 0.2.2](https://github.com/zed-industries/zed/tree/v0.2.2/crates/gpui). It is interactive: the sidebar switches sections on click, and the action bar runs read-only commands (`battery status`, `perf temp`, `power scheme list`, diagnostics, MagicBay detection, daemon status) plus a performance-mode dry-run through the same `sailbreak` CLI layer, then shows the result in the safety banner.
 
-The parity target is one shared service layer: every capability exposed by `sailbreak` should become available in the GUI with the same dry-run, permission, readback, rollback, and unavailable-channel semantics. Until that work is complete, the GUI must label controls as read-only or unavailable rather than imply parity.
+Writes remain guarded. A mutation is never executed from a button without the dry-run, permission, readback, rollback, and unavailable-channel semantics enforced by the CLI service layer. Commands that return `unsupported`/`unavailable` surface that fact instead of synthesizing success.
 
 ## Install
 

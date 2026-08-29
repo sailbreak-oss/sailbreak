@@ -4804,11 +4804,13 @@ name = "sailbreak-gui"
 version = "0.1.0"
 dependencies = [
  "gpui",
- "idna_adapter",
  "lctrl-core",
  "lctrl-hal",
  "lctrl-hal-linux",
  "lctrl-hal-win",
+ "sailbreak-cli",
+ "sailbreak-daemon",
+ "serde_json",
 ]
 
 [[package]]

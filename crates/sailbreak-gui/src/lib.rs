@@ -4,11 +4,11 @@
 //! reported by [`lctrl_hal::Hal`] and marks every capability according to the
 //! core availability value, including its explanation.
 
-use std::{cell::RefCell, env, rc::Rc};
+use std::{cell::RefCell, env, rc::Rc, sync::Arc};
 
 use gpui::{
-    App, Application, Bounds, Context, IntoElement, Render, Window, WindowBounds, WindowOptions,
-    div, prelude::*, px, rgb, size,
+    App, Application, Bounds, Context, Div, IntoElement, Render, Stateful, Window, WindowBounds,
+    WindowOptions, div, prelude::*, px, rgb, size,
 };
 use lctrl_core::{Availability, CapabilitySet, HardwareInfo, LctrlError, Platform, Result};
 use lctrl_hal::Hal;
@@ -76,12 +76,157 @@ impl DashboardSnapshot {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DashboardAction {
+    SelectSection(usize),
+    Refresh,
+    RunCommand(&'static [&'static str]),
+}
+
+/// Platform composition root used by the interactive dashboard.
+pub trait GuiController: Send + Sync {
+    fn refresh(&self) -> Result<DashboardSnapshot>;
+    fn execute(&self, args: &[&str]) -> Result<String>;
+}
+
+struct StaticController {
+    snapshot: DashboardSnapshot,
+}
+
+impl GuiController for StaticController {
+    fn refresh(&self) -> Result<DashboardSnapshot> {
+        Ok(self.snapshot.clone())
+    }
+
+    fn execute(&self, _args: &[&str]) -> Result<String> {
+        Err(LctrlError::Unsupported {
+            feature: "gui.command-controller".into(),
+        })
+    }
+}
+
+const DAEMON_STATUS_COMMAND: &[&str] = &["daemon", "status"];
+const PERFORMANCE_DRY_RUN_COMMAND: &[&str] = &["--dry-run", "perf", "mode", "performance"];
+const BATTERY_STATUS_COMMAND: &[&str] = &["battery", "status"];
+const THERMAL_SENSORS_COMMAND: &[&str] = &["perf", "temp"];
+const POWER_SCHEMES_COMMAND: &[&str] = &["power", "scheme", "list"];
+const DIAGNOSTICS_COMMAND: &[&str] = &["scan", "list"];
+const MAGICBAY_COMMAND: &[&str] = &["magicbay", "detect"];
+
+const SECTION_NAMES: [(&str, &str); 7] = [
+    ("01", "OVERVIEW"),
+    ("02", "POWER"),
+    ("03", "PERFORMANCE"),
+    ("04", "DEVICES"),
+    ("05", "BIOS"),
+    ("06", "TUNING"),
+    ("07", "DIAGNOSTICS"),
+];
+fn action_button(
+    cx: &mut Context<Dashboard>,
+    id: &'static str,
+    label: &'static str,
+    action: DashboardAction,
+    color: u32,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .debug_selector(move || id.to_owned())
+        .cursor_pointer()
+        .focusable()
+        .hover(|this| this.bg(rgb(SURFACE_RAISED)))
+        .active(|this| this.bg(rgb(RULE)))
+        .border_1()
+        .border_color(rgb(color))
+        .px_3()
+        .py_2()
+        .text_xs()
+        .text_color(rgb(color))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.apply_action(action);
+            cx.notify();
+        }))
+        .child(label)
+}
+
+fn action_bar(cx: &mut Context<Dashboard>) -> impl IntoElement {
+    div().flex().flex_row().flex_wrap().gap_2().children([
+        action_button(
+            cx,
+            "refresh-status",
+            "REFRESH STATUS",
+            DashboardAction::Refresh,
+            SIGNAL,
+        ),
+        action_button(
+            cx,
+            "daemon-status",
+            "DAEMON STATUS",
+            DashboardAction::RunCommand(DAEMON_STATUS_COMMAND),
+            CAUTION,
+        ),
+        action_button(
+            cx,
+            "battery-status",
+            "BATTERY STATUS",
+            DashboardAction::RunCommand(BATTERY_STATUS_COMMAND),
+            SIGNAL,
+        ),
+        action_button(
+            cx,
+            "thermal-sensors",
+            "THERMAL SENSORS",
+            DashboardAction::RunCommand(THERMAL_SENSORS_COMMAND),
+            SIGNAL,
+        ),
+        action_button(
+            cx,
+            "power-schemes",
+            "POWER SCHEMES",
+            DashboardAction::RunCommand(POWER_SCHEMES_COMMAND),
+            SIGNAL,
+        ),
+        action_button(
+            cx,
+            "diagnostics",
+            "DIAGNOSTICS",
+            DashboardAction::RunCommand(DIAGNOSTICS_COMMAND),
+            CAUTION,
+        ),
+        action_button(
+            cx,
+            "magicbay-detect",
+            "MAGICBAY DETECT",
+            DashboardAction::RunCommand(MAGICBAY_COMMAND),
+            CAUTION,
+        ),
+        action_button(
+            cx,
+            "dry-run-performance",
+            "DRY-RUN PERFORMANCE",
+            DashboardAction::RunCommand(PERFORMANCE_DRY_RUN_COMMAND),
+            MUTED,
+        ),
+    ])
+}
+
 /// Open the Sailbreak dashboard with a read-only snapshot.
 ///
 /// A real Wayland or X11 session is required on Linux. Calling this from SSH
 /// or another headless session returns a normal channel error rather than
 /// crashing after `open_window` fails.
 pub fn run(snapshot: DashboardSnapshot) -> Result<()> {
+    let controller = Arc::new(StaticController {
+        snapshot: snapshot.clone(),
+    });
+    run_with_controller(snapshot, controller)
+}
+
+/// Open the dashboard with a controller that executes the shared CLI surface.
+pub fn run_with_controller(
+    snapshot: DashboardSnapshot,
+    controller: Arc<dyn GuiController>,
+) -> Result<()> {
     if cfg!(target_os = "linux")
         && !desktop_session_available(
             env::var_os("DISPLAY").as_deref(),
@@ -102,7 +247,7 @@ pub fn run(snapshot: DashboardSnapshot) -> Result<()> {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 ..Default::default()
             },
-            move |_, cx| cx.new(|_| Dashboard { snapshot }),
+            move |_, cx| cx.new(|_| Dashboard::with_controller(snapshot, controller)),
         ) {
             *reported_failure.borrow_mut() = Some(error.to_string());
             cx.quit();
@@ -132,10 +277,57 @@ fn desktop_session_available(
 /// GPUI view for the technical control-center dashboard.
 pub struct Dashboard {
     snapshot: DashboardSnapshot,
+    controller: Arc<dyn GuiController>,
+    active_section: usize,
+}
+
+impl Dashboard {
+    #[must_use]
+    pub fn new(snapshot: DashboardSnapshot) -> Self {
+        let controller = Arc::new(StaticController {
+            snapshot: snapshot.clone(),
+        });
+        Self::with_controller(snapshot, controller)
+    }
+
+    fn with_controller(snapshot: DashboardSnapshot, controller: Arc<dyn GuiController>) -> Self {
+        Self {
+            snapshot,
+            controller,
+            active_section: 0,
+        }
+    }
+
+    fn apply_action(&mut self, action: DashboardAction) {
+        match action {
+            DashboardAction::SelectSection(index) => {
+                self.active_section = index.min(SECTION_NAMES.len() - 1);
+                self.snapshot.status_message =
+                    format!("Section {} selected", SECTION_NAMES[self.active_section].1);
+            }
+            DashboardAction::Refresh => match self.controller.refresh() {
+                Ok(mut snapshot) => {
+                    snapshot.status_message = "Status refreshed".into();
+                    self.snapshot = snapshot;
+                }
+                Err(error) => {
+                    self.snapshot.status_message = format!("Refresh failed: {error}");
+                }
+            },
+            DashboardAction::RunCommand(args) => match self.controller.execute(args) {
+                Ok(message) => {
+                    self.snapshot.status_message = message.trim().to_owned();
+                }
+                Err(error) => {
+                    self.snapshot.status_message = format!("Action failed: {error}");
+                }
+            },
+        }
+    }
 }
 
 impl Render for Dashboard {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let snapshot = &self.snapshot;
         div()
             .size_full()
@@ -144,7 +336,7 @@ impl Render for Dashboard {
             .bg(rgb(INK))
             .text_color(rgb(TEXT))
             .font_family("Iosevka, IBM Plex Mono, monospace")
-            .child(sidebar())
+            .child(sidebar(self.active_section, cx))
             .child(
                 div()
                     .flex_1()
@@ -155,23 +347,14 @@ impl Render for Dashboard {
                     .gap_5()
                     .child(identity_header(snapshot))
                     .child(safety_banner(&snapshot.status_message))
+                    .child(action_bar(cx))
                     .child(capability_matrix(&snapshot.capabilities))
                     .child(telemetry_panel(snapshot)),
             )
     }
 }
 
-fn sidebar() -> impl IntoElement {
-    let sections = [
-        ("01", "OVERVIEW", true),
-        ("02", "POWER", false),
-        ("03", "PERFORMANCE", false),
-        ("04", "DEVICES", false),
-        ("05", "BIOS", false),
-        ("06", "TUNING", false),
-        ("07", "DIAGNOSTICS", false),
-    ];
-
+fn sidebar(active_section: usize, cx: &mut Context<Dashboard>) -> impl IntoElement {
     div()
         .w(px(238.0))
         .flex_none()
@@ -205,7 +388,7 @@ fn sidebar() -> impl IntoElement {
                     div()
                         .text_xs()
                         .text_color(rgb(MUTED))
-                        .child("READ-ONLY CONSOLE 0.1"),
+                        .child("INTERACTIVE CONSOLE 0.1"),
                 ),
         )
         .child(
@@ -214,26 +397,41 @@ fn sidebar() -> impl IntoElement {
                 .flex_col()
                 .gap_2()
                 .pt_5()
-                .children(sections.into_iter().map(|(number, label, active)| {
-                    let (background, color) = if active {
-                        (rgb(SURFACE_RAISED), rgb(SIGNAL))
-                    } else {
-                        (rgb(SURFACE), rgb(MUTED))
-                    };
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_3()
-                        .px_3()
-                        .py_2()
-                        .bg(background)
-                        .border_l_2()
-                        .border_color(if active { rgb(SIGNAL) } else { rgb(SURFACE) })
-                        .text_color(color)
-                        .child(div().text_xs().child(number))
-                        .child(div().text_sm().child(label))
-                }))
+                .children(
+                    SECTION_NAMES
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, (number, label))| {
+                            let active = index == active_section;
+                            div()
+                                .id(("sidebar-section", index))
+                                .debug_selector(|| format!("sidebar-section-{index}"))
+                                .cursor_pointer()
+                                .focusable()
+                                .hover(|this| this.bg(rgb(SURFACE_RAISED)))
+                                .active(|this| this.bg(rgb(RULE)))
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_3()
+                                .px_3()
+                                .py_2()
+                                .bg(if active {
+                                    rgb(SURFACE_RAISED)
+                                } else {
+                                    rgb(SURFACE)
+                                })
+                                .border_l_2()
+                                .border_color(if active { rgb(SIGNAL) } else { rgb(SURFACE) })
+                                .text_color(if active { rgb(SIGNAL) } else { rgb(MUTED) })
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.apply_action(DashboardAction::SelectSection(index));
+                                    cx.notify();
+                                }))
+                                .child(div().text_xs().child(number))
+                                .child(div().text_sm().child(label))
+                        }),
+                )
                 .child(
                     div()
                         .mt_6()
@@ -248,13 +446,13 @@ fn sidebar() -> impl IntoElement {
                             div()
                                 .text_xs()
                                 .text_color(rgb(CAUTION))
-                                .child("●  OBSERVE ONLY"),
+                                .child("●  CLICK-READY"),
                         )
                         .child(
                             div()
                                 .text_xs()
                                 .text_color(rgb(UNAVAILABLE))
-                                .child("Controls unlock only after a\nsafe dispatcher is wired."),
+                                .child("Writes remain guarded by\nCLI safety semantics."),
                         ),
                 ),
         )
@@ -610,5 +808,50 @@ mod tests {
             None,
             Some(OsStr::new("wayland-0"))
         ));
+    }
+
+    #[test]
+    fn dashboard_navigation_action_updates_active_section() {
+        let snapshot = DashboardSnapshot::unavailable(Platform::Linux, "test");
+        let mut dashboard = Dashboard::new(snapshot);
+
+        dashboard.apply_action(DashboardAction::SelectSection(2));
+
+        assert_eq!(dashboard.active_section, 2);
+        assert_eq!(
+            dashboard.snapshot.status_message,
+            "Section PERFORMANCE selected"
+        );
+    }
+    #[test]
+    fn run_command_action_surfaces_controller_output() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Recorder {
+            calls: AtomicUsize,
+        }
+
+        impl GuiController for Recorder {
+            fn refresh(&self) -> Result<DashboardSnapshot> {
+                Ok(DashboardSnapshot::unavailable(Platform::Linux, "refreshed"))
+            }
+
+            fn execute(&self, args: &[&str]) -> Result<String> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Ok(format!("executed {}", args.join(" ")))
+            }
+        }
+
+        let controller = Arc::new(Recorder {
+            calls: AtomicUsize::new(0),
+        });
+        let mut dashboard = Dashboard::with_controller(
+            DashboardSnapshot::unavailable(Platform::Linux, "initial"),
+            controller.clone(),
+        );
+
+        dashboard.apply_action(DashboardAction::RunCommand(&["battery", "status"]));
+
+        assert_eq!(dashboard.snapshot.status_message, "executed battery status");
     }
 }
