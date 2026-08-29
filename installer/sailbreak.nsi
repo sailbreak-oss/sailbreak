@@ -10,13 +10,16 @@ Unicode true
 !ifndef BIN_DIR
 !define BIN_DIR "target\x86_64-pc-windows-msvc\release"
 !endif
+!ifndef OUT_DIR
+!define OUT_DIR "dist"
+!endif
 
 !define PRODUCT_NAME "Sailbreak"
 !define PRODUCT_PUBLISHER "Sailbreak OSS"
 !define PRODUCT_UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Sailbreak"
 
 Name "${PRODUCT_NAME}"
-OutFile "dist\sailbreak-v${PRODUCT_VERSION}-windows-x86_64-setup.exe"
+OutFile "${OUT_DIR}\sailbreak-v${PRODUCT_VERSION}-windows-x86_64-setup.exe"
 InstallDir "$LOCALAPPDATA\Sailbreak"
 InstallDirRegKey HKCU "Software\Sailbreak" "InstallDir"
 RequestExecutionLevel user

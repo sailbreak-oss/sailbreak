@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,6 +30,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - name: Install Linux GUI build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libxcb1-dev libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev
       - name: Build release binaries
         run: cargo build --release --locked --package sailbreak --package sailbreak-daemon --package sailbreak-gui --target ${{ matrix.target }}
       - name: Package Linux archive
@@ -61,9 +65,13 @@ jobs:
           choco install nsis --no-progress --yes
           $version = "${{ github.ref_name }}".TrimStart('v')
           $makensis = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
-          & $makensis "/DPRODUCT_VERSION=$version" '/DBIN_DIR=target\x86_64-pc-windows-msvc\release' 'installer\sailbreak.nsi'
+          $workspace = $env:GITHUB_WORKSPACE
+          $binDir = Join-Path $workspace 'target\x86_64-pc-windows-msvc\release'
+          $outDir = Join-Path $workspace 'dist'
+          $script = Join-Path $workspace 'installer\sailbreak.nsi'
+          & $makensis "/DPRODUCT_VERSION=$version" "/DBIN_DIR=$binDir" "/DOUT_DIR=$outDir" $script
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $installer = "dist\sailbreak-v$version-windows-x86_64-setup.exe"
+          $installer = Join-Path $outDir "sailbreak-v$version-windows-x86_64-setup.exe"
           $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $(Split-Path $installer -Leaf)" | Set-Content "$installer.sha256"
       - uses: actions/upload-artifact@v4
