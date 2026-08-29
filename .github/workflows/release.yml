@@ -42,7 +42,7 @@ jobs:
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/sailbreak" "target/${{ matrix.target }}/release/sailbreak-cli"
           tar -C target/${{ matrix.target }}/release -czf "dist/${{ matrix.archive }}" sailbreak sailbreak-cli sailbreakd sailbreak-gui
-          sha256sum "dist/${{ matrix.archive }}" > "dist/${{ matrix.archive }}.sha256"
+          (cd dist && sha256sum "${{ matrix.archive }}" > "${{ matrix.archive }}.sha256")
       - name: Package Windows archive
         if: runner.os == 'Windows'
         shell: pwsh
@@ -92,9 +92,15 @@ jobs:
           pattern: release-*
           path: dist
           merge-multiple: true
-      - name: Publish release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
-          files: dist/*
+      - name: Create or reuse release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" --generate-notes
+          fi
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.ref_name }}" dist/* --repo "$GITHUB_REPOSITORY" --clobber
