@@ -28,11 +28,19 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo build --release --workspace
 ```
 
+Regenerate the embedded Proto-UI bundle only when upgrading the pinned package revision:
+
+```bash
+(cd tools/proto-ui-bridge && bun install --frozen-lockfile && bun run build)
+```
+
 The CI workflow exercises Linux and Windows. Hardware smoke tests are intentionally not part of CI; run them only on the target machine with the recovery path prepared.
 
 ## GUI status
 
-The GUI is built with Rust [GPUI 0.2.2](https://github.com/zed-industries/zed/tree/v0.2.2/crates/gpui). It is interactive: the sidebar switches sections on click, and the action bar runs read-only commands (`battery status`, `perf temp`, `power scheme list`, diagnostics, MagicBay detection, daemon status) plus a performance-mode dry-run through the same `sailbreak` CLI layer, then shows the result in the safety banner.
+The GUI is built with Rust [GPUI 0.2.2](https://github.com/zed-industries/zed/tree/v0.2.2/crates/gpui) and an embedded QuickJS runtime. It executes the pinned Proto-UI 0.2.0 Shadcn registry in-process; Bun is used only when regenerating the embedded bundle under `tools/proto-ui-bridge`, and is never spawned by the released GUI. The sidebar and action bar are real `shadcn-button` projections. Rust owns the native GPUI surface and Slot content; Proto UI owns Button state, lifecycle, event semantics, accessibility intent, and style tokens.
+
+The first host profile is intentionally partial: the registry contains the published Shadcn direct entries, while the current Sailbreak surface admits the Button slice. Unsupported host capabilities return structured diagnostics rather than silently becoming local Rust controls.
 
 Writes remain guarded. A mutation is never executed from a button without the dry-run, permission, readback, rollback, and unavailable-channel semantics enforced by the CLI service layer. Commands that return `unsupported`/`unavailable` surface that fact instead of synthesizing success.
 

@@ -12,6 +12,12 @@ use gpui::{
 };
 use lctrl_core::{Availability, CapabilitySet, HardwareInfo, LctrlError, Platform, Result};
 use lctrl_hal::Hal;
+use proto_ui_gpui::{
+    BridgeError, DispatchOutcome, InputKind, InputSource, ProtoButtonHost, ProtoButtonState,
+    ShadcnButtonSize, ShadcnButtonVariant,
+};
+
+mod proto_surface;
 
 // Palette tokens: a cool instrument-panel base, with one signal color and one
 // caution color. Keeping these in one place makes the dashboard's visual
@@ -105,6 +111,154 @@ impl GuiController for StaticController {
     }
 }
 
+const SIDEBAR_BUTTON_IDS: [&str; 7] = [
+    "sidebar-section-0",
+    "sidebar-section-1",
+    "sidebar-section-2",
+    "sidebar-section-3",
+    "sidebar-section-4",
+    "sidebar-section-5",
+    "sidebar-section-6",
+];
+
+const ACTION_BUTTONS: [(&str, &str, ShadcnButtonVariant, ShadcnButtonSize); 8] = [
+    (
+        "refresh-status",
+        "REFRESH STATUS",
+        ShadcnButtonVariant::Default,
+        ShadcnButtonSize::Sm,
+    ),
+    (
+        "daemon-status",
+        "DAEMON STATUS",
+        ShadcnButtonVariant::Outline,
+        ShadcnButtonSize::Sm,
+    ),
+    (
+        "battery-status",
+        "BATTERY STATUS",
+        ShadcnButtonVariant::Secondary,
+        ShadcnButtonSize::Sm,
+    ),
+    (
+        "thermal-sensors",
+        "THERMAL SENSORS",
+        ShadcnButtonVariant::Secondary,
+        ShadcnButtonSize::Sm,
+    ),
+    (
+        "power-schemes",
+        "POWER SCHEMES",
+        ShadcnButtonVariant::Secondary,
+        ShadcnButtonSize::Sm,
+    ),
+    (
+        "diagnostics",
+        "DIAGNOSTICS",
+        ShadcnButtonVariant::Destructive,
+        ShadcnButtonSize::Sm,
+    ),
+    (
+        "magicbay-detect",
+        "MAGICBAY DETECT",
+        ShadcnButtonVariant::Destructive,
+        ShadcnButtonSize::Sm,
+    ),
+    (
+        "dry-run-performance",
+        "DRY-RUN PERFORMANCE",
+        ShadcnButtonVariant::Secondary,
+        ShadcnButtonSize::Sm,
+    ),
+];
+
+struct ProtoUiState {
+    host: Option<ProtoButtonHost>,
+    error: Option<String>,
+}
+
+impl ProtoUiState {
+    fn new() -> Self {
+        let mut host = match ProtoButtonHost::new() {
+            Ok(host) => host,
+            Err(error) => {
+                return Self {
+                    host: None,
+                    error: Some(error.to_string()),
+                };
+            }
+        };
+        for (index, _) in SECTION_NAMES.iter().enumerate() {
+            let variant = if index == 0 {
+                ShadcnButtonVariant::Secondary
+            } else {
+                ShadcnButtonVariant::Ghost
+            };
+            if let Err(error) = host.register_button(
+                SIDEBAR_BUTTON_IDS[index],
+                SECTION_BUTTON_LABELS[index],
+                variant,
+                ShadcnButtonSize::Sm,
+            ) {
+                return Self {
+                    host: None,
+                    error: Some(error.to_string()),
+                };
+            }
+        }
+        for (id, label, variant, size) in ACTION_BUTTONS {
+            if let Err(error) = host.register_button(id, label, variant, size) {
+                return Self {
+                    host: None,
+                    error: Some(error.to_string()),
+                };
+            }
+        }
+        Self {
+            host: Some(host),
+            error: None,
+        }
+    }
+
+    fn button(&self, id: &str) -> Option<&ProtoButtonState> {
+        self.host.as_ref()?.button(id)
+    }
+
+    fn dispatch(
+        &mut self,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) -> std::result::Result<DispatchOutcome, BridgeError> {
+        self.host
+            .as_mut()
+            .ok_or_else(|| BridgeError::Runtime {
+                detail: self
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Proto UI host is unavailable".to_owned()),
+            })?
+            .dispatch(id, kind, source, detail)
+    }
+
+    fn set_variant(
+        &mut self,
+        id: &str,
+        variant: ShadcnButtonVariant,
+    ) -> std::result::Result<DispatchOutcome, BridgeError> {
+        self.host
+            .as_mut()
+            .ok_or_else(|| BridgeError::Runtime {
+                detail: self
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Proto UI host is unavailable".to_owned()),
+            })?
+            .set_variant(id, variant)
+    }
+}
+
 const DAEMON_STATUS_COMMAND: &[&str] = &["daemon", "status"];
 const PERFORMANCE_DRY_RUN_COMMAND: &[&str] = &["--dry-run", "perf", "mode", "performance"];
 const BATTERY_STATUS_COMMAND: &[&str] = &["battery", "status"];
@@ -122,90 +276,148 @@ const SECTION_NAMES: [(&str, &str); 7] = [
     ("06", "TUNING"),
     ("07", "DIAGNOSTICS"),
 ];
+
+const SECTION_BUTTON_LABELS: [&str; 7] = [
+    "01  OVERVIEW",
+    "02  POWER",
+    "03  PERFORMANCE",
+    "04  DEVICES",
+    "05  BIOS",
+    "06  TUNING",
+    "07  DIAGNOSTICS",
+];
 fn action_button(
+    dashboard: &Dashboard,
     cx: &mut Context<Dashboard>,
     id: &'static str,
     label: &'static str,
     action: DashboardAction,
-    color: u32,
 ) -> Stateful<Div> {
+    let Some(state) = dashboard.proto.button(id) else {
+        return unavailable_button(id, label);
+    };
+
+    proto_surface::button_element(id, label, state)
+        .on_hover(cx.listener(move |this, hovered, _, cx| {
+            let kind = if *hovered {
+                InputKind::PointerEnter
+            } else {
+                InputKind::PointerLeave
+            };
+            this.dispatch_proto(id, kind, InputSource::Mouse);
+            cx.notify();
+        }))
+        .on_mouse_down(
+            gpui::MouseButton::Left,
+            cx.listener(move |this, _, _, cx| {
+                this.dispatch_proto(id, InputKind::Focus, InputSource::Mouse);
+                this.dispatch_proto(id, InputKind::PointerDown, InputSource::Mouse);
+                cx.notify();
+            }),
+        )
+        .on_mouse_up(
+            gpui::MouseButton::Left,
+            cx.listener(move |this, _, _, cx| {
+                this.dispatch_proto(id, InputKind::PointerUp, InputSource::Mouse);
+                cx.notify();
+            }),
+        )
+        .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+            this.dispatch_proto(id, InputKind::Focus, InputSource::Keyboard);
+            this.dispatch_proto_with_detail(
+                id,
+                InputKind::KeyDown,
+                InputSource::Keyboard,
+                Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
+            );
+            cx.notify();
+        }))
+        .on_key_up(cx.listener(move |this, event: &gpui::KeyUpEvent, _, cx| {
+            this.dispatch_proto_with_detail(
+                id,
+                InputKind::KeyUp,
+                InputSource::Keyboard,
+                Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
+            );
+            cx.notify();
+        }))
+        .on_click(cx.listener(move |this, event, _, cx| {
+            let source = match event {
+                gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
+                gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
+            };
+            this.handle_proto_click(id, action, source);
+            cx.notify();
+        }))
+}
+
+fn unavailable_button(id: &'static str, label: &'static str) -> Stateful<Div> {
     div()
         .id(id)
         .debug_selector(move || id.to_owned())
-        .cursor_pointer()
-        .focusable()
-        .hover(|this| this.bg(rgb(SURFACE_RAISED)))
-        .active(|this| this.bg(rgb(RULE)))
-        .border_1()
-        .border_color(rgb(color))
         .px_3()
         .py_2()
         .text_xs()
-        .text_color(rgb(color))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.apply_action(action);
-            cx.notify();
-        }))
+        .text_color(rgb(UNAVAILABLE))
         .child(label)
 }
-
-fn action_bar(cx: &mut Context<Dashboard>) -> impl IntoElement {
+fn action_bar(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoElement {
     div().flex().flex_row().flex_wrap().gap_2().children([
         action_button(
+            dashboard,
             cx,
             "refresh-status",
             "REFRESH STATUS",
             DashboardAction::Refresh,
-            SIGNAL,
         ),
         action_button(
+            dashboard,
             cx,
             "daemon-status",
             "DAEMON STATUS",
             DashboardAction::RunCommand(DAEMON_STATUS_COMMAND),
-            CAUTION,
         ),
         action_button(
+            dashboard,
             cx,
             "battery-status",
             "BATTERY STATUS",
             DashboardAction::RunCommand(BATTERY_STATUS_COMMAND),
-            SIGNAL,
         ),
         action_button(
+            dashboard,
             cx,
             "thermal-sensors",
             "THERMAL SENSORS",
             DashboardAction::RunCommand(THERMAL_SENSORS_COMMAND),
-            SIGNAL,
         ),
         action_button(
+            dashboard,
             cx,
             "power-schemes",
             "POWER SCHEMES",
             DashboardAction::RunCommand(POWER_SCHEMES_COMMAND),
-            SIGNAL,
         ),
         action_button(
+            dashboard,
             cx,
             "diagnostics",
             "DIAGNOSTICS",
             DashboardAction::RunCommand(DIAGNOSTICS_COMMAND),
-            CAUTION,
         ),
         action_button(
+            dashboard,
             cx,
             "magicbay-detect",
             "MAGICBAY DETECT",
             DashboardAction::RunCommand(MAGICBAY_COMMAND),
-            CAUTION,
         ),
         action_button(
+            dashboard,
             cx,
             "dry-run-performance",
             "DRY-RUN PERFORMANCE",
             DashboardAction::RunCommand(PERFORMANCE_DRY_RUN_COMMAND),
-            MUTED,
         ),
     ])
 }
@@ -279,6 +491,7 @@ pub struct Dashboard {
     snapshot: DashboardSnapshot,
     controller: Arc<dyn GuiController>,
     active_section: usize,
+    proto: ProtoUiState,
 }
 
 impl Dashboard {
@@ -291,17 +504,42 @@ impl Dashboard {
     }
 
     fn with_controller(snapshot: DashboardSnapshot, controller: Arc<dyn GuiController>) -> Self {
+        let proto = ProtoUiState::new();
+        let snapshot = match &proto.error {
+            Some(error) => DashboardSnapshot {
+                status_message: format!("Proto UI host unavailable: {error}"),
+                ..snapshot
+            },
+            None => snapshot,
+        };
         Self {
             snapshot,
             controller,
             active_section: 0,
+            proto,
         }
     }
 
     fn apply_action(&mut self, action: DashboardAction) {
         match action {
             DashboardAction::SelectSection(index) => {
-                self.active_section = index.min(SECTION_NAMES.len() - 1);
+                let next_section = index.min(SECTION_NAMES.len() - 1);
+                let previous_section = self.active_section;
+                self.active_section = next_section;
+                if previous_section != next_section {
+                    if let Err(error) = self.proto.set_variant(
+                        SIDEBAR_BUTTON_IDS[previous_section],
+                        ShadcnButtonVariant::Ghost,
+                    ) {
+                        self.snapshot.status_message = format!("Proto UI action failed: {error}");
+                    }
+                    if let Err(error) = self.proto.set_variant(
+                        SIDEBAR_BUTTON_IDS[next_section],
+                        ShadcnButtonVariant::Secondary,
+                    ) {
+                        self.snapshot.status_message = format!("Proto UI action failed: {error}");
+                    }
+                }
                 self.snapshot.status_message =
                     format!("Section {} selected", SECTION_NAMES[self.active_section].1);
             }
@@ -324,6 +562,37 @@ impl Dashboard {
             },
         }
     }
+
+    fn dispatch_proto(&mut self, id: &str, kind: InputKind, source: InputSource) -> bool {
+        self.dispatch_proto_with_detail(id, kind, source, None)
+    }
+
+    fn dispatch_proto_with_detail(
+        &mut self,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) -> bool {
+        match self.proto.dispatch(id, kind, source, detail) {
+            Ok(outcome) => {
+                if let Some(diagnostic) = outcome.diagnostics.last() {
+                    self.snapshot.status_message = format!("Proto UI: {}", diagnostic.detail);
+                }
+                outcome.click_emitted
+            }
+            Err(error) => {
+                self.snapshot.status_message = format!("Proto UI action failed: {error}");
+                false
+            }
+        }
+    }
+
+    fn handle_proto_click(&mut self, id: &str, action: DashboardAction, source: InputSource) {
+        if self.dispatch_proto(id, InputKind::PressCommit, source) {
+            self.apply_action(action);
+        }
+    }
 }
 
 impl Render for Dashboard {
@@ -336,7 +605,7 @@ impl Render for Dashboard {
             .bg(rgb(INK))
             .text_color(rgb(TEXT))
             .font_family("Iosevka, IBM Plex Mono, monospace")
-            .child(sidebar(self.active_section, cx))
+            .child(sidebar(self, cx))
             .child(
                 div()
                     .flex_1()
@@ -347,22 +616,48 @@ impl Render for Dashboard {
                     .gap_5()
                     .child(identity_header(snapshot))
                     .child(safety_banner(&snapshot.status_message))
-                    .child(action_bar(cx))
+                    .child(action_bar(self, cx))
                     .child(capability_matrix(&snapshot.capabilities))
                     .child(telemetry_panel(snapshot)),
             )
     }
 }
 
-fn sidebar(active_section: usize, cx: &mut Context<Dashboard>) -> impl IntoElement {
+fn sidebar(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoElement {
+    let session_label = if dashboard.proto.error.is_some() {
+        "●  PROTO UI UNAVAILABLE"
+    } else {
+        "●  CLICK-READY"
+    };
+    let session_color = if dashboard.proto.error.is_some() {
+        UNAVAILABLE
+    } else {
+        CAUTION
+    };
+    let sections = SIDEBAR_BUTTON_IDS
+        .into_iter()
+        .enumerate()
+        .map(|(index, id)| {
+            action_button(
+                dashboard,
+                cx,
+                id,
+                SECTION_BUTTON_LABELS[index],
+                DashboardAction::SelectSection(index),
+            )
+            .w_full()
+            .justify_start()
+            .gap_3()
+        });
+
     div()
-        .w(px(238.0))
+        .w(px(SIDEBAR_WIDTH))
         .flex_none()
         .flex()
         .flex_col()
         .bg(rgb(SURFACE))
         .border_r_1()
-        .w(px(SIDEBAR_WIDTH))
+        .border_color(rgb(RULE))
         .p_5()
         .child(
             div()
@@ -391,69 +686,28 @@ fn sidebar(active_section: usize, cx: &mut Context<Dashboard>) -> impl IntoEleme
                         .child("INTERACTIVE CONSOLE 0.1.1"),
                 ),
         )
+        .child(div().flex().flex_col().gap_2().pt_5().children(sections))
         .child(
             div()
+                .mt_6()
+                .pt_5()
+                .border_t_1()
+                .border_color(rgb(RULE))
                 .flex()
                 .flex_col()
                 .gap_2()
-                .pt_5()
-                .children(
-                    SECTION_NAMES
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, (number, label))| {
-                            let active = index == active_section;
-                            div()
-                                .id(("sidebar-section", index))
-                                .debug_selector(|| format!("sidebar-section-{index}"))
-                                .cursor_pointer()
-                                .focusable()
-                                .hover(|this| this.bg(rgb(SURFACE_RAISED)))
-                                .active(|this| this.bg(rgb(RULE)))
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap_3()
-                                .px_3()
-                                .py_2()
-                                .bg(if active {
-                                    rgb(SURFACE_RAISED)
-                                } else {
-                                    rgb(SURFACE)
-                                })
-                                .border_l_2()
-                                .border_color(if active { rgb(SIGNAL) } else { rgb(SURFACE) })
-                                .text_color(if active { rgb(SIGNAL) } else { rgb(MUTED) })
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.apply_action(DashboardAction::SelectSection(index));
-                                    cx.notify();
-                                }))
-                                .child(div().text_xs().child(number))
-                                .child(div().text_sm().child(label))
-                        }),
+                .child(div().text_xs().text_color(rgb(MUTED)).child("SESSION"))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(session_color))
+                        .child(session_label),
                 )
                 .child(
                     div()
-                        .mt_6()
-                        .pt_5()
-                        .border_t_1()
-                        .border_color(rgb(RULE))
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(div().text_xs().text_color(rgb(MUTED)).child("SESSION"))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(CAUTION))
-                                .child("●  CLICK-READY"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(UNAVAILABLE))
-                                .child("Writes remain guarded by\nCLI safety semantics."),
-                        ),
+                        .text_xs()
+                        .text_color(rgb(UNAVAILABLE))
+                        .child("Writes remain guarded by\nCLI safety semantics."),
                 ),
         )
 }
@@ -853,5 +1107,49 @@ mod tests {
         dashboard.apply_action(DashboardAction::RunCommand(&["battery", "status"]));
 
         assert_eq!(dashboard.snapshot.status_message, "executed battery status");
+    }
+
+    #[test]
+    fn proto_button_signal_is_the_single_command_activation_gateway() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Recorder {
+            calls: AtomicUsize,
+        }
+
+        impl GuiController for Recorder {
+            fn refresh(&self) -> Result<DashboardSnapshot> {
+                Ok(DashboardSnapshot::unavailable(Platform::Linux, "refreshed"))
+            }
+
+            fn execute(&self, args: &[&str]) -> Result<String> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Ok(format!("executed {}", args.join(" ")))
+            }
+        }
+
+        let controller = Arc::new(Recorder {
+            calls: AtomicUsize::new(0),
+        });
+        let mut dashboard = Dashboard::with_controller(
+            DashboardSnapshot::unavailable(Platform::Linux, "initial"),
+            controller.clone(),
+        );
+
+        dashboard.handle_proto_click(
+            "battery-status",
+            DashboardAction::RunCommand(BATTERY_STATUS_COMMAND),
+            InputSource::Mouse,
+        );
+
+        assert_eq!(controller.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            dashboard
+                .proto
+                .button("battery-status")
+                .unwrap()
+                .click_count,
+            1
+        );
     }
 }

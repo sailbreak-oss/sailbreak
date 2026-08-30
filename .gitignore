@@ -6,3 +6,4 @@
 /.superpowers/
 **/*.rs.bk
 *.pdb
+**/node_modules/

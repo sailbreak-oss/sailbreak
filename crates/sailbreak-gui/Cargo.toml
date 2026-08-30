@@ -5,12 +5,13 @@ edition = "2024"
 rust-version = "1.85"
 publish = false
 repository.workspace = true
-description = "Read-only GPUI dashboard for Sailbreak"
+description = "Embedded Proto-UI Shadcn GPUI dashboard for Sailbreak"
 
 [dependencies]
 gpui = { version = "=0.2.2", default-features = true, features = ["wayland", "x11"] }
 lctrl-core = { path = "../lctrl-core" }
 lctrl-hal = { path = "../lctrl-hal" }
+proto-ui-gpui = { path = "../proto-ui-gpui" }
 sailbreak-cli = { path = "../sailbreak-cli" }
 sailbreak-daemon = { path = "../sailbreak-daemon" }
 serde_json.workspace = true
