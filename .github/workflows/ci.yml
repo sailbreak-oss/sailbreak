@@ -32,6 +32,13 @@ jobs:
         run: cargo test --workspace --all-targets
       - name: Build release binaries
         run: cargo build --release --workspace
+      - name: Probe Windows capability surface
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          & target/release/sailbreak.exe --json info
+          $allowedExitCodes = @(0, 3, 4, 5, 6, 7)
+          if ($allowedExitCodes -notcontains $LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Upload release binaries
         uses: actions/upload-artifact@v4
         with:
