@@ -1,0 +1,15 @@
+The embedded JavaScript bundle is generated from Proto UI 0.2.0 packages:
+
+- @proto.ui/core
+- @proto.ui/runtime
+- @proto.ui/prototypes-base
+- @proto.ui/prototypes-shadcn
+- @proto.ui/module-a11y
+- @proto.ui/module-as-trigger
+- @proto.ui/module-event
+- @proto.ui/module-expose-state
+- @proto.ui/module-feedback
+- @proto.ui/module-focus
+
+Proto UI is distributed under the MIT License. Source and license text:
+https://github.com/Proto-UI/Proto-UI
