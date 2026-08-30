@@ -42,6 +42,15 @@ The GUI is built with Rust [GPUI 0.2.2](https://github.com/zed-industries/zed/tr
 
 The first host profile is intentionally partial: the registry contains the published Shadcn direct entries, while the current Sailbreak surface admits the Button slice. Unsupported host capabilities return structured diagnostics rather than silently becoming local Rust controls.
 
+The embedded profile currently proves:
+
+- all published Shadcn 0.2.0 direct entries are resolved through one governed registry;
+- `shadcn-button` variants (`default`, `destructive`, `outline`, `secondary`, `ghost`, `link`) and sizes (`default`, `sm`, `lg`, `icon`) are projected from Runtime style tokens;
+- pointer hover/press, keyboard and native GPUI click activation, disabled gating, focus intent, Slot content, and semantic a11y snapshots cross the bridge;
+- the Rust host never sends a second activation for the same native sample.
+
+Native AccessKit role projection, overlay/positioning, text-control, touch, and a generic multi-process transport remain outside the current GPUI 0.2.2 profile. They are explicit omissions, not hidden local fallbacks or support claims.
+
 Writes remain guarded. A mutation is never executed from a button without the dry-run, permission, readback, rollback, and unavailable-channel semantics enforced by the CLI service layer. Commands that return `unsupported`/`unavailable` surface that fact instead of synthesizing success.
 
 ## Install
