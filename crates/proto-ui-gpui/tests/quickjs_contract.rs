@@ -21,11 +21,15 @@ fn embedded_runtime_materializes_the_real_shadcn_button() {
     };
 
     let events = bridge.dispatch(&command).expect("button session starts");
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, BridgeEvent::Ready { .. }))
-    );
+    let handshake = events
+        .iter()
+        .find_map(|event| match event {
+            BridgeEvent::Ready { handshake } => Some(handshake),
+            _ => None,
+        })
+        .expect("ready event");
+    assert_eq!(handshake.proto_ui, "0.2.0");
+    assert!(handshake.registry_digest.starts_with("sha256:"));
     assert!(
         events
             .iter()

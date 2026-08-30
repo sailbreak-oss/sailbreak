@@ -526,22 +526,25 @@ impl Dashboard {
                 let next_section = index.min(SECTION_NAMES.len() - 1);
                 let previous_section = self.active_section;
                 self.active_section = next_section;
+                let mut variant_error = None;
                 if previous_section != next_section {
                     if let Err(error) = self.proto.set_variant(
                         SIDEBAR_BUTTON_IDS[previous_section],
                         ShadcnButtonVariant::Ghost,
                     ) {
-                        self.snapshot.status_message = format!("Proto UI action failed: {error}");
+                        variant_error = Some(error.to_string());
                     }
                     if let Err(error) = self.proto.set_variant(
                         SIDEBAR_BUTTON_IDS[next_section],
                         ShadcnButtonVariant::Secondary,
                     ) {
-                        self.snapshot.status_message = format!("Proto UI action failed: {error}");
+                        variant_error = Some(error.to_string());
                     }
                 }
-                self.snapshot.status_message =
-                    format!("Section {} selected", SECTION_NAMES[self.active_section].1);
+                self.snapshot.status_message = match variant_error {
+                    Some(error) => format!("Proto UI action failed: {error}"),
+                    None => format!("Section {} selected", SECTION_NAMES[self.active_section].1),
+                };
             }
             DashboardAction::Refresh => match self.controller.refresh() {
                 Ok(mut snapshot) => {

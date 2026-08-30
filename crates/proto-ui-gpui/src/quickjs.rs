@@ -14,6 +14,16 @@ fn bundle_digest() -> String {
     format!("sha256:{digest:x}")
 }
 
+fn host_platform() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows-gpui"
+    } else if cfg!(target_os = "linux") {
+        "linux-gpui"
+    } else {
+        "unsupported-gpui"
+    }
+}
+
 /// Embedded Proto UI Runtime host.
 ///
 /// QuickJS stays on the owning thread. GPUI receives only decoded protocol
@@ -82,6 +92,7 @@ impl QuickJsBridge {
         for event in &mut events {
             if let BridgeEvent::Ready { handshake } = event {
                 handshake.registry_digest = self.bundle_digest.clone();
+                handshake.host.platform = host_platform().to_owned();
             }
         }
         if let Some(diagnostic) = events.iter().find_map(|event| match event {
