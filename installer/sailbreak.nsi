@@ -5,7 +5,7 @@ Unicode true
 !include "WinMessages.nsh"
 
 !ifndef PRODUCT_VERSION
-!define PRODUCT_VERSION "0.1.0"
+!define PRODUCT_VERSION "0.1.1"
 !endif
 !ifndef BIN_DIR
 !define BIN_DIR "target\x86_64-pc-windows-msvc\release"
@@ -56,9 +56,9 @@ Section "Sailbreak" SecSailbreak
     Call AddUserPath
 
     CreateDirectory "$SMPROGRAMS\Sailbreak"
-    CreateShortCut "$SMPROGRAMS\Sailbreak\Sailbreak CLI.lnk" "$INSTDIR\sailbreak-cli.exe" "--help"
-    CreateShortCut "$SMPROGRAMS\Sailbreak\Daemon status.lnk" "$INSTDIR\sailbreak-cli.exe" "daemon status"
+    CreateShortCut "$SMPROGRAMS\Sailbreak\Sailbreak Control Center.lnk" "$INSTDIR\sailbreak-gui.exe"
     CreateShortCut "$SMPROGRAMS\Sailbreak\Uninstall Sailbreak.lnk" "$INSTDIR\uninstall.exe"
+    CreateShortCut "$DESKTOP\Sailbreak Control Center.lnk" "$INSTDIR\sailbreak-gui.exe"
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
 SectionEnd
@@ -66,10 +66,10 @@ Section "Uninstall"
     SetShellVarContext current
     Call un.RemoveUserPath
 
-    Delete "$SMPROGRAMS\Sailbreak\Sailbreak CLI.lnk"
-    Delete "$SMPROGRAMS\Sailbreak\Daemon status.lnk"
+    Delete "$SMPROGRAMS\Sailbreak\Sailbreak Control Center.lnk"
     Delete "$SMPROGRAMS\Sailbreak\Uninstall Sailbreak.lnk"
     RMDir "$SMPROGRAMS\Sailbreak"
+    Delete "$DESKTOP\Sailbreak Control Center.lnk"
 
     DeleteRegKey HKCU "${PRODUCT_UNINSTALL_KEY}"
     DeleteRegKey HKCU "Software\Sailbreak"

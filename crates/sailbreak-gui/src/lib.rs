@@ -388,7 +388,7 @@ fn sidebar(active_section: usize, cx: &mut Context<Dashboard>) -> impl IntoEleme
                     div()
                         .text_xs()
                         .text_color(rgb(MUTED))
-                        .child("INTERACTIVE CONSOLE 0.1"),
+                        .child("INTERACTIVE CONSOLE 0.1.1"),
                 ),
         )
         .child(

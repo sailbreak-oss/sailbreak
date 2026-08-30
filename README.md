@@ -40,11 +40,11 @@ Writes remain guarded. A mutation is never executed from a button without the dr
 
 Download the latest tested binaries from the [Releases page](https://github.com/sailbreak-oss/sailbreak/releases/latest):
 
-- Windows recommended: `sailbreak-v0.1.0-windows-x86_64-setup.exe` (NSIS installer)
+- Windows recommended: `sailbreak-v0.1.1-windows-x86_64-setup.exe` (NSIS installer)
 - Linux x86_64: `sailbreak-linux-x86_64.tar.gz`
 - Windows x86_64 portable: `sailbreak-windows-x86_64.zip` (contains `sailbreak.exe`, `sailbreak-cli.exe`, `sailbreakd.exe`, and `sailbreak-gui.exe`)
 
-The NSIS installer installs `sailbreak.exe`, `sailbreak-cli.exe`, `sailbreakd.exe`, and `sailbreak-gui.exe` under `%LOCALAPPDATA%\\Sailbreak`, adds that directory to the current user's `PATH`, and does not start the daemon automatically.
+The NSIS installer installs `sailbreak.exe`, `sailbreak-cli.exe`, `sailbreakd.exe`, and `sailbreak-gui.exe` under `%LOCALAPPDATA%\\Sailbreak`, adds that directory to the current user's `PATH`, and creates Start Menu/Desktop shortcuts for `sailbreak-gui.exe` as the primary entry point. CLI binaries are terminal-only and have no flash-exit shortcuts; the daemon is not started automatically.
 
 For Linux, extract the archive and install the command and daemon into a directory on `PATH`:
 

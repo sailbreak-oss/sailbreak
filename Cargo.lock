@@ -4757,7 +4757,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "sailbreak"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "lctrl-core",
@@ -4771,7 +4771,7 @@ dependencies = [
 
 [[package]]
 name = "sailbreak-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "clap_complete",
@@ -4786,7 +4786,7 @@ dependencies = [
 
 [[package]]
 name = "sailbreak-daemon"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "lctrl-core",
  "lctrl-hal",
@@ -4801,7 +4801,7 @@ dependencies = [
 
 [[package]]
 name = "sailbreak-gui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gpui",
  "lctrl-core",
