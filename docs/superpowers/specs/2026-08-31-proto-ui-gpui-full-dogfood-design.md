@@ -10,14 +10,16 @@ Make Sailbreak a serious non-Web dogfood host for the Proto-UI Shadcn prototype 
 
 ## Source and version identity
 
-The next bundle is pinned to Proto-UI `main` commit `1f7c2bdb6b2f4a6908d422f1e205e01f62c8c9ed`.
+The source policy is **Proto-UI `main` HEAD bump per slice**, not a permanent pin. The design checkpoint used `1f7c2bdb6b2f4a6908d422f1e205e01f62c8c9ed`; the current synchronized HEAD for plan authoring is `9c8891ca22fefafb1346e6ebd02d1f80cae2ec24`.
+
+Before each implementation slice, record the then-current Proto-UI `main` SHA in that slice's source manifest and regenerate the bundle from that exact SHA. A slice may not silently consume a newer HEAD, and a newer HEAD must be reviewed for API, semantic, and package-graph drift before the slice begins.
 
 The bundle build must:
 
-- fetch or consume that exact source snapshot;
-- build all referenced `@proto.ui/*` packages from the snapshot's lockfile and package manifests;
+- fetch or consume the exact source snapshot recorded by the current slice;
+- build all referenced `@proto.ui/*` packages from that snapshot's lockfile and package manifests;
 - record the Proto-UI commit, package versions, bundle SHA-256, and source license notices;
-- fail when the source commit, lockfile, or generated bundle changes without an explicit revision update;
+- fail when the source commit, lockfile, or generated bundle changes without an explicit source-manifest update;
 - never use arbitrary import strings from Rust or user input;
 - never label a main-snapshot bundle as the published `0.2.0` release.
 
