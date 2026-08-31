@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 
 use crate::protocol::{
-    BridgeCommand, BridgeDiagnostic, BridgeError, BridgeEvent, BridgeState, InputEnvelope,
-    InputKind, InputSource, InstanceId, ProjectionAck, ProjectionTransaction, Result, SessionId,
-    SlotProjection,
+    BridgeCommand, BridgeDiagnostic, BridgeError, BridgeEvent, BridgeState, DispatchOutcome,
+    InputEnvelope, InputKind, InputSource, InstanceId, ProjectionAck, ProjectionTransaction,
+    Result, SessionId, SlotProjection,
 };
 use crate::quickjs::QuickJsBridge;
 use crate::theme::{ButtonStyle, ShadcnTheme};
@@ -52,12 +52,6 @@ impl ShadcnButtonSize {
             Self::Icon => "icon",
         }
     }
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct DispatchOutcome {
-    pub click_emitted: bool,
-    pub diagnostics: Vec<BridgeDiagnostic>,
 }
 
 #[derive(Clone, Debug)]

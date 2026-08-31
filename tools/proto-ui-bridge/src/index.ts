@@ -9,10 +9,10 @@ import {
 } from '@proto.ui/module-as-trigger';
 import {
   EVENT_CANCEL_DEFAULT_ACTION_CAP,
-  EVENT_EMIT_CAP,
   EVENT_GLOBAL_TARGET_CAP,
   EVENT_ROOT_TARGET_CAP,
 } from '@proto.ui/module-event';
+import { EXPOSE_EVENT_SINK_CAP } from '@proto.ui/module-expose-event';
 import {
   FOCUS_BLUR_CAP,
   FOCUS_INSTANCE_TOKEN_CAP,
@@ -29,19 +29,33 @@ import { EFFECTS_CAP } from '@proto.ui/module-feedback';
 import { EXPOSE_STATE_SET_EXPOSES_CAP } from '@proto.ui/module-expose-state';
 import * as shadcn from '@proto.ui/prototypes-shadcn';
 
-const PROTO_UI_VERSION = '0.2.0';
+type BuildMetadata = {
+  proto_ui_version?: unknown;
+  proto_ui_commit?: unknown;
+};
+
+const BUILD_METADATA = (globalThis as unknown as {
+  __sailbreak_proto_ui_metadata?: BuildMetadata;
+}).__sailbreak_proto_ui_metadata;
+const PROTO_UI_VERSION =
+  typeof BUILD_METADATA?.proto_ui_version === 'string'
+    ? BUILD_METADATA.proto_ui_version
+    : 'main-snapshot';
+const PROTO_UI_COMMIT =
+  typeof BUILD_METADATA?.proto_ui_commit === 'string' ? BUILD_METADATA.proto_ui_commit : 'unrecorded';
 const PROTOCOL_MAJOR = 1;
 const PROTOCOL_MINOR = 0;
 const HOST_NAME = 'sailbreak';
 const GPUI_VERSION = '0.2.2';
 const HOST_PLATFORM = 'embedded-quickjs';
-const REGISTRY_DIGEST = 'proto-ui-shadcn-0.2.0';
+const REGISTRY_DIGEST = `proto-ui-main@${PROTO_UI_COMMIT}`;
 
 type JsonPrimitive = null | boolean | number | string;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
 type Listener = (event: unknown) => void;
 type RuntimeSessionLike = Pick<RuntimeSession, 'mount' | 'unmount' | 'dispose' | 'controller'> & {
+  readonly instancePhase: string;
   readonly mountEpoch: number;
   readonly mountPhase: string;
 };
@@ -173,6 +187,7 @@ type SessionRecord = {
   state_values: JsonObject;
   exposed_handles: Record<string, unknown>;
   state_unsubs: Array<() => void>;
+  disposed: boolean;
 };
 
 type Registry = Record<string, Prototype>;
@@ -360,6 +375,7 @@ function emitDiagnostic(record: SessionRecord, code: string, detail: string, fat
 }
 
 function emitStyle(record: SessionRecord): void {
+  if (record.disposed) return;
   record.events.push({
     type: 'style',
     session_id: record.session_id,
@@ -370,6 +386,7 @@ function emitStyle(record: SessionRecord): void {
 }
 
 function emitA11y(record: SessionRecord, value: unknown): void {
+  if (record.disposed) return;
   record.a11y = a11ySnapshot(value, record);
   record.events.push({
     type: 'a11y',
@@ -381,6 +398,7 @@ function emitA11y(record: SessionRecord, value: unknown): void {
 }
 
 function emitState(record: SessionRecord, value: unknown): void {
+  if (record.disposed) return;
   for (const unsubscribe of record.state_unsubs.splice(0)) unsubscribe();
   record.exposed_handles = recordOf(value) ?? {};
   record.state_values = exposedStates(record.exposed_handles);
@@ -411,7 +429,17 @@ function attachCapabilities(record: SessionRecord, wiring: ModuleWiringLike): vo
   wiring.attach('event', [
     [EVENT_ROOT_TARGET_CAP, () => record.root_bus],
     [EVENT_GLOBAL_TARGET_CAP, () => record.global_bus],
-    [EVENT_EMIT_CAP, (key: string) => {
+    [EVENT_CANCEL_DEFAULT_ACTION_CAP, () => {
+      emitDiagnostic(
+        record,
+        'default-action-not-applicable',
+        'GPUI owns the native default action; no browser cancellation was claimed',
+        false,
+      );
+    }],
+  ]);
+  wiring.attach('expose-event', [
+    [EXPOSE_EVENT_SINK_CAP, (key: string) => {
       record.events.push({
         type: 'signal',
         session_id: record.session_id,
@@ -420,14 +448,6 @@ function attachCapabilities(record: SessionRecord, wiring: ModuleWiringLike): vo
         sequence: nextOutputSequence(record),
         key,
       });
-    }],
-    [EVENT_CANCEL_DEFAULT_ACTION_CAP, () => {
-      emitDiagnostic(
-        record,
-        'default-action-not-applicable',
-        'GPUI owns the native default action; no browser cancellation was claimed',
-        false,
-      );
     }],
   ]);
   wiring.attach('focus', [
@@ -528,6 +548,7 @@ function createRecord(
     state_values: {},
     exposed_handles: {},
     state_unsubs: [],
+    disposed: false,
   };
 }
 
@@ -666,6 +687,17 @@ function setProps(command: Record<string, unknown>): void {
   record.session?.controller.update();
 }
 
+function remount(command: Record<string, unknown>): void {
+  const record = sessionFor(command);
+  const session = record.session;
+  if (!session) throw new Error('session is not ready to remount');
+  record.pending_commit = undefined;
+  void session.unmount();
+  void session.mount().catch((error: unknown) => {
+    emitDiagnostic(record, 'runtime-mount-failed', String(error), true);
+  });
+}
+
 function unmount(command: Record<string, unknown>): void {
   const record = sessionFor(command);
   void record.session?.unmount().catch((error: unknown) => {
@@ -675,10 +707,13 @@ function unmount(command: Record<string, unknown>): void {
 
 function dispose(command: Record<string, unknown>): void {
   const record = sessionFor(command);
+  record.disposed = true;
+  for (const unsubscribe of record.state_unsubs.splice(0)) unsubscribe();
   void record.session?.dispose().catch((error: unknown) => {
     emitDiagnostic(record, 'runtime-dispose-failed', String(error), true);
   });
   sessions.delete(record.session_id);
+
 }
 function registryEvent(): WireEvent {
   return {
@@ -708,6 +743,9 @@ function dispatch(serialized: string): string {
       break;
     case 'set_props':
       setProps(command);
+      break;
+    case 'remount':
+      remount(command);
       break;
     case 'unmount':
       unmount(command);

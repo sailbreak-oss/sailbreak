@@ -16,6 +16,8 @@
     "@proto.ui/runtime": "0.2.0"
   },
   "scripts": {
-    "build": "bun build src/index.ts --bundle --format=iife --target=browser --outfile=../../crates/proto-ui-gpui/assets/proto-ui-bridge.js"
+    "sync-head": "node scripts/build-bundle.mjs sync-head",
+    "bundle:check": "node scripts/build-bundle.mjs bundle:check",
+    "test:build": "node --test scripts/build-bundle.test.mjs"
   }
 }

@@ -20,7 +20,7 @@ fn handshake_serializes_stable_runtime_identity() {
         value,
         serde_json::json!({
             "protocol": { "major": 1, "minor": 0 },
-            "proto_ui": "0.2.0",
+            "proto_ui": "main-snapshot",
             "host": {
                 "name": "sailbreak",
                 "gpui": "gpui-0.2.2",
@@ -229,5 +229,16 @@ fn bridge_commands_are_data_only_and_round_trip() {
     let value = serde_json::to_value(&command).expect("command serializes");
     assert_eq!(value["type"], "start");
     assert_eq!(value["prototype"], "shadcn-button");
+    assert!(serde_json::from_value::<proto_ui_gpui::BridgeCommand>(value).is_ok());
+}
+
+#[test]
+fn remount_command_is_data_only_and_round_trips() {
+    let command = proto_ui_gpui::BridgeCommand::Remount {
+        session_id: SessionId::new("session-1").expect("session id"),
+        instance_id: InstanceId::new("instance-1").expect("instance id"),
+    };
+    let value = serde_json::to_value(&command).expect("command serializes");
+    assert_eq!(value["type"], "remount");
     assert!(serde_json::from_value::<proto_ui_gpui::BridgeCommand>(value).is_ok());
 }

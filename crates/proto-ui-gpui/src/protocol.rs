@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTO_UI_VERSION: &str = "0.2.0";
+pub const PROTO_UI_VERSION: &str = "main-snapshot";
 pub const GPUI_VERSION: &str = "0.2.2";
 pub const PROTOCOL_MAJOR: u16 = 1;
 pub const PROTOCOL_MINOR: u16 = 0;
@@ -491,9 +491,24 @@ pub enum BridgeError {
     NonMonotonicSequence { last: u64, received: u64 },
     #[error("unsupported or failed projection status: {status:?}")]
     ProjectionRejected { status: ProjectionStatus },
+    #[error("input route mismatch: expected {expected}, received {received}")]
+    RouteMismatch { expected: String, received: String },
+    #[error("no projection is pending")]
+    NoPendingProjection,
+    #[error("projection commit {commit_id} is awaiting acknowledgment")]
+    ProjectionPending { commit_id: u64 },
+    #[error("session is not mounted")]
+    Unmounted,
 }
 
 pub type Result<T, E = BridgeError> = std::result::Result<T, E>;
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DispatchOutcome {
+    pub events: Vec<BridgeEvent>,
+    pub click_emitted: bool,
+    pub diagnostics: Vec<BridgeDiagnostic>,
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -672,6 +687,10 @@ pub enum BridgeCommand {
         session_id: SessionId,
         instance_id: InstanceId,
         props: serde_json::Map<String, serde_json::Value>,
+    },
+    Remount {
+        session_id: SessionId,
+        instance_id: InstanceId,
     },
     Unmount {
         session_id: SessionId,

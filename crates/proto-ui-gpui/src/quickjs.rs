@@ -3,6 +3,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::protocol::{BridgeCommand, BridgeError, BridgeEvent, PrototypeKey, Result};
+const MAX_BRIDGE_MESSAGE_BYTES: usize = 256 * 1024;
+const MAX_JSON_DEPTH: usize = 16;
 
 const BRIDGE_BUNDLE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -57,17 +59,19 @@ impl QuickJsBridge {
     }
 
     pub fn dispatch_json(&mut self, serialized: &str) -> Result<Vec<BridgeEvent>> {
+        if serialized.len() > MAX_BRIDGE_MESSAGE_BYTES {
+            return Err(BridgeError::Decode {
+                detail: format!("bridge message exceeds {} bytes", MAX_BRIDGE_MESSAGE_BYTES),
+            });
+        }
         let value: Value =
             serde_json::from_str(serialized).map_err(|error| BridgeError::Decode {
                 detail: error.to_string(),
             })?;
+        validate_json(&value, 0)?;
         validate_command(&value)?;
-        let command: BridgeCommand =
+        let _command: BridgeCommand =
             serde_json::from_value(value).map_err(|error| BridgeError::Decode {
-                detail: error.to_string(),
-            })?;
-        let serialized =
-            serde_json::to_string(&command).map_err(|error| BridgeError::Serialization {
                 detail: error.to_string(),
             })?;
 
@@ -84,9 +88,18 @@ impl QuickJsBridge {
                 }),
             }
         })?;
-
-        let mut events: Vec<BridgeEvent> =
+        if output.len() > MAX_BRIDGE_MESSAGE_BYTES {
+            return Err(BridgeError::Decode {
+                detail: format!("bridge response exceeds {} bytes", MAX_BRIDGE_MESSAGE_BYTES),
+            });
+        }
+        let output_value: Value =
             serde_json::from_str(&output).map_err(|error| BridgeError::Decode {
+                detail: error.to_string(),
+            })?;
+        validate_json(&output_value, 0)?;
+        let mut events: Vec<BridgeEvent> =
+            serde_json::from_value(output_value).map_err(|error| BridgeError::Decode {
                 detail: error.to_string(),
             })?;
         for event in &mut events {
@@ -105,6 +118,28 @@ impl QuickJsBridge {
         }
         Ok(events)
     }
+}
+
+fn validate_json(value: &Value, depth: usize) -> Result<()> {
+    if depth > MAX_JSON_DEPTH {
+        return Err(BridgeError::Decode {
+            detail: format!("JSON nesting exceeds {MAX_JSON_DEPTH} levels"),
+        });
+    }
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                validate_json(value, depth + 1)?;
+            }
+        }
+        Value::Object(values) => {
+            for value in values.values() {
+                validate_json(value, depth + 1)?;
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+    Ok(())
 }
 
 fn validate_command(value: &Value) -> Result<()> {

@@ -38,7 +38,7 @@
       return require.apply(this, arguments);
     throw Error('Dynamic require of "' + x + '" is not supported');
   });
-  // node_modules/@proto.ui/core/dist/internal.js
+  // ../packages/core/src/internal.ts
   var activeAsHookContexts = [];
   var activeRuntimeDelayContexts = [];
   var asHookRuntimeByDef = new WeakMap;
@@ -71,7 +71,7 @@
     return asHookRuntimeByDef.get(def);
   }
 
-  // node_modules/@proto.ui/core/dist/prototype.js
+  // ../packages/core/src/prototype.ts
   var MODULE_DECLARATION_TOKEN_BRAND = Symbol("@proto.ui/module-declaration-token");
   function moduleDeclaration(id) {
     if (typeof id !== "string" || id.trim().length === 0) {
@@ -257,7 +257,7 @@
   function defineHook(proto) {
     return createHookCaller(proto, "hook");
   }
-  // node_modules/@proto.ui/core/dist/anatomy.js
+  // ../packages/core/src/anatomy.ts
   function freezeFamilyDecl(decl) {
     if (!decl || typeof decl !== "object") {
       throw new Error(`[Anatomy] family declaration is required.`);
@@ -307,7 +307,7 @@
       decl: freezeFamilyDecl(decl)
     });
   }
-  // node_modules/@proto.ui/core/dist/spec/feedback/semantic-merge.js
+  // ../packages/core/src/spec/feedback/semantic-merge.ts
   var PREFIXES_V0 = [
     "bg-",
     "p-",
@@ -404,7 +404,7 @@
     return { tokens: out };
   }
 
-  // node_modules/@proto.ui/core/dist/spec/feedback/tokens.js
+  // ../packages/core/src/spec/feedback/tokens.ts
   function assertTwTokenV0(token, ctx) {
     const where = ctx ? ` (${ctx})` : "";
     if (typeof token !== "string" || !token.trim()) {
@@ -438,7 +438,7 @@
     }
   }
 
-  // node_modules/@proto.ui/core/dist/spec/feedback/recorder.js
+  // ../packages/core/src/spec/feedback/recorder.ts
   class FeedbackStyleRecorder {
     nextId = 1;
     chunks = [];
@@ -560,7 +560,7 @@
       return flattened;
     }
   }
-  // node_modules/@proto.ui/core/dist/spec/feedback/style.js
+  // ../packages/core/src/spec/feedback/style.ts
   function tw(tokens, ...more) {
     const all = [tokens, ...more].join(" ").trim();
     const list = all ? all.split(/\s+/g) : [];
@@ -569,7 +569,7 @@
   function isTemplateStyleHandle(v) {
     return v && typeof v === "object" && v.kind === "tw" && Array.isArray(v.tokens) && v.tokens.every((x) => typeof x === "string");
   }
-  // node_modules/@proto.ui/core/dist/spec/template.js
+  // ../packages/core/src/spec/template.ts
   var DEFAULT_NORMALIZE = {
     flatten: "deep",
     keepNull: false
@@ -642,6 +642,7 @@
       "viewBox",
       "width",
       "height",
+      "aria-hidden",
       "fill",
       "stroke",
       "strokeWidth",
@@ -858,7 +859,7 @@
     };
     return { el, slot, r, svg };
   }
-  // node_modules/@proto.ui/core/dist/errors/codes.js
+  // ../packages/core/src/errors/codes.ts
   class ProtoUiError extends Error {
     code;
     details;
@@ -874,14 +875,14 @@
   function illegalPhase(op, phase, details) {
     return new ProtoUiError("E_ILLEGAL_PHASE", `[Phase] illegal phase for ${op}: ${phase}`, details);
   }
-  // node_modules/@proto.ui/core/dist/context.js
+  // ../packages/core/src/context.ts
   function createContextKey(debugName) {
     return Object.freeze({
       __brand: "ContextKey",
       debugName
     });
   }
-  // node_modules/@proto.ui/core/dist/delay.js
+  // ../packages/core/src/delay.ts
   function delay(durationMs, callback) {
     if (!Number.isFinite(durationMs) || durationMs < 0) {
       throw new Error("[Delay] durationMs must be a non-negative finite number.");
@@ -895,13 +896,13 @@
     }
     return ctx.scheduleDelay(durationMs, callback);
   }
-  // node_modules/@proto.ui/core/dist/caps/token.js
+  // ../packages/core/src/caps/token.ts
   function cap(id) {
     return { id };
   }
-  // node_modules/@proto.ui/core/dist/caps/host.js
+  // ../packages/core/src/caps/host.ts
   var HOST_ELEMENT_CAP = cap("@proto.ui/web/hostElement");
-  // node_modules/@proto.ui/runtime/dist/kernel/guard.js
+  // ../packages/runtime/src/kernel/guard.ts
   function illegalPhase2(op, prototypeName, phase, hint) {
     const msg = `[ProtoUI] illegal call: ${op}
 ` + `prototype: ${prototypeName}
@@ -910,8 +911,338 @@
 ` : "");
     throw new Error(msg);
   }
+  // ../packages/modules/base/src/caps-vault/vault.ts
+  class CapsVault {
+    base = new Map;
+    attached = new Map;
+    listeners = new Set;
+    epoch = 0;
+    has(token) {
+      const id = token.id;
+      return this.attached.has(id) || this.base.has(id);
+    }
+    get(token) {
+      const id = token.id;
+      if (this.attached.has(id))
+        return this.attached.get(id);
+      if (this.base.has(id))
+        return this.base.get(id);
+      throw capUnavailable(id, { epoch: this.epoch });
+    }
+    onChange(cb) {
+      this.listeners.add(cb);
+      return () => this.listeners.delete(cb);
+    }
+    attachBase(entries) {
+      if (!entries || entries.length === 0)
+        return;
+      let changed = false;
+      for (const [token, value] of entries) {
+        const id = token.id;
+        const prev = this.base.get(id);
+        if (!this.base.has(id) || prev !== value) {
+          this.base.set(id, value);
+          changed = true;
+        }
+      }
+      if (changed)
+        this.bump();
+    }
+    attach(entries) {
+      if (!entries || entries.length === 0)
+        return;
+      let changed = false;
+      for (const [token, value] of entries) {
+        const id = token.id;
+        const prev = this.attached.get(id);
+        if (!this.attached.has(id) || prev !== value) {
+          this.attached.set(id, value);
+          changed = true;
+        }
+      }
+      if (changed)
+        this.bump();
+    }
+    resetAttached() {
+      if (this.attached.size === 0)
+        return;
+      this.attached.clear();
+      this.bump();
+    }
+    resetAll() {
+      if (this.attached.size === 0 && this.base.size === 0)
+        return;
+      this.attached.clear();
+      this.base.clear();
+      this.bump();
+    }
+    bump() {
+      this.epoch++;
+      for (const cb of this.listeners)
+        cb(this.epoch);
+    }
+  }
+  // ../packages/modules/base/src/system-caps.ts
+  var SYS_CAP = cap("@proto.ui/__sys");
 
-  // node_modules/@proto.ui/runtime/dist/kernel/event/runtime-event-callbacks.js
+  // ../packages/modules/base/src/module-base.ts
+  class ModuleBase {
+    protoPhase = "setup";
+    instancePhase = "setup";
+    mountPhase = "detached";
+    caps;
+    pending = [];
+    constructor(caps2) {
+      this.caps = caps2;
+      this.caps.onChange((epoch) => {
+        this.onCapsEpoch(epoch);
+        this.flushPending();
+      });
+    }
+    get sys() {
+      return this.caps.get(SYS_CAP);
+    }
+    onProtoPhase(phase) {
+      this.protoPhase = phase;
+    }
+    onInstancePhase(phase) {
+      this.instancePhase = phase;
+    }
+    onMountPhase(phase, _epoch) {
+      this.mountPhase = phase;
+    }
+    onCapsEpoch(_epoch) {}
+    defer(fn) {
+      this.pending.push(fn);
+    }
+    flushPending() {
+      if (this.pending.length === 0)
+        return;
+      const tasks = this.pending;
+      this.pending = [];
+      for (const t of tasks)
+        t();
+    }
+  }
+  // ../packages/modules/base/src/create-module.ts
+  function defineModule(def) {
+    return def;
+  }
+  function createModule(args) {
+    const { facade, hooks, port } = args.build({
+      init: args.init,
+      caps: args.caps,
+      deps: args.deps
+    });
+    return {
+      name: args.name,
+      scope: args.scope,
+      facade,
+      hooks: hooks ?? {},
+      port
+    };
+  }
+  // ../packages/modules/expose/src/kernel.ts
+  class ExposeKernel {
+    map = new Map;
+    has(key) {
+      return this.map.has(key);
+    }
+    get(key) {
+      return this.map.get(key);
+    }
+    set(key, value) {
+      this.map.set(key, value);
+    }
+    keys() {
+      return Array.from(this.map.keys());
+    }
+    entries() {
+      return Array.from(this.map.entries()).map(([key, value]) => ({
+        key,
+        value
+      }));
+    }
+    toRecord() {
+      const out = {};
+      for (const [k, v] of this.map) {
+        Object.defineProperty(out, k, {
+          value: v,
+          enumerable: true,
+          configurable: true,
+          writable: true
+        });
+      }
+      return out;
+    }
+    clear() {
+      this.map.clear();
+    }
+  }
+
+  // ../packages/modules/expose/src/error.ts
+  class ExposeError extends Error {
+    code;
+    detail;
+    constructor(code, message, detail) {
+      super(message);
+      this.name = "ExposeError";
+      this.code = code;
+      this.detail = detail;
+    }
+  }
+  function exposeInvalidKey(message, detail) {
+    return new ExposeError("EXPOSE_INVALID_KEY", message, detail);
+  }
+  function exposeDuplicateKey(message, detail) {
+    return new ExposeError("EXPOSE_DUPLICATE_KEY", message, detail);
+  }
+  function exposeDisposed(message, detail) {
+    return new ExposeError("EXPOSE_DISPOSED", message, detail);
+  }
+  function exposePhaseViolation(message, detail) {
+    return new ExposeError("EXPOSE_PHASE_VIOLATION", message, detail);
+  }
+
+  // ../packages/modules/expose/src/impl.ts
+  function isValidKey(key) {
+    return typeof key === "string" && key.length > 0;
+  }
+  function toDiag(key, value) {
+    const t = typeof value;
+    return {
+      key,
+      valueType: t,
+      isFunction: t === "function",
+      isObject: value !== null && t === "object"
+    };
+  }
+
+  class ExposeModuleImpl extends ModuleBase {
+    kernel = new ExposeKernel;
+    prototypeName;
+    disposed = false;
+    constructor(caps2, prototypeName) {
+      super(caps2);
+      this.prototypeName = prototypeName;
+    }
+    expose(key, value) {
+      this.ensureSetup("def.expose");
+      this.ensureAlive("def.expose");
+      if (!isValidKey(key)) {
+        throw exposeInvalidKey(`[Expose] key must be a non-empty string.`, {
+          prototypeName: this.prototypeName,
+          key
+        });
+      }
+      if (this.kernel.has(key)) {
+        throw exposeDuplicateKey(`[Expose] duplicate key: ${key}`, {
+          prototypeName: this.prototypeName,
+          key
+        });
+      }
+      this.kernel.set(key, value);
+    }
+    port = {
+      get: (key) => {
+        this.ensureAlive("rt.expose.get");
+        return this.kernel.get(key);
+      },
+      getAll: () => {
+        this.ensureAlive("rt.expose.getAll");
+        return this.kernel.toRecord();
+      },
+      has: (key) => {
+        this.ensureAlive("rt.expose.has");
+        return this.kernel.has(key);
+      },
+      keys: () => {
+        this.ensureAlive("rt.expose.keys");
+        return this.kernel.keys();
+      },
+      getDiagnostics: () => {
+        this.ensureAlive("rt.expose.getDiagnostics");
+        const entries = this.kernel.entries();
+        return entries.map((e) => toDiag(e.key, e.value));
+      }
+    };
+    dispose() {
+      if (this.disposed)
+        return;
+      this.disposed = true;
+      this.kernel.clear();
+    }
+    ensureSetup(op) {
+      if (this.sys) {
+        try {
+          this.sys.ensureSetup(op);
+          return;
+        } catch (e) {
+          throw exposePhaseViolation(`[Expose] setup-only: ${op}`, {
+            prototypeName: this.prototypeName,
+            error: e
+          });
+        }
+      }
+      if (this.protoPhase !== "setup") {
+        throw illegalPhase(op, this.protoPhase, {
+          prototypeName: this.prototypeName
+        });
+      }
+    }
+    ensureAlive(op) {
+      this.sys?.ensureNotDisposed(op);
+      if (this.disposed) {
+        throw exposeDisposed(`[Expose] disposed. op=${op}`, {
+          prototypeName: this.prototypeName
+        });
+      }
+    }
+    facade = {
+      expose: (key, value) => this.expose(key, value)
+    };
+  }
+
+  // ../packages/modules/expose/src/create.ts
+  function createExposeModule(ctx) {
+    const { init, caps: caps2, deps } = ctx;
+    return createModule({
+      name: "expose",
+      scope: "instance",
+      init,
+      caps: caps2,
+      deps,
+      build: ({ init: init2, caps: caps3 }) => {
+        const impl = new ExposeModuleImpl(caps3, init2.prototypeName);
+        return {
+          facade: impl.facade,
+          port: impl.port,
+          hooks: {
+            dispose: () => impl.dispose()
+          }
+        };
+      }
+    });
+  }
+  var ExposeModuleDef = defineModule({
+    name: "expose",
+    resourceOwnership: "instance",
+    deps: [],
+    create: createExposeModule
+  });
+  // ../packages/modules/expose/src/types.ts
+  var EXPOSE_ENTRY_CLASSIFICATION = Symbol.for("@proto.ui/expose/entry-classification");
+  function createExposeEventDeclaration(spec2) {
+    return Object.freeze({
+      [EXPOSE_ENTRY_CLASSIFICATION]: "event",
+      __pui_expose: "event",
+      spec: spec2
+    });
+  }
+  function isExposeEventDeclaration(value) {
+    return !!value && typeof value === "object" && value[EXPOSE_ENTRY_CLASSIFICATION] === "event";
+  }
+  // ../packages/runtime/src/kernel/event/runtime-event-callbacks.ts
   class RuntimeEventCallbacks {
     map = new Map;
     register(id, cb) {
@@ -931,7 +1262,7 @@
     }
   }
   var __RT_EVENT_CALLBACKS = Symbol.for("__rt_event_callbacks");
-  // node_modules/@proto.ui/runtime/dist/kernel/handles/def.js
+  // ../packages/runtime/src/kernel/handles/def.ts
   function createLifecycleRegistry() {
     return { created: [], mounted: [], updated: [], unmounted: [], beforeDispose: [] };
   }
@@ -956,6 +1287,7 @@
     const expose = facades["expose"];
     const anatomy2 = facades["anatomy"];
     const eventFacade = facades["event"];
+    const exposeEventFacade = facades["expose-event"];
     const eventCallbacks = new RuntimeEventCallbacks;
     eventSink?.setEventCallbacks(eventCallbacks);
     const ensureSetup = (op) => {
@@ -1044,8 +1376,8 @@
         };
         fn.event = (key, spec2) => {
           ensureSetup("def.expose.event");
-          expose.expose(key, { __pui_expose: "event", spec: spec2 });
-          eventFacade.registerExposeEvent(key, spec2);
+          expose.expose(key, createExposeEventDeclaration(spec2));
+          exposeEventFacade.registerExposeEvent(key, spec2);
           recordCaptured(def, "event", { op: "expose.event", key, spec: spec2 });
         };
         fn.state = (key, handle) => {
@@ -1276,12 +1608,12 @@
     };
     return def;
   };
-  // node_modules/@proto.ui/runtime/dist/kernel/handles/run.js
+  // ../packages/runtime/src/kernel/handles/run.ts
   var createRunHandle = (update, moduleHub, setPresent) => {
     const facades = moduleHub.getFacades();
     const props = facades["props"];
     const context2 = facades["context"];
-    const event = facades["event"];
+    const exposeEvent = facades["expose-event"];
     const anatomy2 = facades["anatomy"];
     const feedback2 = facades["feedback"];
     const meta = facades["rule-meta"];
@@ -1305,7 +1637,7 @@
         tryUpdate: (key, next) => context2.tryUpdate(key, next)
       },
       expose: {
-        emit: (key, payload, options) => event.emit(key, payload, options)
+        emit: (key, payload, options) => exposeEvent.emit(key, payload, options)
       },
       feedback: {
         style: {
@@ -1365,7 +1697,7 @@
       }
     };
   };
-  // node_modules/@proto.ui/runtime/dist/kernel/as-hook.js
+  // ../packages/runtime/src/kernel/as-hook.ts
   var TRACE_INTERNAL = Symbol.for("@proto.ui/asHook/trace-internal");
   function isStateHandleLike(x) {
     return !!x && typeof x === "object" && typeof x.get === "function" && !!x.__stateId;
@@ -1724,7 +2056,7 @@
     return runtime;
   }
 
-  // node_modules/@proto.ui/runtime/dist/kernel/view-intent.js
+  // ../packages/runtime/src/kernel/view-intent.ts
   function createViewIntent(args) {
     let snapshot = Object.freeze({ present: true, version: 0 });
     let terminal = false;
@@ -1758,7 +2090,7 @@
     };
   }
 
-  // node_modules/@proto.ui/runtime/dist/kernel/kernel.js
+  // ../packages/runtime/src/kernel/kernel.ts
   function createKernel(proto, modules, opt) {
     let phase = "unknown";
     const setPhase = (p) => {
@@ -1883,7 +2215,7 @@
       renderOnce
     };
   }
-  // node_modules/@proto.ui/runtime/dist/kernel/lifecycle-events.js
+  // ../packages/runtime/src/kernel/lifecycle-events.ts
   function projectLegacyCheckpoint(event) {
     switch (event.type) {
       case "instance.setup.exit":
@@ -1912,141 +2244,10 @@
         return;
     }
   }
-  // node_modules/@proto.ui/module-base/dist/caps-vault/vault.js
-  class CapsVault {
-    base = new Map;
-    attached = new Map;
-    listeners = new Set;
-    epoch = 0;
-    has(token) {
-      const id = token.id;
-      return this.attached.has(id) || this.base.has(id);
-    }
-    get(token) {
-      const id = token.id;
-      if (this.attached.has(id))
-        return this.attached.get(id);
-      if (this.base.has(id))
-        return this.base.get(id);
-      throw capUnavailable(id, { epoch: this.epoch });
-    }
-    onChange(cb) {
-      this.listeners.add(cb);
-      return () => this.listeners.delete(cb);
-    }
-    attachBase(entries) {
-      if (!entries || entries.length === 0)
-        return;
-      let changed = false;
-      for (const [token, value] of entries) {
-        const id = token.id;
-        const prev = this.base.get(id);
-        if (!this.base.has(id) || prev !== value) {
-          this.base.set(id, value);
-          changed = true;
-        }
-      }
-      if (changed)
-        this.bump();
-    }
-    attach(entries) {
-      if (!entries || entries.length === 0)
-        return;
-      let changed = false;
-      for (const [token, value] of entries) {
-        const id = token.id;
-        const prev = this.attached.get(id);
-        if (!this.attached.has(id) || prev !== value) {
-          this.attached.set(id, value);
-          changed = true;
-        }
-      }
-      if (changed)
-        this.bump();
-    }
-    resetAttached() {
-      if (this.attached.size === 0)
-        return;
-      this.attached.clear();
-      this.bump();
-    }
-    resetAll() {
-      if (this.attached.size === 0 && this.base.size === 0)
-        return;
-      this.attached.clear();
-      this.base.clear();
-      this.bump();
-    }
-    bump() {
-      this.epoch++;
-      for (const cb of this.listeners)
-        cb(this.epoch);
-    }
-  }
-  // node_modules/@proto.ui/module-base/dist/system-caps.js
-  var SYS_CAP = cap("@proto.ui/__sys");
-
-  // node_modules/@proto.ui/module-base/dist/module-base.js
-  class ModuleBase {
-    protoPhase = "setup";
-    instancePhase = "setup";
-    mountPhase = "detached";
-    caps;
-    pending = [];
-    constructor(caps2) {
-      this.caps = caps2;
-      this.caps.onChange((epoch) => {
-        this.onCapsEpoch(epoch);
-        this.flushPending();
-      });
-    }
-    get sys() {
-      return this.caps.get(SYS_CAP);
-    }
-    onProtoPhase(phase) {
-      this.protoPhase = phase;
-    }
-    onInstancePhase(phase) {
-      this.instancePhase = phase;
-    }
-    onMountPhase(phase, _epoch) {
-      this.mountPhase = phase;
-    }
-    onCapsEpoch(_epoch) {}
-    defer(fn) {
-      this.pending.push(fn);
-    }
-    flushPending() {
-      if (this.pending.length === 0)
-        return;
-      const tasks = this.pending;
-      this.pending = [];
-      for (const t of tasks)
-        t();
-    }
-  }
-  // node_modules/@proto.ui/module-base/dist/create-module.js
-  function defineModule(def2) {
-    return def2;
-  }
-  function createModule(args) {
-    const { facade, hooks, port } = args.build({
-      init: args.init,
-      caps: args.caps,
-      deps: args.deps
-    });
-    return {
-      name: args.name,
-      scope: args.scope,
-      facade,
-      hooks: hooks ?? {},
-      port
-    };
-  }
-  // node_modules/@proto.ui/module-feedback/dist/caps.js
+  // ../packages/modules/feedback/src/caps.ts
   var EFFECTS_CAP = cap("@proto.ui/feedback/effects");
 
-  // node_modules/@proto.ui/module-feedback/dist/create.js
+  // ../packages/modules/feedback/src/create.ts
   function createFeedbackModule(ctx) {
     const { init, caps: caps2, deps } = ctx;
     return createModule({
@@ -2264,10 +2465,10 @@
     deps: [],
     create: createFeedbackModule
   });
-  // node_modules/@proto.ui/module-props/dist/caps.js
+  // ../packages/modules/props/src/caps.ts
   var RAW_PROPS_SOURCE_CAP = cap("@proto.ui/props/rawPropsSource");
 
-  // node_modules/@proto.ui/module-props/dist/kernel/json-value.js
+  // ../packages/modules/props/src/kernel/json-value.ts
   function isJsonPropsValue(value, seen = new Set) {
     if (value === null)
       return true;
@@ -2308,7 +2509,7 @@
     return true;
   }
 
-  // node_modules/@proto.ui/module-props/dist/kernel/merge.js
+  // ../packages/modules/props/src/kernel/merge.ts
   function hasOwn(obj, key) {
     return Object.prototype.hasOwnProperty.call(obj, key);
   }
@@ -2557,7 +2758,7 @@
     return { specs: out, diags };
   }
 
-  // node_modules/@proto.ui/module-props/dist/kernel/kernel.js
+  // ../packages/modules/props/src/kernel/kernel.ts
   var hasOwn2 = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
   function shallowFreeze(o) {
     return Object.freeze({ ...o });
@@ -2877,7 +3078,7 @@
     }
   }
 
-  // node_modules/@proto.ui/module-props/dist/impl.js
+  // ../packages/modules/props/src/impl.ts
   function objectIs2(a, b) {
     return Object.is(a, b);
   }
@@ -3188,7 +3389,7 @@
     }
   }
 
-  // node_modules/@proto.ui/module-props/dist/create.js
+  // ../packages/modules/props/src/create.ts
   function createPropsModule(ctx) {
     const { init, caps: caps3, deps } = ctx;
     return createModule({
@@ -3212,7 +3413,8 @@
             isProvided: (key) => impl.isProvided(key)
           },
           hooks: {
-            onProtoPhase: (p) => impl.onProtoPhase(p)
+            onProtoPhase: (p) => impl.onProtoPhase(p),
+            dispose: () => impl.dispose()
           },
           port: {
             syncFromHost: () => impl.syncFromHost(),
@@ -3230,7 +3432,7 @@
     deps: [],
     create: createPropsModule
   });
-  // node_modules/@proto.ui/module-event/dist/kernel.js
+  // ../packages/modules/event/src/kernel.ts
   function isPlainObject(x) {
     return !!x && typeof x === "object" && (x.constructor === Object || x.constructor == null);
   }
@@ -3278,6 +3480,7 @@
         if (r.id !== id)
           continue;
         if (r.wrapper && r.boundTarget) {
+          r.deactivate?.();
           r.boundTarget.removeEventListener(r.type, r.wrapper, r.options);
         }
         this.regs.splice(i, 1);
@@ -3291,6 +3494,7 @@
         if (!matchReg(r, kind, type, options))
           continue;
         if (r.wrapper && r.boundTarget) {
+          r.deactivate?.();
           r.boundTarget.removeEventListener(r.type, r.wrapper, r.options);
         }
         this.regs.splice(i, 1);
@@ -3309,23 +3513,55 @@
       return false;
     }
     bindAll(dispatch, getTarget) {
+      const pending = [];
       for (const r of this.regs) {
         if (r.wrapper && r.boundTarget)
           continue;
         const target = getTarget(r.kind, r.type);
-        const wrapper = (ev) => dispatch(r.id, ev);
-        target.addEventListener(r.type, wrapper, r.options);
-        r.wrapper = wrapper;
-        r.boundTarget = target;
+        let active = true;
+        const wrapper = (event2) => {
+          if (!active)
+            return;
+          dispatch(r.id, event2, r.type);
+        };
+        const deactivate = () => {
+          active = false;
+        };
+        pending.push({ registration: r, target, wrapper, deactivate });
+      }
+      const attached = [];
+      try {
+        for (const { registration, target, wrapper, deactivate } of pending) {
+          target.addEventListener(registration.type, wrapper, registration.options);
+          attached.push({ registration, target, wrapper, deactivate });
+          registration.wrapper = wrapper;
+          registration.deactivate = deactivate;
+          registration.boundTarget = target;
+        }
+      } catch (error2) {
+        for (const { registration, target, wrapper, deactivate } of attached) {
+          deactivate();
+          try {
+            target.removeEventListener(registration.type, wrapper, registration.options);
+          } catch {}
+          registration.wrapper = undefined;
+          registration.deactivate = undefined;
+          registration.boundTarget = undefined;
+        }
+        throw error2;
       }
     }
     unbindAll() {
       for (const r of this.regs) {
         if (!r.wrapper || !r.boundTarget)
           continue;
-        r.boundTarget.removeEventListener(r.type, r.wrapper, r.options);
+        const target = r.boundTarget;
+        const wrapper = r.wrapper;
+        r.deactivate?.();
         r.wrapper = undefined;
+        r.deactivate = undefined;
         r.boundTarget = undefined;
+        target.removeEventListener(r.type, wrapper, r.options);
       }
     }
     cleanupAll() {
@@ -3349,13 +3585,114 @@
     }
   }
 
-  // node_modules/@proto.ui/module-event/dist/caps.js
+  // ../packages/modules/expose-event/src/caps.ts
+  var EXPOSE_EVENT_SINK_CAP = cap("@proto.ui/event/emit");
+  // ../packages/modules/expose-event/src/error.ts
+  class ExposeEventError extends Error {
+    code;
+    detail;
+    constructor(code, message, detail) {
+      super(message);
+      this.name = "ExposeEventError";
+      this.code = code;
+      this.detail = detail;
+    }
+  }
+  function exposeEventInvalidArgument(message, detail) {
+    return new ExposeEventError("EXPOSE_EVENT_INVALID_ARGUMENT", message, detail);
+  }
+
+  // ../packages/modules/expose-event/src/impl.ts
+  class ExposeEventModuleImpl extends ModuleBase {
+    expose;
+    prototypeName;
+    constructor(caps4, deps, prototypeName) {
+      super(caps4);
+      this.expose = deps.requirePort("expose");
+      this.prototypeName = prototypeName;
+    }
+    registerExposeEvent(key, _spec) {
+      this.sys?.ensureSetup("def.expose.event");
+      this.ensureValidKey(key, "def.expose.event");
+      const declaration = this.expose.get(key);
+      if (!isExposeEventDeclaration(declaration)) {
+        throw exposeEventInvalidArgument(`[ExposeEvent] key is not registered as an expose.event declaration: ${key}`, { prototypeName: this.prototypeName, key });
+      }
+    }
+    emit(key, payload, options) {
+      this.sys?.ensureRuntime("rt.expose.emit");
+      this.ensureValidKey(key, "rt.expose.emit");
+      const declaration = this.expose.get(key);
+      if (!isExposeEventDeclaration(declaration)) {
+        throw exposeEventInvalidArgument(`[ExposeEvent] emit for unregistered expose.event key: ${key}`, { prototypeName: this.prototypeName, key });
+      }
+      if (!this.caps.has(EXPOSE_EVENT_SINK_CAP))
+        return;
+      const sink = this.caps.get(EXPOSE_EVENT_SINK_CAP);
+      if (!sink)
+        return;
+      try {
+        sink(key, payload, options);
+      } catch {}
+    }
+    facade = {
+      registerExposeEvent: (key, spec2) => this.registerExposeEvent(key, spec2),
+      emit: (key, payload, options) => this.emit(key, payload, options)
+    };
+    ensureValidKey(key, op) {
+      if (typeof key === "string" && key.length > 0)
+        return;
+      throw exposeEventInvalidArgument(`[ExposeEvent] ${op} requires a non-empty string key.`, {
+        prototypeName: this.prototypeName,
+        key
+      });
+    }
+  }
+
+  // ../packages/modules/expose-event/src/create.ts
+  function createExposeEventModule(ctx) {
+    return createModule({
+      name: "expose-event",
+      scope: "instance",
+      init: ctx.init,
+      caps: ctx.caps,
+      deps: ctx.deps,
+      build: ({ init, caps: caps4, deps }) => {
+        const impl = new ExposeEventModuleImpl(caps4, deps, init.prototypeName);
+        return { facade: impl.facade };
+      }
+    });
+  }
+  var ExposeEventModuleDef = defineModule({
+    name: "expose-event",
+    resourceOwnership: "instance",
+    deps: ["expose"],
+    create: createExposeEventModule
+  });
+  // ../packages/modules/event/src/caps.ts
   var EVENT_ROOT_TARGET_CAP = cap("@proto.ui/event/getRootTarget");
   var EVENT_GLOBAL_TARGET_CAP = cap("@proto.ui/event/getGlobalTarget");
-  var EVENT_EMIT_CAP = cap("@proto.ui/event/emit");
   var EVENT_CANCEL_DEFAULT_ACTION_CAP = cap("@proto.ui/event/cancelDefaultAction");
 
-  // node_modules/@proto.ui/module-event/dist/impl.js
+  // ../packages/modules/event/src/error.ts
+  class EventError extends Error {
+    code;
+    detail;
+    constructor(code, message, detail) {
+      super(message);
+      this.name = "EventError";
+      this.code = code;
+      this.detail = detail;
+    }
+  }
+  function eventInvalidArg(message, detail) {
+    return new EventError("EVENT_INVALID_ARGUMENT", message, detail);
+  }
+  function eventTargetUnavailable(message, detail) {
+    return new EventError("EVENT_TARGET_UNAVAILABLE", message, detail);
+  }
+
+  // ../packages/modules/event/src/impl.ts
   var CORE_EVENT_TYPES = [
     "press.start",
     "press.end",
@@ -3379,19 +3716,31 @@
     "change",
     "context.menu"
   ];
-  function illegalEventTarget(message, detail) {
-    const err = new Error(message);
-    err.name = "EventTargetUnavailable";
-    err.code = "EVENT_TARGET_UNAVAILABLE";
-    err.detail = detail;
-    return err;
+  var PORTABLE_EVENT_FIELDS = [
+    "key",
+    "ctrlKey",
+    "metaKey",
+    "altKey",
+    "shiftKey",
+    "repeat"
+  ];
+  function eventDataSource(raw) {
+    if (!raw || typeof raw !== "object")
+      return {};
+    const detail = raw.detail;
+    if (detail && typeof detail === "object")
+      return detail;
+    return raw;
   }
-  function illegalEventArg(message, detail) {
-    const err = new Error(message);
-    err.name = "EventInvalidArgument";
-    err.code = "EVENT_INVALID_ARGUMENT";
-    err.detail = detail;
-    return err;
+  function createPortableEventPayload(type, raw, control) {
+    const source = eventDataSource(raw);
+    const payload = { type, control };
+    for (const field of PORTABLE_EVENT_FIELDS) {
+      const value = source[field];
+      if (typeof value === "string" || typeof value === "boolean")
+        payload[field] = value;
+    }
+    return Object.freeze(payload);
   }
   function isValidEventType(type) {
     if (typeof type !== "string" || !type)
@@ -3415,10 +3764,9 @@
     overriddenSemanticRootTarget = null;
     lastDispatch = null;
     isBound = false;
-    exposedEvents = new Map;
     internalCallbacks = new Map;
-    constructor(caps4, prototypeName) {
-      super(caps4);
+    constructor(caps5, prototypeName) {
+      super(caps5);
       this.prototypeName = prototypeName;
     }
     ensureSetup(op) {
@@ -3459,9 +3807,9 @@
       return token;
     }
     redirectRoot(target) {
-      this.ensureSetup("def.event.redirectRoot");
+      this.ensureSetup("event.port.redirectRoot");
       if (!isEventTargetLike(target)) {
-        throw illegalEventArg(`[Event] redirectRoot() requires an EventTarget-like object.`, {
+        throw eventInvalidArg(`[Event] redirectRoot() requires an EventTarget-like object.`, {
           prototypeName: this.prototypeName,
           target
         });
@@ -3469,9 +3817,9 @@
       this.overriddenRootTarget = target;
     }
     redirectSemanticRoot(target) {
-      this.ensureSetup("def.event.redirectSemanticRoot");
+      this.ensureSetup("event.port.redirectSemanticRoot");
       if (!isEventTargetLike(target)) {
-        throw illegalEventArg(`[Event] redirectSemanticRoot() requires an EventTarget-like object.`, {
+        throw eventInvalidArg(`[Event] redirectSemanticRoot() requires an EventTarget-like object.`, {
           prototypeName: this.prototypeName,
           target
         });
@@ -3481,20 +3829,23 @@
     on(type, options) {
       this.ensureSetup("def.event.on");
       this.guardArgs(type);
+      this.guardListenerOptions(type, options);
       const id = this.kernel.on("root", type, options);
       return this.makeToken(id, "root", type, options);
     }
     onGlobal(type, options) {
       this.ensureSetup("def.event.onGlobal");
       this.guardArgs(type);
+      this.guardListenerOptions(type, options);
       const id = this.kernel.on("global", type, options);
       return this.makeToken(id, "global", type, options);
     }
     onInternal(type, cb, options) {
       this.ensureSetup("event.port.on");
       this.guardArgs(type);
+      this.guardListenerOptions(type, options);
       if (typeof cb !== "function") {
-        throw illegalEventArg(`[Event] internal listener requires a callback.`, {
+        throw eventInvalidArg(`[Event] internal listener requires a callback.`, {
           prototypeName: this.prototypeName,
           type
         });
@@ -3506,8 +3857,9 @@
     onGlobalInternal(type, cb, options) {
       this.ensureSetup("event.port.onGlobal");
       this.guardArgs(type);
+      this.guardListenerOptions(type, options);
       if (typeof cb !== "function") {
-        throw illegalEventArg(`[Event] internal global listener requires a callback.`, {
+        throw eventInvalidArg(`[Event] internal global listener requires a callback.`, {
           prototypeName: this.prototypeName,
           type
         });
@@ -3520,52 +3872,13 @@
       this.ensureSetup("def.event.off");
       const id = token?.id;
       if (typeof id !== "string" || !id) {
-        throw illegalEventArg(`[Event] invalid token.`, {
+        throw eventInvalidArg(`[Event] invalid token.`, {
           prototypeName: this.prototypeName,
           token
         });
       }
       this.internalCallbacks.delete(id);
       this.kernel.offById(id);
-    }
-    registerExposeEvent(key, spec2) {
-      this.ensureSetup("def.expose.event");
-      if (typeof key !== "string" || !key) {
-        throw illegalEventArg(`[Event] expose.event requires a non-empty string key.`, {
-          prototypeName: this.prototypeName,
-          key
-        });
-      }
-      if (this.exposedEvents.has(key)) {
-        throw illegalEventArg(`[Event] duplicate expose.event key: ${key}`, {
-          prototypeName: this.prototypeName,
-          key
-        });
-      }
-      this.exposedEvents.set(key, spec2);
-    }
-    emit(key, payload, options) {
-      this.ensureRuntime("rt.expose.emit");
-      if (typeof key !== "string" || !key) {
-        throw illegalEventArg(`[Event] emit requires a non-empty string key.`, {
-          prototypeName: this.prototypeName,
-          key
-        });
-      }
-      if (!this.exposedEvents.has(key)) {
-        throw illegalEventArg(`[Event] emit for unregistered expose.event key: ${key}`, {
-          prototypeName: this.prototypeName,
-          key
-        });
-      }
-      if (!this.caps.has(EVENT_EMIT_CAP))
-        return;
-      const sink = this.caps.get(EVENT_EMIT_CAP);
-      if (!sink)
-        return;
-      try {
-        sink(key, payload, options);
-      } catch {}
     }
     bind(dispatch) {
       this.ensureRuntime("rt.event.bind");
@@ -3575,20 +3888,49 @@
         return;
       const rootGetter = this.caps.has(EVENT_ROOT_TARGET_CAP) ? this.caps.get(EVENT_ROOT_TARGET_CAP) : undefined;
       const globalGetter = this.caps.has(EVENT_GLOBAL_TARGET_CAP) ? this.caps.get(EVENT_GLOBAL_TARGET_CAP) : undefined;
-      const root = rootGetter?.() ?? null;
+      const root = needsRoot ? rootGetter?.() ?? null : null;
       const global = needsGlobal ? globalGetter?.() ?? null : null;
       if (needsGlobal && !global) {
-        throw illegalEventTarget(`[Event] global target unavailable during bind().`, {
+        throw eventTargetUnavailable(`[Event] global target unavailable during bind().`, {
           prototypeName: this.prototypeName
         });
       }
       this.lastDispatch = dispatch;
-      this.kernel.bindAll(dispatch, (kind, type) => {
+      const preventedSamples = new WeakSet;
+      const dispatchWithControl = (id, raw, type) => {
+        if (!type)
+          throw eventInvalidArg("[Event] dispatch requires a registered event type.");
+        if (String(type).startsWith("host:")) {
+          dispatch(id, raw);
+          return;
+        }
+        let active = true;
+        const control = Object.freeze({
+          requestDefaultActionPrevention: (options) => {
+            if (!active) {
+              throw eventInvalidArg("[Event] default-action control is outside its callback window.");
+            }
+            if (raw && typeof raw === "object") {
+              if (preventedSamples.has(raw))
+                return;
+              preventedSamples.add(raw);
+            }
+            this.requestDefaultActionPrevented(raw, options);
+          }
+        });
+        const payload = createPortableEventPayload(type, raw, control);
+        try {
+          dispatch(id, payload);
+        } finally {
+          active = false;
+        }
+      };
+      this.kernel.bindAll(dispatchWithControl, (kind, type) => {
         if (kind === "global")
           return global;
         const target = this.overriddenRootTarget ?? (String(type).startsWith("host:") ? null : this.overriddenSemanticRootTarget) ?? root;
         if (!target) {
-          throw illegalEventTarget(`[Event] root target unavailable during bind().`, {
+          throw eventTargetUnavailable(`[Event] root target unavailable during bind().`, {
             prototypeName: this.prototypeName,
             type
           });
@@ -3642,11 +3984,14 @@
         this.lastDispatch = null;
         this.isBound = false;
         this.overriddenRootTarget = null;
-        this.exposedEvents.clear();
+        this.overriddenSemanticRootTarget = null;
         this.internalCallbacks.clear();
       }
     }
     onCapsEpoch(_epoch) {
+      if (this.caps.has(EXPOSE_EVENT_SINK_CAP)) {
+        throw eventInvalidArg(`[Event] EXPOSE_EVENT_SINK_CAP must be wired to the expose-event module, not event.`, { prototypeName: this.prototypeName, targetModule: "expose-event" });
+      }
       if (!this.isBound)
         return;
       if (!this.lastDispatch)
@@ -3655,9 +4000,17 @@
       this.isBound = false;
       this.bind(this.lastDispatch);
     }
+    guardListenerOptions(type, options) {
+      if (!String(type).startsWith("host:") && typeof options !== "undefined") {
+        throw eventInvalidArg("[Event] listener options are only valid for host:* extensions.", {
+          prototypeName: this.prototypeName,
+          type
+        });
+      }
+    }
     guardArgs(type) {
       if (!isValidEventType(type)) {
-        throw illegalEventArg(`[Event] invalid event type: ${String(type)}`, {
+        throw eventInvalidArg(`[Event] invalid event type: ${String(type)}`, {
           prototypeName: this.prototypeName,
           type
         });
@@ -3665,24 +4018,22 @@
     }
   }
 
-  // node_modules/@proto.ui/module-event/dist/create.js
+  // ../packages/modules/event/src/create.ts
   function createEventModule(ctx) {
-    const { init, caps: caps4, deps } = ctx;
+    const { init, caps: caps5, deps } = ctx;
     return createModule({
       name: "event",
       scope: "instance",
       init,
-      caps: caps4,
+      caps: caps5,
       deps,
-      build: ({ init: init2, caps: caps5 }) => {
-        const impl = new EventModuleImpl(caps5, init2.prototypeName);
+      build: ({ init: init2, caps: caps6 }) => {
+        const impl = new EventModuleImpl(caps6, init2.prototypeName);
         return {
           facade: {
             on: (type, options) => impl.on(type, options),
             onGlobal: (type, options) => impl.onGlobal(type, options),
-            off: (token) => impl.off(token),
-            registerExposeEvent: (key, spec2) => impl.registerExposeEvent(key, spec2),
-            emit: (key, payload, options) => impl.emit(key, payload, options)
+            off: (token) => impl.off(token)
           },
           hooks: {
             onProtoPhase: (p) => impl.onProtoPhase(p)
@@ -3708,203 +4059,14 @@
     deps: [],
     create: createEventModule
   });
-  // node_modules/@proto.ui/module-expose/dist/kernel.js
-  class ExposeKernel {
-    map = new Map;
-    has(key) {
-      return this.map.has(key);
-    }
-    get(key) {
-      return this.map.get(key);
-    }
-    set(key, value) {
-      this.map.set(key, value);
-    }
-    keys() {
-      return Array.from(this.map.keys());
-    }
-    entries() {
-      return Array.from(this.map.entries()).map(([key, value]) => ({
-        key,
-        value
-      }));
-    }
-    toRecord() {
-      const out = {};
-      for (const [k, v] of this.map)
-        out[k] = v;
-      return out;
-    }
-    clear() {
-      this.map.clear();
-    }
-  }
-
-  // node_modules/@proto.ui/module-expose/dist/error.js
-  class ExposeError extends Error {
-    code;
-    detail;
-    constructor(code, message, detail) {
-      super(message);
-      this.name = "ExposeError";
-      this.code = code;
-      this.detail = detail;
-    }
-  }
-  function exposeInvalidKey(message, detail) {
-    return new ExposeError("EXPOSE_INVALID_KEY", message, detail);
-  }
-  function exposeDuplicateKey(message, detail) {
-    return new ExposeError("EXPOSE_DUPLICATE_KEY", message, detail);
-  }
-  function exposeDisposed(message, detail) {
-    return new ExposeError("EXPOSE_DISPOSED", message, detail);
-  }
-  function exposePhaseViolation(message, detail) {
-    return new ExposeError("EXPOSE_PHASE_VIOLATION", message, detail);
-  }
-
-  // node_modules/@proto.ui/module-expose/dist/impl.js
-  function isValidKey(key) {
-    return typeof key === "string" && key.length > 0;
-  }
-  function toDiag(key, value) {
-    const t = typeof value;
-    return {
-      key,
-      valueType: t,
-      isFunction: t === "function",
-      isObject: value !== null && t === "object"
-    };
-  }
-
-  class ExposeModuleImpl extends ModuleBase {
-    kernel = new ExposeKernel;
-    prototypeName;
-    disposed = false;
-    constructor(caps5, prototypeName) {
-      super(caps5);
-      this.prototypeName = prototypeName;
-    }
-    expose(key, value) {
-      this.ensureSetup("def.expose");
-      this.ensureAlive("def.expose");
-      if (!isValidKey(key)) {
-        throw exposeInvalidKey(`[Expose] key must be a non-empty string.`, {
-          prototypeName: this.prototypeName,
-          key
-        });
-      }
-      if (this.kernel.has(key)) {
-        throw exposeDuplicateKey(`[Expose] duplicate key: ${key}`, {
-          prototypeName: this.prototypeName,
-          key
-        });
-      }
-      this.kernel.set(key, value);
-    }
-    port = {
-      get: (key) => {
-        this.ensureAlive("rt.expose.get");
-        return this.kernel.get(key);
-      },
-      getAll: () => {
-        this.ensureAlive("rt.expose.getAll");
-        return this.kernel.toRecord();
-      },
-      has: (key) => {
-        this.ensureAlive("rt.expose.has");
-        return this.kernel.has(key);
-      },
-      keys: () => {
-        this.ensureAlive("rt.expose.keys");
-        return this.kernel.keys();
-      },
-      getDiagnostics: () => {
-        this.ensureAlive("rt.expose.getDiagnostics");
-        const entries = this.kernel.entries();
-        return entries.map((e) => toDiag(e.key, e.value));
-      }
-    };
-    onProtoPhase(phase) {
-      super.onProtoPhase(phase);
-      if (phase === "unmounted") {
-        this.dispose();
-      }
-    }
-    dispose() {
-      if (this.disposed)
-        return;
-      this.disposed = true;
-      this.kernel.clear();
-    }
-    ensureSetup(op) {
-      if (this.sys) {
-        try {
-          this.sys.ensureSetup(op);
-          return;
-        } catch (e) {
-          throw exposePhaseViolation(`[Expose] setup-only: ${op}`, {
-            prototypeName: this.prototypeName,
-            error: e
-          });
-        }
-      }
-      if (this.protoPhase !== "setup") {
-        throw illegalPhase(op, this.protoPhase, {
-          prototypeName: this.prototypeName
-        });
-      }
-    }
-    ensureAlive(op) {
-      this.sys?.ensureNotDisposed(op);
-      if (this.disposed) {
-        throw exposeDisposed(`[Expose] disposed. op=${op}`, {
-          prototypeName: this.prototypeName
-        });
-      }
-    }
-    facade = {
-      expose: (key, value) => this.expose(key, value)
-    };
-  }
-
-  // node_modules/@proto.ui/module-expose/dist/create.js
-  function createExposeModule(ctx) {
-    const { init, caps: caps5, deps } = ctx;
-    return createModule({
-      name: "expose",
-      scope: "instance",
-      init,
-      caps: caps5,
-      deps,
-      build: ({ init: init2, caps: caps6 }) => {
-        const impl = new ExposeModuleImpl(caps6, init2.prototypeName);
-        return {
-          facade: impl.facade,
-          port: impl.port,
-          hooks: {
-            onProtoPhase: (p) => impl.onProtoPhase(p),
-            dispose: () => impl.dispose()
-          }
-        };
-      }
-    });
-  }
-  var ExposeModuleDef = defineModule({
-    name: "expose",
-    resourceOwnership: "instance",
-    deps: [],
-    create: createExposeModule
-  });
-  // node_modules/@proto.ui/module-anatomy/dist/caps.js
+  // ../packages/modules/anatomy/src/caps.ts
   var ANATOMY_INSTANCE_TOKEN_CAP = cap("@proto.ui/anatomy/instanceToken");
   var ANATOMY_PARENT_CAP = cap("@proto.ui/anatomy/getParent");
   var ANATOMY_GET_PROTO_CAP = cap("@proto.ui/anatomy/getPrototype");
   var ANATOMY_ROOT_TARGET_CAP = cap("@proto.ui/anatomy/getRootTarget");
   var ANATOMY_ORDER_OBSERVER_CAP = cap("@proto.ui/anatomy/orderObserver");
 
-  // node_modules/@proto.ui/module-anatomy/dist/error.js
+  // ../packages/modules/anatomy/src/error.ts
   var ERR = {
     PHASE: "ANATOMY_PHASE_VIOLATION",
     CAP: "ANATOMY_CAP_UNAVAILABLE",
@@ -3917,7 +4079,7 @@
     return err;
   }
 
-  // node_modules/@proto.ui/module-anatomy/dist/impl.js
+  // ../packages/modules/anatomy/src/impl.ts
   var CLAIM_BY_PART_VIEW = new WeakMap;
   var ORDER_FOLLOWING = typeof Node !== "undefined" ? Node.DOCUMENT_POSITION_FOLLOWING : 4;
   var ORDER_PRECEDING = typeof Node !== "undefined" ? Node.DOCUMENT_POSITION_PRECEDING : 2;
@@ -4066,8 +4228,8 @@
     objectIds = new WeakMap;
     primitiveIds = new Map;
     nextIdentityId = 1;
-    constructor(caps5, prototypeName, exposePort) {
-      super(caps5);
+    constructor(caps6, prototypeName, exposePort) {
+      super(caps6);
       this.prototypeName = prototypeName;
       this.exposePort = exposePort;
       AnatomyModuleImpl.liveInstances.add(this);
@@ -4842,8 +5004,8 @@
             claim.invoke(() => {
               try {
                 result = exposed(...args);
-              } catch (error3) {
-                thrown = error3;
+              } catch (error4) {
+                thrown = error4;
               }
             });
             if (thrown)
@@ -4861,7 +5023,7 @@
         try {
           this.sys.ensureSetup(op);
           return;
-        } catch (error3) {
+        } catch (error4) {
           throw anatomyError(ERR.PHASE, `[Anatomy] setup-only: ${op}`);
         }
       }
@@ -4921,18 +5083,18 @@
     }
   }
 
-  // node_modules/@proto.ui/module-anatomy/dist/create.js
+  // ../packages/modules/anatomy/src/create.ts
   function createAnatomyModule(ctx) {
-    const { init, caps: caps5, deps } = ctx;
+    const { init, caps: caps6, deps } = ctx;
     const exposePort = deps.requirePort("expose");
     return createModule({
       name: "anatomy",
       scope: "instance",
       init,
-      caps: caps5,
+      caps: caps6,
       deps,
-      build: ({ init: init2, caps: caps6 }) => {
-        const impl = new AnatomyModuleImpl(caps6, init2.prototypeName, exposePort);
+      build: ({ init: init2, caps: caps7 }) => {
+        const impl = new AnatomyModuleImpl(caps7, init2.prototypeName, exposePort);
         return {
           facade: {
             claim: (family, decl) => impl.claim(family, decl),
@@ -4965,10 +5127,17 @@
     deps: ["expose"],
     create: createAnatomyModule
   });
-  // node_modules/@proto.ui/module-expose-state/dist/caps.js
-  var EXPOSE_STATE_SET_EXPOSES_CAP = cap("@proto.ui/expose-state/setExposes");
+  // ../packages/modules/expose-state/src/types.ts
+  var EXPOSE_STATE_EXTERNAL_HANDLE = Symbol.for("@proto.ui/expose-state/external-handle");
+  function isExposeStateExternalHandle(value) {
+    return !!value && typeof value === "object" && value[EXPOSE_STATE_EXTERNAL_HANDLE] === true;
+  }
 
-  // node_modules/@proto.ui/module-expose-state/dist/impl.js
+  // ../packages/modules/expose-state/src/caps.ts
+  var EXPOSES_RECORD_SINK_CAP = cap("@proto.ui/expose-state/setExposes");
+  var EXPOSE_STATE_SET_EXPOSES_CAP = EXPOSES_RECORD_SINK_CAP;
+
+  // ../packages/modules/expose-state/src/impl.ts
   var STATE_ID = "__stateId";
   var STATE_SPEC = "__stateSpec";
   function isStateHandleLike2(x) {
@@ -4991,9 +5160,11 @@
     statePort;
     disposed = false;
     cache = new Map;
+    externalHandleCache = new WeakMap;
     externalSubscriptions = new Set;
-    constructor(caps6, deps) {
-      super(caps6);
+    publishedSink = null;
+    constructor(caps7, deps) {
+      super(caps7);
       this.exposePort = deps.requirePort("expose");
       this.statePort = deps.requirePort("state");
     }
@@ -5007,8 +5178,14 @@
         this.ensureAlive("rt.exposeState.getAll");
         this.sync();
         const out = {};
-        for (const [k, v] of this.cache)
-          out[k] = v;
+        for (const [k, v] of this.cache) {
+          Object.defineProperty(out, k, {
+            value: v,
+            enumerable: true,
+            configurable: true,
+            writable: true
+          });
+        }
         return out;
       },
       getDiagnostics: () => {
@@ -5022,11 +5199,6 @@
         return diags;
       }
     };
-    onProtoPhase(phase) {
-      super.onProtoPhase(phase);
-      if (phase === "unmounted")
-        this.dispose();
-    }
     onInstancePhase(phase) {
       super.onInstancePhase(phase);
       if (phase === "alive")
@@ -5068,12 +5240,17 @@
         if (!spec2) {
           throw new Error(`[ExposeState] missing StateSpec on exposed handle: ${key}`);
         }
-        const external = this.wrapExternalHandle(value, spec2);
+        let external = this.externalHandleCache.get(value);
+        if (!external) {
+          external = this.wrapExternalHandle(value, spec2);
+          this.externalHandleCache.set(value, external);
+        }
         this.cache.set(key, external);
       }
     }
     wrapExternalHandle(handle, spec2) {
       const external = {
+        [EXPOSE_STATE_EXTERNAL_HANDLE]: true,
         get: () => {
           this.ensureAlive("rt.exposeState.external.get");
           return handle.get();
@@ -5103,43 +5280,38 @@
       return external;
     }
     publishToHost(clear = false) {
-      if (!clear && this.instancePhase === "setup")
-        return;
-      if (!this.caps.has(EXPOSE_STATE_SET_EXPOSES_CAP))
-        return;
-      const sink = this.caps.get(EXPOSE_STATE_SET_EXPOSES_CAP);
-      if (!sink)
-        return;
-      if (clear) {
+      const nextSink = !clear && this.caps.has(EXPOSES_RECORD_SINK_CAP) ? this.caps.get(EXPOSES_RECORD_SINK_CAP) : null;
+      if (this.publishedSink && this.publishedSink !== nextSink) {
         try {
-          sink({});
+          this.publishedSink({});
         } catch {}
-        return;
       }
+      this.publishedSink = nextSink;
+      if (clear || !nextSink || this.instancePhase === "setup")
+        return;
       const record = this.port.getAll();
       try {
-        sink(record);
+        nextSink(record);
       } catch {}
     }
   }
 
-  // node_modules/@proto.ui/module-expose-state/dist/create.js
+  // ../packages/modules/expose-state/src/create.ts
   function createExposeStateModule(ctx) {
-    const { init, caps: caps6, deps } = ctx;
+    const { init, caps: caps7, deps } = ctx;
     return createModule({
       name: "expose-state",
       scope: "instance",
       init,
-      caps: caps6,
+      caps: caps7,
       deps,
-      build: ({ caps: caps7, deps: deps2 }) => {
-        const impl = new ExposeStateModuleImpl(caps7, deps2);
+      build: ({ caps: caps8, deps: deps2 }) => {
+        const impl = new ExposeStateModuleImpl(caps8, deps2);
         return {
           facade: {},
           port: impl.port,
           hooks: {
             onInstancePhase: (p) => impl.onInstancePhase(p),
-            onProtoPhase: (p) => impl.onProtoPhase(p),
             afterRenderCommit: () => impl.afterRenderCommit(),
             dispose: () => impl.dispose()
           }
@@ -5153,12 +5325,12 @@
     deps: ["expose", "state"],
     create: createExposeStateModule
   });
-  // node_modules/@proto.ui/module-expose-state-web/dist/caps.js
+  // ../packages/modules/expose-state-web/src/caps.ts
   var EXPOSE_STATE_WEB_MAP_CAP = cap("@proto.ui/expose-state-web/nameMap");
   var EXPOSE_STATE_WEB_MODE_CAP = cap("@proto.ui/expose-state-web/mode");
   var EXPOSE_STATE_WEB_MIRROR_TARGETS_CAP = cap("@proto.ui/expose-state-web/mirrorTargets");
 
-  // node_modules/@proto.ui/module-expose-state-web/dist/utils.js
+  // ../packages/modules/expose-state-web/src/utils.ts
   function mapOfficialSemanticName(semantic) {
     switch (semantic) {
       case "@interaction/disabled":
@@ -5202,25 +5374,16 @@
     };
   }
 
-  // node_modules/@proto.ui/module-expose-state-web/dist/impl.js
-  function isExternalStateHandle(x) {
-    return !!x && typeof x === "object" && typeof x.get === "function" && typeof x.subscribe === "function" && typeof x.unsubscribe === "function" && !!x.spec;
-  }
-
+  // ../packages/modules/expose-state-web/src/impl.ts
   class ExposeStateWebModuleImpl extends ModuleBase {
     exposeState;
     disposed = false;
     bindings = [];
     active = false;
     exposedByStateId = new Map;
-    constructor(caps7, deps) {
-      super(caps7);
+    constructor(caps8, deps) {
+      super(caps8);
       this.exposeState = deps.requirePort("expose-state");
-    }
-    onProtoPhase(phase) {
-      super.onProtoPhase(phase);
-      if (phase === "unmounted")
-        this.dispose();
     }
     onMountPhase(phase, epoch) {
       super.onMountPhase(phase, epoch);
@@ -5265,7 +5428,7 @@
       this.clearBindings();
       this.exposedByStateId.clear();
       for (const [key, value] of Object.entries(all)) {
-        if (!isExternalStateHandle(value))
+        if (!isExposeStateExternalHandle(value))
           continue;
         const spec2 = value.spec;
         const semantic = value.__stateSemantic || key;
@@ -5404,24 +5567,23 @@
     };
   }
 
-  // node_modules/@proto.ui/module-expose-state-web/dist/create.js
+  // ../packages/modules/expose-state-web/src/create.ts
   function createExposeStateWebModule(ctx) {
-    const { init, caps: caps7, deps } = ctx;
+    const { init, caps: caps8, deps } = ctx;
     return createModule({
       name: "expose-state-web",
       scope: "instance",
       init,
-      caps: caps7,
+      caps: caps8,
       deps,
-      build: ({ caps: caps8, deps: deps2 }) => {
-        const impl = new ExposeStateWebModuleImpl(caps8, deps2);
+      build: ({ caps: caps9, deps: deps2 }) => {
+        const impl = new ExposeStateWebModuleImpl(caps9, deps2);
         return {
           facade: {},
           port: impl.port,
           hooks: {
             onInstancePhase: (p) => impl.onInstancePhase(p),
             onMountPhase: (p, epoch) => impl.onMountPhase(p, epoch),
-            onProtoPhase: (p) => impl.onProtoPhase(p),
             afterRenderCommit: () => impl.afterRenderCommit(),
             dispose: () => impl.dispose()
           }
@@ -5436,22 +5598,33 @@
     optionalDeps: ["expose"],
     create: createExposeStateWebModule
   });
-  // node_modules/@proto.ui/module-rule-expose-state-web/dist/caps.js
+  // ../packages/modules/rule-expose-state-web/src/generated/lowered-variant-order.ts
+  var LOWERED_VARIANT_RANK = ["dark", "hover", "active", "focus", "focus-visible", "disabled"];
+  function compareLoweredVariants(a, b) {
+    const ai = LOWERED_VARIANT_RANK.indexOf(a);
+    const bi = LOWERED_VARIANT_RANK.indexOf(b);
+    if (ai !== -1 || bi !== -1)
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    return a.localeCompare(b);
+  }
+  function canonicalizeLoweredVariants(variants) {
+    return Array.from(new Set(variants)).sort(compareLoweredVariants);
+  }
+
+  // ../packages/modules/rule-expose-state-web/src/caps.ts
   var RULE_EXPOSE_STATE_WEB_NATIVE_VARIANT_POLICY_CAP = cap("@proto.ui/rule-expose-state-web/nativeVariantPolicy");
 
-  // node_modules/@proto.ui/module-rule-expose-state-web/dist/create.js
+  // ../packages/modules/rule-expose-state-web/src/create.ts
   function isStateMetaDeps(rule) {
-    let hasStateDep = false;
+    let hasLowerableDep = false;
     for (const dep of rule.deps) {
-      if (dep.kind === "state") {
-        hasStateDep = true;
+      if (dep.kind === "state" || dep.kind === "meta") {
+        hasLowerableDep = true;
         continue;
       }
-      if (dep.kind === "meta")
-        continue;
       return false;
     }
-    return hasStateDep;
+    return hasLowerableDep;
   }
   function extractConditions(expr) {
     switch (expr.type) {
@@ -5550,8 +5723,8 @@
     candidates = [];
     candidatesReady = false;
     optimizedIds = new Set;
-    constructor(caps8, deps) {
-      super(caps8);
+    constructor(caps9, deps) {
+      super(caps9);
       this.rulePort = deps.requirePort("rule");
       this.exposeStateWeb = deps.requirePort("expose-state-web");
       this.feedbackPort = deps.requirePort("feedback");
@@ -5612,10 +5785,10 @@
     tryApply() {
       if (this.mountPhase === "detached" || this.mountPhase === "unmounting")
         return;
-      const map = this.exposeStateWeb.getExposedStateMap();
-      if (!map || map.size === 0)
-        return;
+      const map = this.exposeStateWeb.getExposedStateMap() ?? new Map;
       const allowNativeVariant = this.getAllowNativeVariant();
+      if (map.size === 0 && !allowNativeVariant)
+        return;
       if (!this.candidatesReady) {
         this.candidates = this.collectCandidates();
         this.candidatesReady = true;
@@ -5640,7 +5813,7 @@
           continue;
         if (variants.every(isNegativeDataVariant))
           continue;
-        const prefix = variants.join(":");
+        const prefix = canonicalizeLoweredVariants(variants).join(":");
         const tokens = c.tokens.map((t) => `${prefix}:${t}`);
         const handle = { kind: "tw", tokens };
         this.feedbackPort.useStyleUnsafe(handle);
@@ -5651,15 +5824,15 @@
     }
   }
   function createRuleExposeStateWebModule(ctx) {
-    const { init, caps: caps8, deps } = ctx;
+    const { init, caps: caps9, deps } = ctx;
     return createModule({
       name: "rule-expose-state-web",
       scope: "instance",
       init,
-      caps: caps8,
+      caps: caps9,
       deps,
-      build: ({ caps: caps9, deps: deps2 }) => {
-        const impl = new RuleExposeStateWebImpl(caps9, deps2);
+      build: ({ caps: caps10, deps: deps2 }) => {
+        const impl = new RuleExposeStateWebImpl(caps10, deps2);
         return {
           facade: {},
           hooks: {
@@ -5677,13 +5850,13 @@
     deps: ["rule", "expose-state-web", "feedback"],
     create: createRuleExposeStateWebModule
   });
-  // node_modules/@proto.ui/module-rule-meta/dist/caps.js
+  // ../packages/modules/rule-meta/src/caps.ts
   var RULE_META_GET_CAP = cap("@proto.ui/rule-meta/get");
-  // node_modules/@proto.ui/module-rule-meta/dist/create.js
+  // ../packages/modules/rule-meta/src/create.ts
   class RuleMetaModuleImpl extends ModuleBase {
     rulePort;
-    constructor(caps9, deps) {
-      super(caps9);
+    constructor(caps10, deps) {
+      super(caps10);
       this.rulePort = deps.requirePort("rule");
       this.rulePort.registerExtension({
         beforePlan: (ctx) => {
@@ -5703,15 +5876,15 @@
     }
   }
   function createRuleMetaModule(ctx) {
-    const { init, caps: caps9, deps } = ctx;
+    const { init, caps: caps10, deps } = ctx;
     return createModule({
       name: "rule-meta",
       scope: "instance",
       init,
-      caps: caps9,
+      caps: caps10,
       deps,
-      build: ({ caps: caps10, deps: deps2 }) => {
-        const impl = new RuleMetaModuleImpl(caps10, deps2);
+      build: ({ caps: caps11, deps: deps2 }) => {
+        const impl = new RuleMetaModuleImpl(caps11, deps2);
         return {
           facade: {
             get: (key) => impl.get(key)
@@ -5729,7 +5902,7 @@
     deps: ["rule"],
     create: createRuleMetaModule
   });
-  // node_modules/@proto.ui/module-rule/dist/when-builder.js
+  // ../packages/modules/rule/src/when-builder.ts
   function stateIdOf(s) {
     const id = s?.__stateId ?? s?.id ?? s;
     if (typeof id === "string" || typeof id === "number")
@@ -5792,7 +5965,7 @@
       getDeps: () => deps.slice()
     };
   }
-  // node_modules/@proto.ui/module-rule/dist/intent-builder.js
+  // ../packages/modules/rule/src/intent-builder.ts
   function createIntentBuilder() {
     const ops = [];
     const builder = {
@@ -5816,7 +5989,7 @@
     const exportIntent = () => ({ kind: "ops", ops: ops.slice() });
     return { builder, exportIntent };
   }
-  // node_modules/@proto.ui/module-rule/dist/compile.js
+  // ../packages/modules/rule/src/compile.ts
   function attachDefaultReasons(ops, spec2) {
     return ops.map((op, idx) => {
       if (op.kind !== "state.set")
@@ -5851,7 +6024,7 @@
       intent: { kind: "ops", ops }
     };
   }
-  // node_modules/@proto.ui/module-rule/dist/eval.js
+  // ../packages/modules/rule/src/eval.ts
   function evalValue(v, ctx) {
     switch (v.type) {
       case "prop":
@@ -5906,7 +6079,7 @@
     const merged = mergeTwTokensV0(tokens);
     return { kind: "style.tokens", tokens: merged.tokens };
   }
-  // node_modules/@proto.ui/module-rule/dist/impl.js
+  // ../packages/modules/rule/src/impl.ts
   class RuleModuleImpl {
     rules = [];
     extensions = [];
@@ -6094,14 +6267,14 @@
       };
     }
   }
-  // node_modules/@proto.ui/module-rule/dist/create.js
+  // ../packages/modules/rule/src/create.ts
   function createRuleModule(ctx) {
-    const { init, caps: caps10, deps } = ctx;
+    const { init, caps: caps11, deps } = ctx;
     return createModule({
       name: "rule",
       scope: "instance",
       init,
-      caps: caps10,
+      caps: caps11,
       deps,
       build: () => {
         const impl = new RuleModuleImpl;
@@ -6139,7 +6312,7 @@
     optionalDeps: ["props", "state", "context", "feedback"],
     create: createRuleModule
   });
-  // node_modules/@proto.ui/module-state/dist/kernel.js
+  // ../packages/modules/state/src/kernel.ts
   class StateKernel {
     nextId = 1;
     records = new Map;
@@ -6249,7 +6422,7 @@
       this.emitting = false;
     }
   }
-  // node_modules/@proto.ui/module-state/dist/impl.js
+  // ../packages/modules/state/src/impl.ts
   function opOf(semantic, method) {
     return `state(${semantic}).${method}`;
   }
@@ -6267,6 +6440,7 @@
     watchersById = new Map;
     kernelOffById = new Map;
     ctxStack = [];
+    callbackDispatcher = null;
     constructor(sys) {
       this.sys = sys;
     }
@@ -6290,6 +6464,13 @@
     currentCtx() {
       return this.ctxStack.length ? this.ctxStack[this.ctxStack.length - 1] : undefined;
     }
+    dispatchWatcher(cb, ctx, event2) {
+      if (this.callbackDispatcher) {
+        this.callbackDispatcher((callbackCtx) => cb(callbackCtx, event2));
+        return;
+      }
+      cb(ctx, event2);
+    }
     ensureKernelForwarder(id, handle) {
       if (this.kernelOffById.has(id))
         return;
@@ -6300,7 +6481,7 @@
         const ctx = this.currentCtx();
         const list = Array.from(watchers);
         for (const cb of list)
-          cb(ctx, e);
+          this.dispatchWatcher(cb, ctx, e);
       });
       this.kernelOffById.set(id, off);
     }
@@ -6337,7 +6518,7 @@
       const ctx = this.currentCtx();
       const list = Array.from(watchers);
       for (const cb of list)
-        cb(ctx, e);
+        this.dispatchWatcher(cb, ctx, e);
     }
     wrapOwnedHandle(raw, semantic) {
       const wrapped = {
@@ -6365,6 +6546,9 @@
       return wrapped;
     }
     port = {
+      setCallbackDispatcher: (dispatch) => {
+        this.callbackDispatcher = dispatch;
+      },
       watch: (handle, cb) => {
         this.ensureAlive(`state.port.watch`);
         return this.addWatcher(handle, cb);
@@ -6471,17 +6655,17 @@
       this.kernel.dispose();
     }
   }
-  // node_modules/@proto.ui/module-state/dist/create.js
+  // ../packages/modules/state/src/create.ts
   function createStateModule(ctx) {
-    const { init, caps: caps10, deps } = ctx;
+    const { init, caps: caps11, deps } = ctx;
     return createModule({
       name: "state",
       scope: "instance",
       init,
-      caps: caps10,
+      caps: caps11,
       deps,
-      build: ({ caps: caps11 }) => {
-        const sys = caps11.get(SYS_CAP);
+      build: ({ caps: caps12 }) => {
+        const sys = caps12.get(SYS_CAP);
         const impl2 = new StateModuleImpl(sys);
         return {
           facade: impl2.facade,
@@ -6499,7 +6683,7 @@
     deps: [],
     create: createStateModule
   });
-  // node_modules/@proto.ui/module-state-interaction/dist/create.js
+  // ../packages/modules/state-interaction/src/create.ts
   class StateInteractionModuleImpl {
     stateFacade;
     statePort;
@@ -6585,12 +6769,12 @@
     }
   }
   function createStateInteractionModule(ctx) {
-    const { init, caps: caps10, deps } = ctx;
+    const { init, caps: caps11, deps } = ctx;
     return createModule({
       name: "state-interaction",
       scope: "instance",
       init,
-      caps: caps10,
+      caps: caps11,
       deps,
       build: ({ deps: deps2 }) => {
         const stateFacade = deps2.requireFacade("state");
@@ -6611,7 +6795,7 @@
     deps: ["state", "event"],
     create: createStateInteractionModule
   });
-  // node_modules/@proto.ui/module-state-accessibility/dist/create.js
+  // ../packages/modules/state-accessibility/src/create.ts
   class StateAccessibilityModuleImpl {
     stateFacade;
     statePort;
@@ -6637,12 +6821,12 @@
     }
   }
   function createStateAccessibilityModule(ctx) {
-    const { init, caps: caps10, deps } = ctx;
+    const { init, caps: caps11, deps } = ctx;
     return createModule({
       name: "state-accessibility",
       scope: "instance",
       init,
-      caps: caps10,
+      caps: caps11,
       deps,
       build: ({ deps: deps2 }) => {
         const stateFacade = deps2.requireFacade("state");
@@ -6662,9 +6846,9 @@
     deps: ["state"],
     create: createStateAccessibilityModule
   });
-  // node_modules/@proto.ui/module-a11y/dist/caps.js
+  // ../packages/modules/a11y/src/caps.ts
   var A11Y_PROJECT_CAP = cap("@proto.ui/a11y/project");
-  // node_modules/@proto.ui/module-a11y/dist/create.js
+  // ../packages/modules/a11y/src/create.ts
   class A11yModuleImpl extends ModuleBase {
     statePort;
     ir = {
@@ -6674,8 +6858,8 @@
     };
     stateWatchOffs = [];
     stateWatchesInstalled = false;
-    constructor(caps10, statePort) {
-      super(caps10);
+    constructor(caps11, statePort) {
+      super(caps11);
       this.statePort = statePort;
     }
     facade = {
@@ -6883,15 +7067,15 @@
     };
   }
   function createA11yModule(ctx) {
-    const { init, caps: caps10, deps } = ctx;
+    const { init, caps: caps11, deps } = ctx;
     return createModule({
       name: "a11y",
       scope: "instance",
       init,
-      caps: caps10,
+      caps: caps11,
       deps,
-      build: ({ caps: caps11, deps: deps2 }) => {
-        const impl3 = new A11yModuleImpl(caps11, deps2.requirePort("state"));
+      build: ({ caps: caps12, deps: deps2 }) => {
+        const impl3 = new A11yModuleImpl(caps12, deps2.requirePort("state"));
         return {
           facade: impl3.facade,
           port: impl3.port,
@@ -6912,7 +7096,7 @@
     deps: ["state"],
     create: createA11yModule
   });
-  // node_modules/@proto.ui/module-collection/dist/create.js
+  // ../packages/modules/collection/src/create.ts
   var DEFAULT_POSITION = Object.freeze({
     index: -1,
     total: 0,
@@ -6924,8 +7108,8 @@
     anatomy;
     providerConfig = null;
     itemConfig = null;
-    constructor(caps11, anatomy2) {
-      super(caps11);
+    constructor(caps12, anatomy2) {
+      super(caps12);
       this.anatomy = anatomy2;
     }
     providerHandle = {
@@ -7039,16 +7223,16 @@
     return typeof value === "object" ? value : {};
   }
   function createCollectionModule(ctx) {
-    const { init, caps: caps11, deps } = ctx;
+    const { init, caps: caps12, deps } = ctx;
     const anatomy2 = deps.requirePort("anatomy");
     return createModule({
       name: "collection",
       scope: "instance",
       init,
-      caps: caps11,
+      caps: caps12,
       deps,
-      build: ({ caps: caps12 }) => {
-        const impl3 = new CollectionModuleImpl(caps12, anatomy2);
+      build: ({ caps: caps13 }) => {
+        const impl3 = new CollectionModuleImpl(caps13, anatomy2);
         return {
           facade: impl3.facade,
           port: impl3.port,
@@ -7065,10 +7249,10 @@
     deps: ["anatomy"],
     create: createCollectionModule
   });
-  // node_modules/@proto.ui/module-context/dist/caps.js
+  // ../packages/modules/context/src/caps.ts
   var CONTEXT_INSTANCE_TOKEN_CAP = cap("@proto.ui/context/instanceToken");
   var CONTEXT_PARENT_CAP = cap("@proto.ui/context/getParent");
-  // node_modules/@proto.ui/module-context/dist/center.js
+  // ../packages/modules/context/src/center.ts
   class ContextCenter {
     providers = new Map;
     subscriptions = new Map;
@@ -7217,7 +7401,7 @@
   }
   var CONTEXT_CENTER = new ContextCenter;
 
-  // node_modules/@proto.ui/module-context/dist/impl.js
+  // ../packages/modules/context/src/impl.ts
   var ERR2 = {
     PHASE: "CONTEXT_PHASE_VIOLATION",
     PROVIDER_MISSING: "CONTEXT_PROVIDER_MISSING",
@@ -7281,8 +7465,8 @@
   class ContextModuleImpl extends ModuleBase {
     prototypeName;
     callbackDispatcher = null;
-    constructor(caps11, prototypeName) {
-      super(caps11);
+    constructor(caps12, prototypeName) {
+      super(caps12);
       this.prototypeName = prototypeName;
     }
     provide(key, defaultValue) {
@@ -7483,17 +7667,17 @@
     }
   }
 
-  // node_modules/@proto.ui/module-context/dist/create.js
+  // ../packages/modules/context/src/create.ts
   function createContextModule(ctx) {
-    const { init, caps: caps11, deps } = ctx;
+    const { init, caps: caps12, deps } = ctx;
     return createModule({
       name: "context",
       scope: "singleton",
       init,
-      caps: caps11,
+      caps: caps12,
       deps,
-      build: ({ init: init2, caps: caps12 }) => {
-        const impl3 = new ContextModuleImpl(caps12, init2.prototypeName);
+      build: ({ init: init2, caps: caps13 }) => {
+        const impl3 = new ContextModuleImpl(caps13, init2.prototypeName);
         return {
           facade: {
             provide: (key, value) => impl3.provide(key, value),
@@ -7525,21 +7709,21 @@
     deps: [],
     create: createContextModule
   });
-  // node_modules/@proto.ui/module-as-trigger/dist/caps.js
+  // ../packages/modules/as-trigger/src/caps.ts
   var AS_TRIGGER_INSTANCE_CAP = cap("@proto.ui/as-trigger/instanceToken");
   var AS_TRIGGER_PARENT_CAP = cap("@proto.ui/as-trigger/getParent");
   var AS_TRIGGER_GET_PROTO_CAP = cap("@proto.ui/as-trigger/getPrototype");
   var AS_TRIGGER_MERGE_GROUP_CAP = cap("@proto.ui/as-trigger/mergeGroup");
   var AS_TRIGGER_GET_GROUP_EVENT_TARGET_CAP = cap("@proto.ui/as-trigger/getGroupEventTarget");
 
-  // node_modules/@proto.ui/module-as-trigger/dist/impl.js
+  // ../packages/modules/as-trigger/src/impl.ts
   var TRIGGER_OWNER_MARK = Symbol.for("@proto.ui/as-trigger/confirm-owner");
 
   class AsTriggerModuleImpl extends ModuleBase {
     prototypeName;
     eventPort;
-    constructor(caps12, prototypeName, eventPort) {
-      super(caps12);
+    constructor(caps13, prototypeName, eventPort) {
+      super(caps13);
       this.prototypeName = prototypeName;
       this.eventPort = eventPort;
     }
@@ -7614,18 +7798,18 @@
     }
   }
 
-  // node_modules/@proto.ui/module-as-trigger/dist/create.js
+  // ../packages/modules/as-trigger/src/create.ts
   function createAsTriggerModule(ctx) {
-    const { init, caps: caps12, deps } = ctx;
+    const { init, caps: caps13, deps } = ctx;
     const eventPort = deps.requirePort("event");
     return createModule({
       name: "as-trigger",
       scope: "instance",
       init,
-      caps: caps12,
+      caps: caps13,
       deps,
-      build: ({ init: init2, caps: caps13 }) => {
-        const impl3 = new AsTriggerModuleImpl(caps13, init2.prototypeName, eventPort);
+      build: ({ init: init2, caps: caps14 }) => {
+        const impl3 = new AsTriggerModuleImpl(caps14, init2.prototypeName, eventPort);
         return {
           facade: {
             apply: () => impl3.apply()
@@ -7643,7 +7827,7 @@
     deps: ["event"],
     create: createAsTriggerModule
   });
-  // node_modules/@proto.ui/module-focus/dist/caps.js
+  // ../packages/modules/focus/src/caps.ts
   var FOCUS_ROOT_TARGET_CAP = cap("@proto.ui/focus/getRootTarget");
   var FOCUS_TARGET_READY_CAP = cap("@proto.ui/focus/subscribeTargetReady");
   var FOCUS_INSTANCE_TOKEN_CAP = cap("@proto.ui/focus/instanceToken");
@@ -7655,7 +7839,7 @@
   var FOCUS_RESOLVE_ENTRY_TARGET_CAP = cap("@proto.ui/focus/resolveEntryTarget");
   var FOCUS_SET_ENTRY_FOCUSABLE_CAP = cap("@proto.ui/focus/setEntryFocusable");
   var FOCUS_RUN_IN_CALLBACK_CAP = cap("@proto.ui/focus/runInCallback");
-  // node_modules/@proto.ui/module-focus/dist/center.js
+  // ../packages/modules/focus/src/center.ts
   class FocusCenter {
     entries = new Map;
     activeScopes = [];
@@ -8033,7 +8217,7 @@
   }
   var FOCUS_CENTER = new FocusCenter;
 
-  // node_modules/@proto.ui/module-focus/dist/create.js
+  // ../packages/modules/focus/src/create.ts
   var DEFAULT_FOCUSABLE_CONFIG = Object.freeze({
     autoFocus: false,
     disabled: false,
@@ -8073,6 +8257,15 @@
       return;
     warnings.push(`[Focus] ${owner}.${field} overridden: ${String(prev)} -> ${String(next)}`);
   }
+  function readNativeFocusVisible(el) {
+    if (!el || typeof el.matches !== "function")
+      return { supported: false, value: false };
+    try {
+      return { supported: true, value: el.matches(":focus-visible") };
+    } catch {
+      return { supported: false, value: false };
+    }
+  }
 
   class FocusModuleImpl extends ModuleBase {
     eventPort;
@@ -8089,6 +8282,8 @@
     warnings = [];
     didAutoFocus = false;
     keyboardModality = false;
+    currentHostFocusTarget = null;
+    hostFocusTargetGeneration = 0;
     hostEventsWired = false;
     scopeEventsWired = false;
     rovingEventsWired = false;
@@ -8112,8 +8307,8 @@
     entryHandle;
     scopeHandle;
     rovingHandle;
-    constructor(caps12, prototypeName, eventPort, statePort, stateFacade) {
-      super(caps12);
+    constructor(caps13, prototypeName, eventPort, statePort, stateFacade) {
+      super(caps13);
       this.eventPort = eventPort;
       this.statePort = statePort;
       this.prototypeName = prototypeName;
@@ -8361,29 +8556,58 @@
       this.wireRovingKeyEvents();
       this.syncCenter();
     }
+    readHostFocusTarget(event2) {
+      return event2?.nativeEvent?.target ?? event2?.target ?? null;
+    }
+    invalidateHostFocusTarget() {
+      this.currentHostFocusTarget = null;
+      this.hostFocusTargetGeneration += 1;
+    }
+    resampleCurrentFocusVisible(reason) {
+      if (!this.focusableDeclared || this.focusableConfig.disabled)
+        return;
+      if (!this.focusedOwned.get())
+        return;
+      const generation = this.hostFocusTargetGeneration;
+      const target = this.currentHostFocusTarget;
+      const native = readNativeFocusVisible(target);
+      const next = native.supported ? native.value : this.keyboardModality;
+      if (generation !== this.hostFocusTargetGeneration || target !== this.currentHostFocusTarget) {
+        return;
+      }
+      this.setFocusState(this.focusVisibleOwned, next, reason);
+    }
     wireHostFocusEvents() {
       if (this.hostEventsWired)
         return;
       this.hostEventsWired = true;
       this.eventPort.onGlobal("key.down", () => {
         this.keyboardModality = true;
+        this.resampleCurrentFocusVisible("reason: focus.key.down => focusVisible resample");
       });
       this.eventPort.on("pointer.down", () => {
         this.keyboardModality = false;
-        this.setFocusState(this.focusVisibleOwned, false, "reason: focus.pointer.down => focusVisible");
+        this.resampleCurrentFocusVisible("reason: focus.pointer.down => focusVisible resample");
       });
-      this.eventPort.on("host:focus", () => {
+      this.eventPort.on("host:focus", (ev) => {
         if (!this.focusableDeclared || this.focusableConfig.disabled)
           return;
+        this.currentHostFocusTarget = this.readHostFocusTarget(ev);
+        this.hostFocusTargetGeneration += 1;
         this.setFocusState(this.focusedOwned, true, "reason: focus.host:focus => focused");
-        this.setFocusState(this.focusVisibleOwned, this.keyboardModality, "reason: focus.host:focus => focusVisible");
+        this.resampleCurrentFocusVisible("reason: focus.host:focus => focusVisible");
         this.setFocusState(this.activeOwned, true, "reason: focus.host:focus => active");
         this.setFocusState(this.hasFocusedOwned, true, "reason: focus.host:focus => hasFocused");
         const entry = this.createCenterEntry();
         if (entry)
           FOCUS_CENTER.noteFocused(entry);
       });
-      this.eventPort.on("host:blur", () => {
+      this.eventPort.on("host:blur", (ev) => {
+        const target = this.readHostFocusTarget(ev);
+        if (this.currentHostFocusTarget && target && target !== this.currentHostFocusTarget) {
+          return;
+        }
+        this.invalidateHostFocusTarget();
         this.setFocusState(this.focusedOwned, false, "reason: focus.host:blur => focused");
         this.setFocusState(this.focusVisibleOwned, false, "reason: focus.host:blur => focusVisible");
         this.setFocusState(this.activeOwned, false, "reason: focus.host:blur => active");
@@ -8401,17 +8625,16 @@
         if (this.scopeConfig.navigation !== "tab" && this.scopeConfig.navigation !== "tab+arrow") {
           return;
         }
-        const detail = ev?.detail;
-        if (detail?.key !== "Tab")
+        if (ev.key !== "Tab")
           return;
         const entry = this.createCenterEntry();
         if (!entry || !FOCUS_CENTER.isTopActiveScope(entry))
           return;
-        this.eventPort.requestDefaultActionPrevented(ev, {
+        ev.control.requestDefaultActionPrevention({
           reason: "focus.scope.trap",
           source: this.prototypeName
         });
-        FOCUS_CENTER.focusInScope(entry, detail?.shiftKey ? "prev" : "next");
+        FOCUS_CENTER.focusInScope(entry, ev.shiftKey ? "prev" : "next");
       });
     }
     wireRovingKeyEvents() {
@@ -8421,7 +8644,7 @@
       this.eventPort.onGlobal("key.down", (ev) => {
         if (!this.rovingDeclared)
           return;
-        const op = this.resolveRovingKeyOperation(ev?.detail);
+        const op = this.resolveRovingKeyOperation(ev);
         if (!op)
           return;
         const entry = this.createCenterEntry();
@@ -8430,7 +8653,7 @@
         const handled = FOCUS_CENTER.focusInRoving(entry, op, { requireFocusedMember: true });
         if (!handled)
           return;
-        this.eventPort.requestDefaultActionPrevented(ev, {
+        ev.control.requestDefaultActionPrevention({
           reason: "focus.roving.keyboard",
           source: this.prototypeName
         });
@@ -8873,6 +9096,7 @@
       super.onInstancePhase(phase);
       if (phase === "disposing") {
         this.clearPendingFocus();
+        this.invalidateHostFocusTarget();
         const self = this.getSelfToken();
         if (self)
           FOCUS_CENTER.remove(self);
@@ -8893,24 +9117,25 @@
       }
       if (phase !== "detached")
         return;
+      this.invalidateHostFocusTarget();
       const self = this.getSelfToken();
       if (self)
         FOCUS_CENTER.detach(self);
     }
   }
   function createFocusModule(ctx) {
-    const { init, caps: caps12, deps } = ctx;
+    const { init, caps: caps13, deps } = ctx;
     return createModule({
       name: "focus",
       scope: "instance",
       init,
-      caps: caps12,
+      caps: caps13,
       deps,
       build: ({ deps: deps2 }) => {
         const eventPort = deps2.requirePort("event");
         const statePort = deps2.requirePort("state");
         const stateFacade = deps2.requireFacade("state");
-        const impl3 = new FocusModuleImpl(caps12, init.prototypeName, eventPort, statePort, stateFacade);
+        const impl3 = new FocusModuleImpl(caps13, init.prototypeName, eventPort, statePort, stateFacade);
         const port = {
           configureFocusable: (patch) => impl3.configureFocusable(patch),
           configureEntry: (patch) => impl3.configureEntry(patch),
@@ -8970,9 +9195,9 @@
     deps: ["event", "state"],
     create: createFocusModule
   });
-  // node_modules/@proto.ui/module-boundary/dist/caps.js
+  // ../packages/modules/boundary/src/caps.ts
   var BOUNDARY_HOST_BRIDGE_CAP = cap("@proto.ui/boundary/hostBridge");
-  // node_modules/@proto.ui/module-boundary/dist/impl.js
+  // ../packages/modules/boundary/src/impl.ts
   var DEFAULT_CONFIG = Object.freeze({});
   function mergeMeta2(prev, next) {
     if (!next)
@@ -9024,8 +9249,8 @@
     stackActive = false;
     suspended = false;
     observingPointerDown = false;
-    constructor(caps13, prototypeName, eventPort) {
-      super(caps13);
+    constructor(caps14, prototypeName, eventPort) {
+      super(caps14);
       this.eventPort = eventPort;
       this.prototypeName = prototypeName;
       this.refreshHostCaps();
@@ -9166,11 +9391,8 @@
         return;
       this.observingPointerDown = true;
       this.eventPort.onGlobal("host:pointerdown", (nativeEvent) => {
-        this.notify({
-          type: "pointerdown",
-          target: nativeEvent?.target,
-          nativeEvent
-        });
+        const target = nativeEvent && typeof nativeEvent === "object" && "target" in nativeEvent ? nativeEvent.target : undefined;
+        this.notify({ type: "pointerdown", target, nativeEvent });
       });
     }
     subscribeOutside(cb) {
@@ -9196,17 +9418,17 @@
       subscribeOutside: (cb) => this.subscribeOutside(cb)
     };
   }
-  // node_modules/@proto.ui/module-boundary/dist/create.js
+  // ../packages/modules/boundary/src/create.ts
   function createBoundaryModule(ctx) {
-    const { init, caps: caps13, deps } = ctx;
+    const { init, caps: caps14, deps } = ctx;
     return createModule({
       name: "boundary",
       scope: "instance",
       init,
-      caps: caps13,
+      caps: caps14,
       deps,
-      build: ({ init: init2, caps: caps14 }) => {
-        const impl3 = new BoundaryModuleImpl(caps14, init2.prototypeName, deps.requirePort("event"));
+      build: ({ init: init2, caps: caps15 }) => {
+        const impl3 = new BoundaryModuleImpl(caps15, init2.prototypeName, deps.requirePort("event"));
         return {
           facade: {
             getBoundary: () => impl3.handle
@@ -9238,11 +9460,11 @@
     deps: ["event"],
     create: createBoundaryModule
   });
-  // node_modules/@proto.ui/module-boundary/dist/web/host-bridge.js
+  // ../packages/modules/boundary/src/web/host-bridge.ts
   var PROTO_PARENT_INSTANCE_MARK = Symbol.for("@proto.ui/adapter-base/__proto_parent_instance");
-  // node_modules/@proto.ui/module-hit-participation/dist/caps.js
+  // ../packages/modules/hit-participation/src/caps.ts
   var HIT_PARTICIPATION_HOST_BRIDGE_CAP = cap("@proto.ui/hitParticipation/hostBridge");
-  // node_modules/@proto.ui/module-hit-participation/dist/impl.js
+  // ../packages/modules/hit-participation/src/impl.ts
   var DEFAULT_CONFIG2 = Object.freeze({
     mode: "participating"
   });
@@ -9269,8 +9491,8 @@
     nextRegionId = 1;
     regions = [];
     suspended = false;
-    constructor(caps13, prototypeName) {
-      super(caps13);
+    constructor(caps14, prototypeName) {
+      super(caps14);
       this.prototypeName = prototypeName;
       this.refreshHostCaps();
     }
@@ -9408,17 +9630,17 @@
     };
   }
 
-  // node_modules/@proto.ui/module-hit-participation/dist/create.js
+  // ../packages/modules/hit-participation/src/create.ts
   function createHitParticipationModule(ctx) {
-    const { init, caps: caps13, deps } = ctx;
+    const { init, caps: caps14, deps } = ctx;
     return createModule({
       name: "hit-participation",
       scope: "instance",
       init,
-      caps: caps13,
+      caps: caps14,
       deps,
-      build: ({ init: init2, caps: caps14 }) => {
-        const impl3 = new HitParticipationModuleImpl(caps14, init2.prototypeName);
+      build: ({ init: init2, caps: caps15 }) => {
+        const impl3 = new HitParticipationModuleImpl(caps15, init2.prototypeName);
         return {
           facade: {
             getHitParticipation: () => impl3.handle
@@ -9444,15 +9666,15 @@
     resourceOwnership: "mixed",
     create: createHitParticipationModule
   });
-  // node_modules/@proto.ui/module-hit-participation/dist/web/host-bridge.js
+  // ../packages/modules/hit-participation/src/web/host-bridge.ts
   var HIT_PARTICIPATION_MODE_MARK = Symbol.for("@proto.ui/module-hit-participation/__mode");
   var HIT_PARTICIPATION_PREV_POINTER_EVENTS_MARK = Symbol.for("@proto.ui/module-hit-participation/__prev_pointer_events");
-  // node_modules/@proto.ui/module-overlay/dist/caps.js
+  // ../packages/modules/overlay/src/caps.ts
   var OVERLAY_GLOBAL_MOUNT_CAP = cap("@proto.ui/overlay/globalMount");
   var OVERLAY_MODAL_CAP = cap("@proto.ui/overlay/modal");
   var OVERLAY_LAYER_SCHEDULER_CAP = cap("@proto.ui/overlay/layerScheduler");
 
-  // node_modules/@proto.ui/module-overlay/dist/impl.js
+  // ../packages/modules/overlay/src/impl.ts
   var DEFAULT_CONFIG3 = Object.freeze({
     defaultOpen: false,
     closeOnEscape: false,
@@ -9469,6 +9691,7 @@
     avoidCollisions: true,
     collisionBoundary: "clippingAncestors",
     collisionPadding: 0,
+    excludeAnchorTranslation: false,
     entry: "content",
     restore: "trigger",
     portal: false,
@@ -9522,6 +9745,7 @@
     anatomyPort;
     anchoredPosition;
     config = DEFAULT_CONFIG3;
+    presenceBound = false;
     prototypeName;
     warnings = [];
     boundary;
@@ -9549,8 +9773,8 @@
     };
     offBoundaryOutside;
     escapeSamplingInstalled = false;
-    constructor(caps13, prototypeName, boundary2, boundaryPort, eventPort, anatomyPort, anchoredPosition) {
-      super(caps13);
+    constructor(caps14, prototypeName, boundary2, boundaryPort, eventPort, anatomyPort, anchoredPosition) {
+      super(caps14);
       this.boundaryPort = boundaryPort;
       this.eventPort = eventPort;
       this.anatomyPort = anatomyPort;
@@ -9575,7 +9799,7 @@
         this.eventPort.onGlobal("key.down", (event2) => {
           if (!this.isOpen() || !this.config.closeOnEscape)
             return;
-          if (event2?.detail?.key !== "Escape")
+          if (event2.key !== "Escape")
             return;
           this.close("escape");
         });
@@ -9725,6 +9949,12 @@
       }
       this.boundary.setStackActive(false);
     }
+    markPresenceBound() {
+      this.presenceBound = true;
+    }
+    hasPresenceBinding() {
+      return this.presenceBound;
+    }
     setViewActive(active) {
       if (Object.is(this.viewActive, active)) {
         return;
@@ -9807,6 +10037,7 @@
       this.patchValue("avoidCollisions", patch.avoidCollisions);
       this.patchValue("collisionBoundary", patch.collisionBoundary);
       this.patchValue("collisionPadding", patch.collisionPadding);
+      this.patchValue("excludeAnchorTranslation", patch.excludeAnchorTranslation);
       this.patchValue("entry", patch.entry);
       this.patchValue("restore", patch.restore);
       this.patchValue("portal", patch.portal);
@@ -9838,6 +10069,7 @@
       assign("avoidCollisions", patch.avoidCollisions);
       assign("collisionBoundary", patch.collisionBoundary);
       assign("collisionPadding", patch.collisionPadding);
+      assign("excludeAnchorTranslation", patch.excludeAnchorTranslation);
       if (this.viewActive)
         this.syncAnchoredPosition();
     }
@@ -9904,7 +10136,8 @@
           strategy: this.config.strategy,
           avoidCollisions: this.config.avoidCollisions,
           collisionBoundary: this.config.collisionBoundary,
-          collisionPadding: this.config.collisionPadding
+          collisionPadding: this.config.collisionPadding,
+          excludeAnchorTranslation: this.config.excludeAnchorTranslation
         }
       });
     }
@@ -9950,18 +10183,18 @@
     };
   }
 
-  // node_modules/@proto.ui/module-overlay/dist/create.js
+  // ../packages/modules/overlay/src/create.ts
   function createOverlayModule(ctx) {
-    const { init, caps: caps13, deps } = ctx;
+    const { init, caps: caps14, deps } = ctx;
     return createModule({
       name: "overlay",
       scope: "instance",
       init,
-      caps: caps13,
+      caps: caps14,
       deps,
-      build: ({ init: init2, caps: caps14 }) => {
+      build: ({ init: init2, caps: caps15 }) => {
         const boundaryFacade = deps.requireFacade("boundary");
-        const impl3 = new OverlayModuleImpl(caps14, init2.prototypeName, boundaryFacade.getBoundary(), deps.requirePort("boundary"), deps.requirePort("event"), deps.requirePort("anatomy"), deps.requireFacade("positioning").getAnchoredPosition());
+        const impl3 = new OverlayModuleImpl(caps15, init2.prototypeName, boundaryFacade.getBoundary(), deps.requirePort("boundary"), deps.requirePort("event"), deps.requirePort("anatomy"), deps.requireFacade("positioning").getAnchoredPosition());
         return {
           facade: {
             getOverlay: () => impl3.handle
@@ -9987,6 +10220,8 @@
             registerContent: (target) => impl3.registerContent(target),
             updatePosition: (patch) => impl3.updatePosition(patch),
             setViewActive: (active) => impl3.setViewActive(active),
+            markPresenceBound: () => impl3.markPresenceBound(),
+            hasPresenceBinding: () => impl3.hasPresenceBinding(),
             reconcileViewResourcesAfterCallback: () => impl3.reconcileViewResourcesAfterCallback()
           }
         };
@@ -9999,16 +10234,16 @@
     deps: ["boundary", "event", "anatomy", "positioning"],
     create: createOverlayModule
   });
-  // node_modules/@proto.ui/module-overlay/dist/web/z-index-layer-scheduler.js
+  // ../packages/modules/overlay/src/web/z-index-layer-scheduler.ts
   var DEFAULT_ROLE_OFFSETS = Object.freeze({
     overlay: 0,
     "dialog-mask": 1000,
     "dialog-content": 1010
   });
-  // node_modules/@proto.ui/module-positioning/dist/caps.js
+  // ../packages/modules/positioning/src/caps.ts
   var ANCHORED_POSITION_HOST_CAP = cap("@proto.ui/positioning/anchoredHost");
 
-  // node_modules/@proto.ui/module-positioning/dist/impl.js
+  // ../packages/modules/positioning/src/impl.ts
   class PositioningModuleImpl extends ModuleBase {
     connection = null;
     lease = null;
@@ -10077,15 +10312,15 @@
     }
   }
 
-  // node_modules/@proto.ui/module-positioning/dist/create.js
+  // ../packages/modules/positioning/src/create.ts
   function createPositioningModule(ctx) {
-    const { init, caps: caps13, deps } = ctx;
-    const impl3 = new PositioningModuleImpl(caps13);
+    const { init, caps: caps14, deps } = ctx;
+    const impl3 = new PositioningModuleImpl(caps14);
     return createModule({
       name: "positioning",
       scope: "instance",
       init,
-      caps: caps13,
+      caps: caps14,
       deps,
       build: () => ({
         facade: { getAnchoredPosition: () => impl3.handle },
@@ -10102,10 +10337,10 @@
     deps: [],
     create: createPositioningModule
   });
-  // node_modules/@proto.ui/module-scroll/dist/caps.js
+  // ../packages/modules/scroll/src/caps.ts
   var SCROLL_SURFACE_HOST_CAP = cap("@proto.ui/scroll/surfaceHost");
 
-  // node_modules/@proto.ui/module-scroll/dist/projection.js
+  // ../packages/modules/scroll/src/projection.ts
   class ScrollProjectionResolutionError extends Error {
     requested;
     support;
@@ -10134,7 +10369,7 @@
     throw new ScrollProjectionResolutionError(preference, support);
   }
 
-  // node_modules/@proto.ui/module-scroll/dist/impl.js
+  // ../packages/modules/scroll/src/impl.ts
   var EMPTY_AXIS = Object.freeze({
     position: 0,
     visibleRatio: 1,
@@ -10171,8 +10406,8 @@
     verticalBeforeOwned;
     verticalAfterOwned;
     handle;
-    constructor(caps13, prototypeName, statePort, stateFacade, anatomyPort, contextPort) {
-      super(caps13);
+    constructor(caps14, prototypeName, statePort, stateFacade, anatomyPort, contextPort) {
+      super(caps14);
       this.prototypeName = prototypeName;
       this.statePort = statePort;
       this.anatomyPort = anatomyPort;
@@ -10412,19 +10647,19 @@
     }
   }
 
-  // node_modules/@proto.ui/module-scroll/dist/create.js
+  // ../packages/modules/scroll/src/create.ts
   function createScrollModule(ctx) {
-    const { init, caps: caps13, deps } = ctx;
+    const { init, caps: caps14, deps } = ctx;
     return createModule({
       name: "scroll",
       scope: "instance",
       init,
-      caps: caps13,
+      caps: caps14,
       deps,
       build: ({ deps: deps2 }) => {
         const statePort = deps2.requirePort("state");
         const stateFacade = deps2.requireFacade("state");
-        const impl3 = new ScrollModuleImpl(caps13, init.prototypeName, statePort, stateFacade, deps2.requirePort("anatomy"), deps2.requirePort("context"));
+        const impl3 = new ScrollModuleImpl(caps14, init.prototypeName, statePort, stateFacade, deps2.requirePort("anatomy"), deps2.requirePort("context"));
         return {
           facade: { getSurface: () => impl3.getSurface() },
           port: {
@@ -10448,9 +10683,9 @@
     deps: ["state", "anatomy", "context"],
     create: createScrollModule
   });
-  // node_modules/@proto.ui/module-presence/dist/caps.js
+  // ../packages/modules/presence/src/caps.ts
   var PRESENCE_HOST_BRIDGE_CAP = cap("@proto.ui/presence/hostBridge");
-  // node_modules/@proto.ui/module-presence/dist/impl.js
+  // ../packages/modules/presence/src/impl.ts
   function isPromiseLike(value) {
     return value !== null && typeof value === "object" && typeof value.then === "function";
   }
@@ -10697,15 +10932,15 @@
     }
   }
 
-  // node_modules/@proto.ui/module-presence/dist/create.js
+  // ../packages/modules/presence/src/create.ts
   function createPresenceModule(ctx) {
-    const { init, caps: caps13 } = ctx;
-    const impl3 = new PresenceModuleImpl(caps13);
+    const { init, caps: caps14 } = ctx;
+    const impl3 = new PresenceModuleImpl(caps14);
     return createModule({
       name: "presence",
       scope: "instance",
       init,
-      caps: caps13,
+      caps: caps14,
       deps: ctx.deps,
       build: () => ({
         facade: {
@@ -10727,14 +10962,14 @@
     deps: [],
     create: createPresenceModule
   });
-  // node_modules/@proto.ui/module-test-sys/dist/impl.js
+  // ../packages/modules/test-sys/src/impl.ts
   class TestSysImpl {
     sys;
     prototypeName;
     traceLog = [];
-    constructor(caps13, prototypeName) {
+    constructor(caps14, prototypeName) {
       this.prototypeName = prototypeName;
-      this.sys = caps13.get(SYS_CAP);
+      this.sys = caps14.get(SYS_CAP);
     }
     snapshot(label) {
       return {
@@ -10768,17 +11003,17 @@
     }
   }
 
-  // node_modules/@proto.ui/module-test-sys/dist/create.js
+  // ../packages/modules/test-sys/src/create.ts
   function createTestSysModule(ctx) {
-    const { init, caps: caps13, deps } = ctx;
+    const { init, caps: caps14, deps } = ctx;
     return createModule({
       name: "test-sys",
       scope: "instance",
       init,
-      caps: caps13,
+      caps: caps14,
       deps,
-      build: ({ init: init2, caps: caps14 }) => {
-        const impl3 = new TestSysImpl(caps14, init2.prototypeName);
+      build: ({ init: init2, caps: caps15 }) => {
+        const impl3 = new TestSysImpl(caps15, init2.prototypeName);
         return {
           facade: {},
           hooks: {},
@@ -10794,17 +11029,17 @@
     create: createTestSysModule
   });
 
-  // node_modules/@proto.ui/module-test-sys/dist/index.js
+  // ../packages/modules/test-sys/src/index.ts
   var __RUN_TEST_SYS = "__testSys";
 
-  // node_modules/@proto.ui/module-text-control/dist/caps.js
+  // ../packages/modules/text-control/src/caps.ts
   var TEXT_CONTROL_HOST_CAP = cap("@proto.ui/text-control/host");
   var TEXT_CONTROL_RUN_IN_CALLBACK_CAP = cap("@proto.ui/text-control/run-in-callback");
 
-  // node_modules/@proto.ui/module-text-control/dist/declaration.js
+  // ../packages/modules/text-control/src/declaration.ts
   var TEXT_CONTROL_DECLARATION = moduleDeclaration("@proto.ui/text-control/declaration");
 
-  // node_modules/@proto.ui/module-text-control/dist/impl.js
+  // ../packages/modules/text-control/src/impl.ts
   var EMPTY_PATCH = Object.freeze({});
 
   class TextControlModuleImpl extends ModuleBase {
@@ -10819,8 +11054,8 @@
     listeners = [];
     host = null;
     lease = null;
-    constructor(caps13, prototypeName, declarations) {
-      super(caps13);
+    constructor(caps14, prototypeName, declarations) {
+      super(caps14);
       this.prototypeName = prototypeName;
       this.supported = Boolean(getModuleDeclaration({ modules: declarations }, TEXT_CONTROL_DECLARATION));
       if (this.supported)
@@ -10940,7 +11175,7 @@
     }
   }
 
-  // node_modules/@proto.ui/module-text-control/dist/create.js
+  // ../packages/modules/text-control/src/create.ts
   function createTextControlModule(ctx) {
     return createModule({
       name: "text-control",
@@ -10948,8 +11183,8 @@
       init: ctx.init,
       caps: ctx.caps,
       deps: ctx.deps,
-      build: ({ init, caps: caps13 }) => {
-        const impl3 = new TextControlModuleImpl(caps13, init.prototypeName, init.declarations);
+      build: ({ init, caps: caps14 }) => {
+        const impl3 = new TextControlModuleImpl(caps14, init.prototypeName, init.declarations);
         return {
           facade: {
             declare: () => impl3.declare()
@@ -10971,8 +11206,281 @@
     resourceOwnership: "mixed",
     create: createTextControlModule
   });
+  // ../packages/modules/image-view/src/caps.ts
+  var IMAGE_VIEW_HOST_CAP = cap("@proto.ui/image-view/host");
+  var IMAGE_VIEW_RUN_IN_CALLBACK_CAP = cap("@proto.ui/image-view/run-in-callback");
 
-  // node_modules/@proto.ui/runtime/dist/orchestrator/module-orchestrator/graph.js
+  // ../packages/modules/image-view/src/declaration.ts
+  var IMAGE_VIEW_DECLARATION = moduleDeclaration("@proto.ui/image-view/declaration");
+
+  // ../packages/modules/image-view/src/create.ts
+  var EMPTY_PATCH2 = Object.freeze({});
+
+  class ImageViewModuleImpl extends ModuleBase {
+    prototypeName;
+    declaration;
+    declared = false;
+    initialized = false;
+    requestedSource = "";
+    source = "";
+    alternativeText = "";
+    a11yMode = "informative";
+    fit = "contain";
+    loadingStatus = "idle";
+    generation = 0;
+    patch = EMPTY_PATCH2;
+    listeners = [];
+    host = null;
+    lease = null;
+    attachmentEpoch = 0;
+    lastHostedGeneration = null;
+    lastDiagnostic = "";
+    constructor(caps14, prototypeName, declarations) {
+      super(caps14);
+      this.prototypeName = prototypeName;
+      this.declaration = getModuleDeclaration({ modules: declarations }, IMAGE_VIEW_DECLARATION)?.config ?? null;
+      if (this.declaration) {
+        this.requestedSource = this.declaration.source;
+        this.alternativeText = this.declaration.alternativeText;
+        this.a11yMode = this.declaration.a11yMode;
+        this.fit = this.declaration.fit;
+        this.source = this.validatedSource();
+        if (this.source) {
+          this.generation = 1;
+          this.loadingStatus = "loading";
+        }
+        this.refreshHost();
+      }
+    }
+    declare() {
+      this.sys.ensureSetup("imageView.declare");
+      if (!this.declaration) {
+        throw new Error(`[ImageView] ${this.prototypeName} requires a static image-view declaration.`);
+      }
+      if (this.declared) {
+        throw new Error(`[ImageView] ${this.prototypeName} may declare one image view.`);
+      }
+      this.declared = true;
+      return {
+        on: (type, callback) => this.on(type, callback),
+        sync: (patch) => this.sync(patch),
+        snapshot: () => this.snapshot()
+      };
+    }
+    on(type, callback) {
+      this.sys.ensureSetup("imageView.on");
+      const listener = {
+        callback
+      };
+      this.listeners = this.listeners.concat(listener);
+      return () => {
+        this.listeners = this.listeners.filter((candidate) => candidate !== listener);
+      };
+    }
+    sync(next) {
+      this.sys.ensureCallback("imageView.sync");
+      const { loadingStatus: _moduleOwnedStatus, ...portableNext } = next;
+      this.patch = Object.freeze({ ...this.patch, ...portableNext });
+      if (!this.initialized) {
+        this.requestedSource = portableNext.source ?? this.requestedSource;
+        this.alternativeText = portableNext.alternativeText ?? this.alternativeText;
+        this.a11yMode = portableNext.a11yMode ?? this.a11yMode;
+        this.fit = portableNext.fit ?? this.fit;
+        this.initialized = true;
+      } else {
+        if (typeof portableNext.source === "string")
+          this.requestedSource = portableNext.source;
+        if (typeof portableNext.alternativeText === "string") {
+          this.alternativeText = portableNext.alternativeText;
+        }
+        if (portableNext.a11yMode)
+          this.a11yMode = portableNext.a11yMode;
+        if (portableNext.fit)
+          this.fit = portableNext.fit;
+      }
+      const source = this.validatedSource();
+      if (source !== this.source) {
+        this.source = source;
+        this.generation += 1;
+        this.transition(source ? "loading" : "idle");
+      }
+      this.syncLease();
+    }
+    snapshot() {
+      return this.declared ? Object.freeze({
+        source: this.source,
+        loadingStatus: this.loadingStatus,
+        fit: this.fit
+      }) : null;
+    }
+    onCapsEpoch() {
+      this.disposeLease();
+      this.refreshHost();
+      this.attachLease();
+    }
+    onMountPhase(phase, epoch) {
+      super.onMountPhase(phase, epoch);
+      if (phase === "mounted") {
+        this.refreshHost();
+        this.attachLease();
+        return;
+      }
+      if (phase === "unmounting" || phase === "detached")
+        this.disposeLease();
+    }
+    dispose() {
+      this.disposeLease();
+      this.listeners = [];
+      this.declared = false;
+    }
+    refreshHost() {
+      this.host = this.caps.has(IMAGE_VIEW_HOST_CAP) ? this.caps.get(IMAGE_VIEW_HOST_CAP) : null;
+    }
+    attachLease() {
+      this.disposeLease();
+      if (!this.host || !this.declared || this.mountPhase !== "mounted")
+        return;
+      if (this.source && this.lastHostedGeneration === this.generation) {
+        this.generation += 1;
+        this.transition("loading");
+      }
+      const host = this.host;
+      const generation = this.generation;
+      const attachmentEpoch = ++this.attachmentEpoch;
+      const initialPatch = this.effectivePatch();
+      this.lastHostedGeneration = generation;
+      const lease = host.attach({
+        generation,
+        patch: initialPatch,
+        onStatusChange: (change) => this.receive(change, attachmentEpoch)
+      });
+      if (attachmentEpoch !== this.attachmentEpoch || this.host !== host || this.mountPhase !== "mounted") {
+        lease.dispose();
+        return;
+      }
+      this.lease = lease;
+      if (generation !== this.generation || initialPatch.loadingStatus !== this.loadingStatus) {
+        this.syncLease();
+      }
+    }
+    disposeLease() {
+      this.attachmentEpoch += 1;
+      this.lease?.dispose();
+      this.lease = null;
+    }
+    effectivePatch() {
+      return Object.freeze({
+        ...this.patch,
+        source: this.source,
+        alternativeText: this.a11yMode === "decorative" ? "" : this.alternativeText,
+        a11yMode: this.a11yMode,
+        fit: this.fit,
+        loadingStatus: this.loadingStatus
+      });
+    }
+    syncLease() {
+      if (!this.lease)
+        return;
+      this.lastHostedGeneration = this.generation;
+      this.lease.update({
+        generation: this.generation,
+        patch: this.effectivePatch()
+      });
+    }
+    receive(change, attachmentEpoch) {
+      if (attachmentEpoch !== this.attachmentEpoch)
+        return;
+      if (change.generation !== this.generation)
+        return;
+      if (!this.source)
+        return;
+      if (this.loadingStatus === "loaded" || this.loadingStatus === "error")
+        return;
+      this.transition(change.status);
+      this.syncLease();
+    }
+    transition(status) {
+      if (status === this.loadingStatus)
+        return;
+      const currentRun = this.sys.getCallbackCtx();
+      if (this.listeners.length > 0 && !currentRun && !this.caps.has(IMAGE_VIEW_RUN_IN_CALLBACK_CAP)) {
+        throw new Error(`[ImageView] ${this.prototypeName} requires IMAGE_VIEW_RUN_IN_CALLBACK_CAP to dispatch loadingStatusChange outside callback scope.`);
+      }
+      const event2 = Object.freeze({
+        source: this.source,
+        previousStatus: this.loadingStatus,
+        status
+      });
+      this.loadingStatus = status;
+      const dispatch = (run2) => {
+        for (const listener of [...this.listeners])
+          listener.callback(run2, event2);
+      };
+      if (currentRun) {
+        dispatch(currentRun);
+        return;
+      }
+      if (this.listeners.length === 0)
+        return;
+      this.caps.get(IMAGE_VIEW_RUN_IN_CALLBACK_CAP)(() => {
+        const run2 = this.sys.getCallbackCtx();
+        if (!run2) {
+          throw new Error(`[ImageView] ${this.prototypeName} received an invalid IMAGE_VIEW_RUN_IN_CALLBACK_CAP implementation that did not enter callback scope.`);
+        }
+        dispatch(run2);
+      });
+    }
+    validatedSource() {
+      if (!this.requestedSource) {
+        this.lastDiagnostic = "";
+        return "";
+      }
+      const hasAlternative = this.alternativeText.trim().length > 0;
+      const valid = this.a11yMode === "informative" && hasAlternative || this.a11yMode === "decorative" && !hasAlternative;
+      if (valid) {
+        this.lastDiagnostic = "";
+        return this.requestedSource;
+      }
+      const diagnostic = `${this.a11yMode}:${this.requestedSource}:${this.alternativeText}`;
+      if (diagnostic !== this.lastDiagnostic) {
+        this.lastDiagnostic = diagnostic;
+        console.warn(`[ImageView] ${this.prototypeName} rejected contradictory or missing accessibility input; source failed closed to idle.`);
+      }
+      return "";
+    }
+  }
+  function createImageViewModule(ctx) {
+    const { init, caps: caps14, deps } = ctx;
+    return createModule({
+      name: "image-view",
+      scope: "instance",
+      init,
+      caps: caps14,
+      deps,
+      build: ({ init: init2, caps: caps15 }) => {
+        const impl3 = new ImageViewModuleImpl(caps15, init2.prototypeName, init2.declarations);
+        return {
+          facade: {
+            declare: () => impl3.declare()
+          },
+          hooks: {
+            onMountPhase: (phase, epoch) => impl3.onMountPhase(phase, epoch),
+            dispose: () => impl3.dispose()
+          },
+          port: {
+            isDeclared: () => impl3.snapshot() !== null,
+            getSnapshot: () => impl3.snapshot()
+          }
+        };
+      }
+    });
+  }
+  var ImageViewModuleDef = defineModule({
+    name: "image-view",
+    resourceOwnership: "mixed",
+    create: createImageViewModule
+  });
+  // ../packages/runtime/src/orchestrator/module-orchestrator/graph.ts
   function buildModuleGraph(prototypeName, modules) {
     const seen = new Set;
     for (const m of modules) {
@@ -11039,7 +11547,7 @@
     return { order: order.map((n) => byName.get(n)), byName, depsByName };
   }
 
-  // node_modules/@proto.ui/runtime/dist/orchestrator/module-orchestrator/runtime-module-orchestrator.js
+  // ../packages/runtime/src/orchestrator/module-orchestrator/runtime-module-orchestrator.ts
   class RuntimeModuleOrchestrator {
     prototypeName;
     getExecPhase;
@@ -11267,7 +11775,7 @@
       }
     }
   }
-  // node_modules/@proto.ui/runtime/dist/instance/execute/callback-scope.js
+  // ../packages/runtime/src/instance/execute/callback-scope.ts
   class CallbackScope {
     getPhase;
     setPhase;
@@ -11342,7 +11850,7 @@
     }
   }
 
-  // node_modules/@proto.ui/runtime/dist/instance/instance.js
+  // ../packages/runtime/src/instance/instance.ts
   function createRuntimeInstance(proto, opt) {
     let phaseRef = "unknown";
     const getPhase = () => phaseRef;
@@ -11354,6 +11862,7 @@
       PropsModuleDef,
       EventModuleDef,
       ExposeModuleDef,
+      ExposeEventModuleDef,
       AnatomyModuleDef,
       ExposeStateModuleDef,
       ExposeStateWebModuleDef,
@@ -11366,6 +11875,7 @@
       ContextModuleDef,
       FocusModuleDef,
       TextControlModuleDef,
+      ImageViewModuleDef,
       BoundaryModuleDef,
       HitParticipationModuleDef,
       PositioningModuleDef,
@@ -11402,6 +11912,10 @@
     });
     phaseRef = kernel3.getPhase();
     const callbackScope = new CallbackScope(() => kernel3.getPhase(), (p) => kernel3.setPhase(p), moduleHub);
+    const statePort = moduleHub.getPort("state");
+    statePort?.setCallbackDispatcher?.((fn) => {
+      callbackScope.runNoSync(kernel3.run, () => fn(kernel3.run));
+    });
     const contextPort = moduleHub.getPort("context");
     contextPort?.setCallbackDispatcher?.((fn) => {
       callbackScope.runNoSync(kernel3.run, () => fn(kernel3.run));
@@ -11439,7 +11953,7 @@
       dispose
     };
   }
-  // node_modules/@proto.ui/runtime/dist/instance/session.js
+  // ../packages/runtime/src/instance/session.ts
   function createRuntimeSession(proto, host) {
     const emit = (event2) => {
       host.onLifecycleEvent?.(event2);
@@ -11511,10 +12025,10 @@
         pendingDelayTasks.add(task);
         try {
           hostTask = host.scheduleDelay(durationMs, invoke);
-        } catch (error4) {
+        } catch (error5) {
           active = false;
           pendingDelayTasks.delete(task);
-          throw error4;
+          throw error5;
         }
         return task;
       }
@@ -11614,10 +12128,10 @@
           updateQueued = false;
           startUpdate();
         });
-      } catch (error4) {
+      } catch (error5) {
         updateInFlight = false;
         updateQueued = false;
-        throw error4;
+        throw error5;
       }
     };
     const controller = {
@@ -11694,11 +12208,11 @@
             host.schedule(() => {
               try {
                 finishMount();
-              } catch (error4) {
+              } catch (error5) {
                 mountPending = undefined;
                 if (!scheduleReturned)
-                  throw error4;
-                rejectMount(error4);
+                  throw error5;
+                rejectMount(error5);
               }
             });
             scheduleReturned = true;
@@ -11708,11 +12222,11 @@
           else
             scheduleFinish();
         });
-      } catch (error4) {
+      } catch (error5) {
         mountPending = undefined;
         setMountPhase("detached", epoch);
         resolveMount();
-        throw error4;
+        throw error5;
       }
       return promise;
     };
@@ -11746,8 +12260,8 @@
             for (const cb of lifecycle.unmounted)
               cb(run2);
           });
-        } catch (error4) {
-          callbackError = error4;
+        } catch (error5) {
+          callbackError = error5;
         }
         setMountPhase("detached", epoch);
         cancelPendingDelayTasks();
@@ -11775,8 +12289,8 @@
             for (const cb of lifecycle.beforeDispose)
               cb(run2);
           });
-        } catch (error4) {
-          finalError = error4;
+        } catch (error5) {
+          finalError = error5;
         }
         const eventRegistry = moduleHub[__RT_EVENT_CALLBACKS];
         eventRegistry?.clear?.();
@@ -11842,7 +12356,7 @@
       kernel: kernel3
     };
   }
-  // node_modules/@proto.ui/hooks/dist/privileged.js
+  // ../packages/hooks/src/privileged.ts
   function definePrivilegedAsHook(definition) {
     return () => {
       const active = getActiveAsHookContext(definition.name);
@@ -11884,7 +12398,7 @@
     };
   }
 
-  // node_modules/@proto.ui/hooks/dist/as-boundary.js
+  // ../packages/hooks/src/as-boundary.ts
   var getBoundary = definePrivilegedAsHook({
     name: "asBoundary",
     setup: ({ facades }) => {
@@ -11898,7 +12412,7 @@
   function asBoundary() {
     return getBoundary();
   }
-  // node_modules/@proto.ui/hooks/dist/as-collection.js
+  // ../packages/hooks/src/as-collection.ts
   var DEFAULT_ITEM_ROLE = "item";
   var DEFAULT_ITEM_META_EXPOSE_KEY = "__collectionItem";
   var asCollection = definePrivilegedAsHook({
@@ -11960,7 +12474,7 @@
       return registration.state.result;
     }
   });
-  // node_modules/@proto.ui/hooks/dist/as-collection-item.js
+  // ../packages/hooks/src/as-collection-item.ts
   var DEFAULT_ROLE = "item";
   var DEFAULT_META_EXPOSE_KEY = "__collectionItem";
   var asCollectionItem = definePrivilegedAsHook({
@@ -12063,7 +12577,7 @@
       return registration.state.result;
     }
   });
-  // node_modules/@proto.ui/hooks/dist/as-focus-entry.js
+  // ../packages/hooks/src/as-focus-entry.ts
   var getFocusEntry = definePrivilegedAsHook({
     name: "asFocusEntry",
     setup: ({ facades }) => {
@@ -12077,7 +12591,7 @@
   function asFocusEntry() {
     return getFocusEntry();
   }
-  // node_modules/@proto.ui/hooks/dist/as-focus-roving.js
+  // ../packages/hooks/src/as-focus-roving.ts
   var getFocusRoving = definePrivilegedAsHook({
     name: "asFocusRoving",
     setup: ({ facades }) => {
@@ -12091,7 +12605,7 @@
   function asFocusRoving() {
     return getFocusRoving();
   }
-  // node_modules/@proto.ui/hooks/dist/as-focusable.js
+  // ../packages/hooks/src/as-focusable.ts
   var getFocusable = definePrivilegedAsHook({
     name: "asFocusable",
     setup: ({ facades }) => {
@@ -12105,7 +12619,7 @@
   function asFocusable() {
     return getFocusable();
   }
-  // node_modules/@proto.ui/hooks/dist/as-focus-scope.js
+  // ../packages/hooks/src/as-focus-scope.ts
   var getFocusScope = definePrivilegedAsHook({
     name: "asFocusScope",
     setup: ({ facades }) => {
@@ -12119,7 +12633,7 @@
   function asFocusScope() {
     return getFocusScope();
   }
-  // node_modules/@proto.ui/hooks/dist/as-hit-participation.js
+  // ../packages/hooks/src/as-hit-participation.ts
   var getHitParticipation = definePrivilegedAsHook({
     name: "asHitParticipation",
     setup: ({ facades }) => {
@@ -12136,7 +12650,18 @@
       handle.configure(patch);
     return handle;
   }
-  // node_modules/@proto.ui/hooks/dist/as-text-control.js
+  // ../packages/hooks/src/as-image-view.ts
+  var getImageView = definePrivilegedAsHook({
+    name: "asImageView",
+    setup: ({ facades }) => {
+      const facade = facades["image-view"];
+      if (!facade || typeof facade.declare !== "function") {
+        throw new Error("[AsHook] image-view facade unavailable for asImageView.");
+      }
+      return facade.declare();
+    }
+  });
+  // ../packages/hooks/src/as-text-control.ts
   var getTextControl = definePrivilegedAsHook({
     name: "asTextControl",
     setup: ({ facades }) => {
@@ -12147,7 +12672,7 @@
       return facade.declare();
     }
   });
-  // node_modules/@proto.ui/hooks/dist/as-overlay.js
+  // ../packages/hooks/src/as-overlay.ts
   var installOverlay = definePrivilegedAsHook({
     name: "asOverlay",
     setup: ({ def: def2, rt, facades, ports }) => {
@@ -12243,6 +12768,7 @@
             throw new Error("[asOverlay] cannot bind Presence after keepMounted().");
           }
           presenceBinding = binding;
+          port.markPresenceBound();
           port.setViewActive(binding.present.get());
           offPresence = binding.present.watch((_run, event2) => {
             if (event2.type !== "next")
@@ -12265,7 +12791,7 @@
   function asOverlay() {
     return installOverlay();
   }
-  // node_modules/@proto.ui/hooks/dist/as-scroll-surface.js
+  // ../packages/hooks/src/as-scroll-surface.ts
   var getScrollSurface = definePrivilegedAsHook({
     name: "asScrollSurface",
     setup: ({ facades }) => {
@@ -12276,7 +12802,7 @@
       return facade.getSurface();
     }
   });
-  // node_modules/@proto.ui/hooks/dist/as-trigger.js
+  // ../packages/hooks/src/as-trigger.ts
   var asTrigger = definePrivilegedAsHook({
     name: "asTrigger",
     setup: ({ facades }) => {
@@ -12287,7 +12813,7 @@
       facade.apply();
     }
   });
-  // node_modules/@proto.ui/prototypes-base/dist/button/button.proto.js
+  // ../packages/prototypes/base/src/button/button.proto.ts
   function setupButton(def2) {
     asTrigger();
     def2.props.define({
@@ -12336,14 +12862,17 @@
     def2.a11y.role("button");
     def2.a11y.nameFromContent();
     def2.event.onGlobal("key.down", (_run, ev) => {
-      const detail = ev?.detail;
+      const detail = ev;
       if (disabled.get())
         return;
       if (!focused.get())
         return;
       if (detail?.key !== " ")
         return;
-      detail?.preventDefault?.();
+      ev.control.requestDefaultActionPrevention({
+        reason: "button.space-activation",
+        source: "base-button"
+      });
     });
     def2.event.on("pointer.enter", () => {
       if (disabled.get())
@@ -12381,7 +12910,7 @@
     name: "base-button",
     setup: setupButton
   });
-  // node_modules/@proto.ui/prototypes-shadcn/dist/button/button.proto.js
+  // ../packages/prototypes/shadcn/src/button/button.proto.ts
   var BUTTON_BASE_TOKENS = [
     "group/button",
     "inline-flex",
@@ -12510,7 +13039,7 @@
     }
   });
   var button_proto_default = button2;
-  // node_modules/@proto.ui/prototypes-base/dist/toggle/toggle.proto.js
+  // ../packages/prototypes/base/src/toggle/toggle.proto.ts
   function setupToggle(def2) {
     asTrigger();
     def2.props.define({
@@ -12574,14 +13103,17 @@
       syncDisabled(!!next.disabled);
     });
     def2.event.onGlobal("key.down", (_run, ev) => {
-      const detail = ev?.detail;
+      const detail = ev;
       if (disabled.get())
         return;
       if (!focused.get())
         return;
       if (detail?.key !== " ")
         return;
-      detail?.preventDefault?.();
+      ev.control.requestDefaultActionPrevention({
+        reason: "toggle.space-activation",
+        source: "base-toggle"
+      });
     });
     def2.event.on("pointer.enter", () => {
       if (disabled.get())
@@ -12623,7 +13155,7 @@
     name: "base-toggle",
     setup: setupToggle
   });
-  // node_modules/@proto.ui/prototypes-shadcn/dist/toggle/toggle.proto.js
+  // ../packages/prototypes/shadcn/src/toggle/toggle.proto.ts
   var TOGGLE_BASE_TOKENS = [
     "group/toggle",
     "inline-flex",
@@ -12700,7 +13232,7 @@
     }
   });
   var toggle_proto_default = toggle2;
-  // node_modules/@proto.ui/prototypes-base/dist/switch/shared.js
+  // ../packages/prototypes/base/src/switch/shared.ts
   var SWITCH_FAMILY = createAnatomyFamily("base-switch", {
     roles: {
       root: { cardinality: { min: 1, max: 1 } },
@@ -12710,7 +13242,7 @@
   });
   var SWITCH_CONTEXT = createContextKey("base-switch");
 
-  // node_modules/@proto.ui/prototypes-base/dist/switch/root.proto.js
+  // ../packages/prototypes/base/src/switch/root.proto.ts
   function setupSwitchRoot(def2) {
     def2.anatomy.claim(SWITCH_FAMILY, { role: "root" });
     asTrigger();
@@ -12791,14 +13323,17 @@
       syncDisabled(run2, !!next.disabled);
     });
     def2.event.onGlobal("key.down", (_run, ev) => {
-      const detail = ev?.detail;
+      const detail = ev;
       if (disabled.get())
         return;
       if (!focused.get())
         return;
       if (detail?.key !== " ")
         return;
-      detail?.preventDefault?.();
+      ev.control.requestDefaultActionPrevention({
+        reason: "switch.space-activation",
+        source: "base-switch"
+      });
     });
     def2.event.on("pointer.enter", () => {
       if (disabled.get())
@@ -12841,7 +13376,7 @@
     name: "base-switch-root",
     setup: setupSwitchRoot
   });
-  // node_modules/@proto.ui/prototypes-base/dist/switch/thumb.proto.js
+  // ../packages/prototypes/base/src/switch/thumb.proto.ts
   function setupSwitchThumb(def2) {
     def2.anatomy.claim(SWITCH_FAMILY, { role: "thumb" });
     const checked = def2.state.bool("checked", false);
@@ -12872,7 +13407,7 @@
     name: "base-switch-thumb",
     setup: setupSwitchThumb
   });
-  // node_modules/@proto.ui/prototypes-shadcn/dist/switch/root.proto.js
+  // ../packages/prototypes/shadcn/src/switch/root.proto.ts
   var ROOT_BASE_TOKENS = [
     "peer",
     "inline-flex",
@@ -12937,7 +13472,7 @@
   });
   var root_proto_default2 = switchRoot2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/switch/thumb.proto.js
+  // ../packages/prototypes/shadcn/src/switch/thumb.proto.ts
   var THUMB_TOKENS = [
     "pointer-events-none",
     "block",
@@ -12971,7 +13506,7 @@
     }
   });
   var thumb_proto_default2 = switchThumb2;
-  // node_modules/@proto.ui/prototypes-base/dist/tabs/shared.js
+  // ../packages/prototypes/base/src/tabs/shared.ts
   var nextTabsRootId = 0;
   function createTabsRootId() {
     nextTabsRootId += 1;
@@ -12999,7 +13534,7 @@
   });
   var TABS_CONTEXT = createContextKey("base-tabs");
 
-  // node_modules/@proto.ui/prototypes-base/dist/tabs/root.proto.js
+  // ../packages/prototypes/base/src/tabs/root.proto.ts
   function readTriggerSnapshot(part) {
     const exposed = part.getExpose("__collectionItem");
     const disabledExpose = part.getExpose("disabled");
@@ -13144,7 +13679,7 @@
     name: "base-tabs-root",
     setup: setupTabsRoot
   });
-  // node_modules/@proto.ui/prototypes-base/dist/tabs/list.proto.js
+  // ../packages/prototypes/base/src/tabs/list.proto.ts
   function setupTabsList(def2) {
     def2.anatomy.claim(TABS_FAMILY, { role: "list" });
     def2.props.define({
@@ -13201,7 +13736,7 @@
     name: "base-tabs-list",
     setup: setupTabsList
   });
-  // node_modules/@proto.ui/prototypes-base/dist/tabs/trigger.proto.js
+  // ../packages/prototypes/base/src/tabs/trigger.proto.ts
   function syncSelectedFromContext(nextValue, ownValue, selected) {
     selected.set(ownValue === nextValue, "reason: tabs context sync => selected");
   }
@@ -13383,14 +13918,17 @@
       requestSelection(run2, ctx);
     });
     def2.event.onGlobal("key.down", (_run, ev) => {
-      const detail = ev?.detail;
+      const detail = ev;
       if (disabled.get())
         return;
       if (!focused.get())
         return;
       if (detail?.key !== " ")
         return;
-      detail?.preventDefault?.();
+      ev.control.requestDefaultActionPrevention({
+        reason: "tabs.space-activation",
+        source: "base-tabs-trigger"
+      });
     });
     def2.event.on("pointer.enter", () => {
       if (disabled.get())
@@ -13422,7 +13960,7 @@
     name: "base-tabs-trigger",
     setup: setupTabsTrigger
   });
-  // node_modules/@proto.ui/prototypes-base/dist/tabs/content.proto.js
+  // ../packages/prototypes/base/src/tabs/content.proto.ts
   function syncCurrentFromContext(nextValue, ownValue, current, hidden, focusEntry) {
     const nextCurrent = ownValue === nextValue;
     current.set(nextCurrent, "reason: tabs context sync => current");
@@ -13500,7 +14038,7 @@
     name: "base-tabs-content",
     setup: setupTabsContent
   });
-  // node_modules/@proto.ui/prototypes-shadcn/dist/tabs/content.proto.js
+  // ../packages/prototypes/shadcn/src/tabs/content.proto.ts
   var tabsContent2 = definePrototype({
     name: "shadcn-tabs-content",
     setup(def2) {
@@ -13518,7 +14056,7 @@
   });
   var content_proto_default2 = tabsContent2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/tabs/list.proto.js
+  // ../packages/prototypes/shadcn/src/tabs/list.proto.ts
   var tabsList2 = definePrototype({
     name: "shadcn-tabs-list",
     setup(def2) {
@@ -13528,7 +14066,7 @@
   });
   var list_proto_default2 = tabsList2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/tabs/root.proto.js
+  // ../packages/prototypes/shadcn/src/tabs/root.proto.ts
   var tabsRoot2 = definePrototype({
     name: "shadcn-tabs-root",
     setup(def2) {
@@ -13538,7 +14076,7 @@
   });
   var root_proto_default4 = tabsRoot2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/tabs/trigger.proto.js
+  // ../packages/prototypes/shadcn/src/tabs/trigger.proto.ts
   var BASE_TOKENS = [
     "relative",
     "inline-flex",
@@ -13588,7 +14126,7 @@
     }
   });
   var trigger_proto_default2 = tabsTrigger2;
-  // node_modules/@proto.ui/prototypes-base/dist/tools/use-open-state.js
+  // ../packages/prototypes/base/src/tools/use-open-state.ts
   var useOpenState = defineHook({
     name: "useOpenState",
     mode: "configurable",
@@ -13671,7 +14209,7 @@
       });
     }
   });
-  // node_modules/@proto.ui/prototypes-base/dist/transition/machine.js
+  // ../packages/prototypes/base/src/transition/machine.ts
   function createTransitionMachine(driver) {
     let targetOpen = false;
     let viewMounted = false;
@@ -13836,7 +14374,7 @@
     };
   }
 
-  // node_modules/@proto.ui/prototypes-base/dist/transition/as-transition.proto.js
+  // ../packages/prototypes/base/src/transition/as-transition.proto.ts
   function requireProjectedHandle(value, name) {
     if (typeof value === "undefined") {
       throw new Error(`[asTransition] missing captured handle: ${name}.`);
@@ -13981,7 +14519,7 @@
       return { transitionState, isPresent, controls, configure };
     }
   });
-  // node_modules/@proto.ui/prototypes-base/dist/hover-card/shared.js
+  // ../packages/prototypes/base/src/hover-card/shared.ts
   function deriveHoverCardInteractionOpen(ctx) {
     return ctx.triggerHovered || ctx.triggerFocused || ctx.contentHovered;
   }
@@ -13994,10 +14532,10 @@
         interactionVersion: prev.interactionVersion + 1
       }));
       return true;
-    } catch (error4) {
-      if (error4?.code === "CONTEXT_DISCONNECTED")
+    } catch (error5) {
+      if (error5?.code === "CONTEXT_DISCONNECTED")
         return false;
-      throw error4;
+      throw error5;
     }
   }
   function requestHoverCardOpen(run2, nextOpen, reason) {
@@ -14010,10 +14548,10 @@
         requestVersion: prev.requestVersion + 1
       }));
       return true;
-    } catch (error4) {
-      if (error4?.code === "CONTEXT_DISCONNECTED")
+    } catch (error5) {
+      if (error5?.code === "CONTEXT_DISCONNECTED")
         return false;
-      throw error4;
+      throw error5;
     }
   }
   var HOVER_CARD_FAMILY = createAnatomyFamily("base-hover-card", {
@@ -14029,7 +14567,7 @@
   });
   var HOVER_CARD_CONTEXT = createContextKey("base-hover-card");
 
-  // node_modules/@proto.ui/prototypes-base/dist/hover-card/root.proto.js
+  // ../packages/prototypes/base/src/hover-card/root.proto.ts
   var DEFAULT_OPEN_DELAY = 700;
   var DEFAULT_CLOSE_DELAY = 300;
   function normalizeDelay(value, fallback) {
@@ -14178,7 +14716,7 @@
       def2.feedback.style.use(tw("relative inline-flex items-start"));
     }
   });
-  // node_modules/@proto.ui/prototypes-base/dist/hover-card/trigger.proto.js
+  // ../packages/prototypes/base/src/hover-card/trigger.proto.ts
   function setupHoverCardTrigger(def2) {
     def2.anatomy.claim(HOVER_CARD_FAMILY, { role: "trigger" });
     def2.props.define({ disabled: { type: "boolean", empty: "fallback" } });
@@ -14236,7 +14774,7 @@
     name: "base-hover-card-trigger",
     setup: setupHoverCardTrigger
   });
-  // node_modules/@proto.ui/prototypes-base/dist/hover-card/content.proto.js
+  // ../packages/prototypes/base/src/hover-card/content.proto.ts
   function projectHoverCardContentHandle(result) {
     const open = result.getState?.("open");
     const asTransition2 = result.getAsHookHandle?.("asTransition");
@@ -14366,7 +14904,7 @@
       def2.feedback.style.use(tw("absolute z-40"));
     }
   });
-  // node_modules/@proto.ui/prototypes-shadcn/dist/hover-card/content.proto.js
+  // ../packages/prototypes/shadcn/src/hover-card/content.proto.ts
   var hoverCardContent2 = definePrototype({
     name: "shadcn-hover-card-content",
     setup(def2) {
@@ -14402,7 +14940,7 @@
   });
   var content_proto_default4 = hoverCardContent2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/hover-card/root.proto.js
+  // ../packages/prototypes/shadcn/src/hover-card/root.proto.ts
   var hoverCardRoot2 = definePrototype({
     name: "shadcn-hover-card-root",
     setup(def2) {
@@ -14412,7 +14950,7 @@
   });
   var root_proto_default6 = hoverCardRoot2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/hover-card/trigger.proto.js
+  // ../packages/prototypes/shadcn/src/hover-card/trigger.proto.ts
   var TRIGGER_BASE_TOKENS = "inline-flex cursor-pointer items-center text-sm font-medium underline-offset-4 outline-none";
   var hoverCardTrigger2 = definePrototype({
     name: "shadcn-hover-card-trigger",
@@ -14440,7 +14978,7 @@
   });
   var trigger_proto_default4 = hoverCardTrigger2;
 
-  // node_modules/@proto.ui/prototypes-base/dist/dropdown/shared.js
+  // ../packages/prototypes/base/src/dropdown/shared.ts
   var nextDropdownRootId = 0;
   function createDropdownRootId() {
     nextDropdownRootId += 1;
@@ -14459,10 +14997,10 @@
         focusReason,
         entry: nextOpen ? entry : null
       }) ?? false;
-    } catch (error4) {
-      if (error4?.code === "CONTEXT_DISCONNECTED")
+    } catch (error5) {
+      if (error5?.code === "CONTEXT_DISCONNECTED")
         return false;
-      throw error4;
+      throw error5;
     }
   }
   var DROPDOWN_FAMILY = createAnatomyFamily("base-dropdown", {
@@ -14480,7 +15018,7 @@
   });
   var DROPDOWN_CONTEXT = createContextKey("base-dropdown");
 
-  // node_modules/@proto.ui/prototypes-base/dist/dropdown/root.proto.js
+  // ../packages/prototypes/base/src/dropdown/root.proto.ts
   function sameContext2(a, b) {
     return Object.keys(a).every((key) => a[key] === b[key]);
   }
@@ -14617,7 +15155,7 @@
     name: "base-dropdown-root",
     setup: setupDropdownRoot
   });
-  // node_modules/@proto.ui/prototypes-base/dist/dropdown/command.js
+  // ../packages/prototypes/base/src/dropdown/command.ts
   function setupDropdownCommand(def2, reasonPrefix, options) {
     asTrigger();
     def2.props.define({ disabled: { type: "boolean", empty: "fallback" } });
@@ -14651,10 +15189,13 @@
         clearTransient(`reason: ${reasonPrefix} disabled => reset interaction`);
     };
     def2.event.on("key.down", (_run, ev) => {
-      const detail = ev?.detail;
+      const detail = ev;
       if (disabled.get() || !focused.get() || detail?.key !== " ")
         return;
-      detail?.preventDefault?.();
+      ev.control.requestDefaultActionPrevention({
+        reason: `${reasonPrefix}.space-activation`,
+        source: reasonPrefix
+      });
     });
     def2.event.on("pointer.enter", () => {
       if (!disabled.get())
@@ -14682,7 +15223,7 @@
     };
   }
 
-  // node_modules/@proto.ui/prototypes-base/dist/dropdown/trigger.proto.js
+  // ../packages/prototypes/base/src/dropdown/trigger.proto.ts
   function setupDropdownTrigger(def2) {
     def2.anatomy.claim(DROPDOWN_FAMILY, { role: "trigger" });
     const command = setupDropdownCommand(def2, "dropdown trigger");
@@ -14716,7 +15257,7 @@
       if (command.disabled.get())
         return;
       const ctx = run2.context.read(DROPDOWN_CONTEXT);
-      const key = ev?.detail?.key;
+      const key = ev?.key;
       const focusReason = key ? "keyboard" : "pointer";
       if (key === "Enter" || key === " ") {
         requestDropdownOpen(run2, true, "trigger.press", "keyboard", "first");
@@ -14727,10 +15268,13 @@
     def2.event.on("key.down", (run2, ev) => {
       if (command.disabled.get())
         return;
-      const key = ev?.detail?.key;
+      const key = ev?.key;
       if (key !== "ArrowDown" && key !== "ArrowUp")
         return;
-      ev?.detail?.preventDefault?.();
+      ev.control.requestDefaultActionPrevention({
+        reason: "dropdown.arrow-open",
+        source: "base-dropdown-trigger"
+      });
       const ctx = run2.context.read(DROPDOWN_CONTEXT);
       const entry = key === "ArrowUp" ? "last" : "first";
       if (!ctx.open) {
@@ -14752,7 +15296,7 @@
     name: "base-dropdown-trigger",
     setup: setupDropdownTrigger
   });
-  // node_modules/@proto.ui/prototypes-base/dist/behaviors/use-typeahead-navigation.js
+  // ../packages/prototypes/base/src/behaviors/use-typeahead-navigation.ts
   var useTypeaheadNavigation = defineHook({
     name: "useTypeaheadNavigation",
     setup(def2, options, api) {
@@ -14767,7 +15311,7 @@
       def2.event.onGlobal("key.down", (run2, ev) => {
         if (!options.isEnabled(run2))
           return;
-        const detail = ev?.detail;
+        const detail = ev;
         const key = detail?.key;
         if (typeof key !== "string" || key.length !== 1)
           return;
@@ -14799,7 +15343,7 @@
       def2.lifecycle.onUnmounted(clear);
     }
   });
-  // node_modules/@proto.ui/prototypes-base/dist/dropdown/content.proto.js
+  // ../packages/prototypes/base/src/dropdown/content.proto.ts
   function projectDropdownContentHandle(result) {
     const open = result.getState?.("open");
     const asTransition2 = result.getAsHookHandle?.("asTransition");
@@ -14816,7 +15360,8 @@
       sideOffset: { type: "number", empty: "fallback" },
       alignOffset: { type: "number", empty: "fallback" },
       avoidCollisions: { type: "boolean", empty: "fallback" },
-      collisionPadding: { type: "number", empty: "fallback" }
+      collisionPadding: { type: "number", empty: "fallback" },
+      excludeAnchorTranslation: { type: "boolean", empty: "fallback" }
     });
     def2.props.setDefaults({
       side: "bottom",
@@ -14824,7 +15369,8 @@
       sideOffset: 4,
       alignOffset: 0,
       avoidCollisions: true,
-      collisionPadding: 0
+      collisionPadding: 0,
+      excludeAnchorTranslation: false
     });
     const contentId = def2.state.string("dropdownContentId", "");
     const orientation = def2.state.string("dropdownOrientation", "vertical");
@@ -14856,6 +15402,7 @@
       avoidCollisions: true,
       collisionBoundary: "clippingAncestors",
       collisionPadding: 0,
+      excludeAnchorTranslation: false,
       portal: true,
       modal: false,
       layerRole: "dropdown-menu-content",
@@ -14877,10 +15424,10 @@
     const readContext = (run2) => {
       try {
         return run2.context.read(DROPDOWN_CONTEXT);
-      } catch (error4) {
-        if (error4?.code === "CONTEXT_DISCONNECTED")
+      } catch (error5) {
+        if (error5?.code === "CONTEXT_DISCONNECTED")
           return null;
-        throw error4;
+        throw error5;
       }
     };
     const getNavigationEntries = (run2) => run2.anatomy.order.partsOf(DROPDOWN_FAMILY, "item").map((item) => ({
@@ -14936,7 +15483,8 @@
         avoidCollisions: props.avoidCollisions,
         collisionPadding: props.collisionPadding,
         strategy: "fixed",
-        collisionBoundary: "clippingAncestors"
+        collisionBoundary: "clippingAncestors",
+        excludeAnchorTranslation: props.excludeAnchorTranslation
       });
     };
     const focusTrigger = (run2, reason) => {
@@ -14944,7 +15492,15 @@
       const focusSelf = trigger?.getExpose("focusSelf");
       focusSelf?.({ reason });
     };
-    def2.props.watch(["side", "align", "sideOffset", "alignOffset", "avoidCollisions", "collisionPadding"], (run2) => syncPosition(run2));
+    def2.props.watch([
+      "side",
+      "align",
+      "sideOffset",
+      "alignOffset",
+      "avoidCollisions",
+      "collisionPadding",
+      "excludeAnchorTranslation"
+    ], (run2) => syncPosition(run2));
     const updateOpen = (run2, ctx, reason) => {
       const wasOpen = open.get();
       const menuStillOwnsFocus = wasOpen && getNavigationEntries(run2).some((entry) => entry.focused);
@@ -15009,7 +15565,7 @@
         return;
       if (!ctx.open || ctx.disabled)
         return;
-      const key = ev?.detail?.key;
+      const key = ev?.key;
       if (key !== "Tab")
         return;
       if (!getNavigationEntries(run2).some((entry) => entry.focused))
@@ -15044,7 +15600,7 @@
       def2.feedback.style.use(tw("absolute z-40"));
     }
   });
-  // node_modules/@proto.ui/prototypes-base/dist/dropdown/item.proto.js
+  // ../packages/prototypes/base/src/dropdown/item.proto.ts
   function setupDropdownItem(def2) {
     const command = setupDropdownCommand(def2, "dropdown item", { focusableWhenDisabled: true });
     const active = def2.state.bool("active", false);
@@ -15107,7 +15663,7 @@
       if (command.disabled.get())
         return;
       const ctx = run2.context.read(DROPDOWN_CONTEXT);
-      const reason = ev?.detail?.key ? "keyboard" : "pointer";
+      const reason = ev?.key ? "keyboard" : "pointer";
       const value = run2.props.get().value ?? "";
       updateActiveValue(run2);
       run2.expose.emit("select", { value, reason });
@@ -15141,7 +15697,7 @@
     name: "base-dropdown-item",
     setup: setupDropdownItem
   });
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dropdown/content.proto.js
+  // ../packages/prototypes/shadcn/src/dropdown/content.proto.ts
   var dropdownContent2 = definePrototype({
     name: "shadcn-dropdown-content",
     setup(def2) {
@@ -15178,7 +15734,7 @@
   });
   var content_proto_default6 = dropdownContent2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dropdown/item.proto.js
+  // ../packages/prototypes/shadcn/src/dropdown/item.proto.ts
   var ITEM_BASE_TOKENS = "relative flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors";
   var dropdownItem2 = definePrototype({
     name: "shadcn-dropdown-item",
@@ -15222,7 +15778,7 @@
   });
   var item_proto_default2 = dropdownItem2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dropdown/root.proto.js
+  // ../packages/prototypes/shadcn/src/dropdown/root.proto.ts
   var dropdownRoot2 = definePrototype({
     name: "shadcn-dropdown-root",
     setup(def2) {
@@ -15231,7 +15787,7 @@
   });
   var root_proto_default8 = dropdownRoot2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dropdown/trigger.proto.js
+  // ../packages/prototypes/shadcn/src/dropdown/trigger.proto.ts
   var TRIGGER_BASE_TOKENS2 = [
     "inline-flex",
     "items-center",
@@ -15315,7 +15871,7 @@
       });
       def2.rule({
         when: (w) => w.state(pressed).eq(true),
-        intent: (i) => i.feedback.style.use(tw("translate-y-px bg-muted text-foreground"))
+        intent: (i) => i.feedback.style.use(tw("bg-muted text-foreground"))
       });
       def2.rule({
         when: (w) => w.state(disabled).eq(true),
@@ -15340,7 +15896,7 @@
   });
   var trigger_proto_default6 = dropdownTrigger2;
 
-  // node_modules/@proto.ui/prototypes-base/dist/select/shared.js
+  // ../packages/prototypes/base/src/select/shared.ts
   var nextSelectRootId = 0;
   function createSelectRootId() {
     nextSelectRootId += 1;
@@ -15354,10 +15910,10 @@
       const root = run2.anatomy.partsOf(SELECT_FAMILY, "root")[0] ?? null;
       const requestOpen = root?.getExpose("requestOpen");
       return requestOpen?.(request) ?? false;
-    } catch (error4) {
-      if (error4?.code === "CONTEXT_DISCONNECTED")
+    } catch (error5) {
+      if (error5?.code === "CONTEXT_DISCONNECTED")
         return false;
-      throw error4;
+      throw error5;
     }
   }
   function requestSelectValue(run2, request) {
@@ -15365,10 +15921,10 @@
       const root = run2.anatomy.partsOf(SELECT_FAMILY, "root")[0] ?? null;
       const requestValue = root?.getExpose("requestValue");
       return requestValue?.(request) ?? false;
-    } catch (error4) {
-      if (error4?.code === "CONTEXT_DISCONNECTED")
+    } catch (error5) {
+      if (error5?.code === "CONTEXT_DISCONNECTED")
         return false;
-      throw error4;
+      throw error5;
     }
   }
   function notifySelectItemSnapshotChanged(run2) {
@@ -15393,7 +15949,7 @@
   });
   var SELECT_CONTEXT = createContextKey("base-select");
 
-  // node_modules/@proto.ui/prototypes-base/dist/select/root.proto.js
+  // ../packages/prototypes/base/src/select/root.proto.ts
   function sameContext3(a, b) {
     return Object.keys(a).every((key) => a[key] === b[key]);
   }
@@ -15592,7 +16148,7 @@
     setup: setupSelectRoot
   });
   var selectRoot = definePrototype({ name: "base-select-root", setup: setupSelectRoot });
-  // node_modules/@proto.ui/prototypes-base/dist/select/command.js
+  // ../packages/prototypes/base/src/select/command.ts
   function setupSelectCommand(def2, reasonPrefix) {
     asTrigger();
     def2.props.define({ disabled: { type: "boolean", empty: "fallback" } });
@@ -15630,9 +16186,12 @@
         focusable.blur();
     };
     def2.event.on("key.down", (_run, ev) => {
-      if (disabled.get() || !focused.get() || ev?.detail?.key !== " ")
+      if (disabled.get() || !focused.get() || ev?.key !== " ")
         return;
-      ev.detail.preventDefault?.();
+      ev.control.requestDefaultActionPrevention({
+        reason: `${reasonPrefix}.space-activation`,
+        source: reasonPrefix
+      });
     });
     def2.event.on("pointer.enter", () => {
       if (!disabled.get())
@@ -15659,7 +16218,7 @@
     };
   }
 
-  // node_modules/@proto.ui/prototypes-base/dist/select/trigger.proto.js
+  // ../packages/prototypes/base/src/select/trigger.proto.ts
   function setupSelectTrigger(def2) {
     def2.anatomy.claim(SELECT_FAMILY, { role: "trigger" });
     const command = setupSelectCommand(def2, "select trigger");
@@ -15688,7 +16247,7 @@
       if (command.disabled.get())
         return;
       const ctx = run2.context.read(SELECT_CONTEXT);
-      const key = ev?.detail?.key;
+      const key = ev?.key;
       if (key === "Enter" || key === " ") {
         requestSelectOpen(run2, {
           open: true,
@@ -15708,10 +16267,13 @@
     def2.event.on("key.down", (run2, ev) => {
       if (command.disabled.get())
         return;
-      const key = ev?.detail?.key;
+      const key = ev?.key;
       if (key !== "ArrowDown" && key !== "ArrowUp")
         return;
-      ev?.detail?.preventDefault?.();
+      ev.control.requestDefaultActionPrevention({
+        reason: "select.arrow-open",
+        source: "base-select-trigger"
+      });
       const ctx = run2.context.read(SELECT_CONTEXT);
       if (ctx.open)
         return;
@@ -15728,7 +16290,7 @@
     setup: setupSelectTrigger
   });
   var selectTrigger = definePrototype({ name: "base-select-trigger", setup: setupSelectTrigger });
-  // node_modules/@proto.ui/prototypes-base/dist/select/value.proto.js
+  // ../packages/prototypes/base/src/select/value.proto.ts
   function setupSelectValue(def2) {
     def2.anatomy.claim(SELECT_FAMILY, { role: "value" });
     def2.props.define({ placeholder: { type: "string", empty: "fallback" } });
@@ -15737,6 +16299,7 @@
     const displayValue = def2.state.string("displayValue", "");
     def2.expose.state("displayValue", displayValue);
     let mounted = false;
+    let renderMissed = false;
     const computeDisplayValue = (run2) => {
       const ctx = run2.context.read(SELECT_CONTEXT);
       return ctx.textValue || ctx.value || run2.props.get().placeholder || "";
@@ -15746,14 +16309,22 @@
       if (nextValue === displayValue.get())
         return;
       displayValue.set(nextValue, "reason: select value display sync");
-      if (requestRender && mounted)
+      if (!requestRender)
+        return;
+      if (mounted)
         run2.update();
+      else
+        renderMissed = true;
     };
     def2.context.subscribe(SELECT_CONTEXT, (run2) => syncDisplayValue(run2, true));
     def2.lifecycle.onCreated((run2) => syncDisplayValue(run2, false));
     def2.lifecycle.onMounted((run2) => {
       syncDisplayValue(run2, false);
       mounted = true;
+      if (renderMissed) {
+        renderMissed = false;
+        run2.update();
+      }
     });
     def2.props.watch(["placeholder"], (run2) => syncDisplayValue(run2, true));
     def2.lifecycle.onUnmounted(() => {
@@ -15766,7 +16337,7 @@
     setup: setupSelectValue
   });
   var selectValue = definePrototype({ name: "base-select-value", setup: setupSelectValue });
-  // node_modules/@proto.ui/prototypes-base/dist/select/content.proto.js
+  // ../packages/prototypes/base/src/select/content.proto.ts
   function projectSelectContentHandle(result) {
     const open = result.getState?.("open");
     const asTransition2 = result.getAsHookHandle?.("asTransition");
@@ -15846,10 +16417,10 @@
     const readContext = (run2) => {
       try {
         return run2.context.read(SELECT_CONTEXT);
-      } catch (error4) {
-        if (error4?.code === "CONTEXT_DISCONNECTED")
+      } catch (error5) {
+        if (error5?.code === "CONTEXT_DISCONNECTED")
           return null;
-        throw error4;
+        throw error5;
       }
     };
     const getNavigationEntries = (run2) => run2.anatomy.order.partsOf(SELECT_FAMILY, "item").map((item) => ({
@@ -15988,7 +16559,7 @@
       if (store.run !== run2)
         return;
       const ctx = readContext(run2);
-      if (!ctx?.open || ctx.disabled || ev?.detail?.key !== "Tab")
+      if (!ctx?.open || ctx.disabled || ev?.key !== "Tab")
         return;
       if (!getNavigationEntries(run2).some((entry) => entry.focused))
         return;
@@ -16024,7 +16595,7 @@
       def2.feedback.style.use(tw("absolute z-40"));
     }
   });
-  // node_modules/@proto.ui/prototypes-base/dist/select/item.proto.js
+  // ../packages/prototypes/base/src/select/item.proto.ts
   function setupSelectItem(def2) {
     const command = setupSelectCommand(def2, "select item");
     const active = def2.state.bool("active", false);
@@ -16059,10 +16630,10 @@
     const readContext = (run2) => {
       try {
         return run2.context.read(SELECT_CONTEXT);
-      } catch (error4) {
-        if (error4?.code === "CONTEXT_DISCONNECTED")
+      } catch (error5) {
+        if (error5?.code === "CONTEXT_DISCONNECTED")
           return null;
-        throw error4;
+        throw error5;
       }
     };
     const sync = (run2, ctx) => {
@@ -16118,7 +16689,7 @@
       const ctx = readContext(run2);
       if (!ctx)
         return;
-      const reason = ev?.detail?.key ? "keyboard" : "pointer";
+      const reason = ev?.key ? "keyboard" : "pointer";
       const ownValue = run2.props.get().value ?? "";
       const ownTextValue = run2.props.get().textValue || ownValue;
       updateActiveValue(run2);
@@ -16161,7 +16732,7 @@
     setup: setupSelectItem
   });
   var selectItem = definePrototype({ name: "base-select-item", setup: setupSelectItem });
-  // node_modules/@proto.ui/prototypes-shadcn/dist/select/root.proto.js
+  // ../packages/prototypes/shadcn/src/select/root.proto.ts
   var selectRoot2 = definePrototype({
     name: "shadcn-select-root",
     setup() {
@@ -16170,7 +16741,7 @@
   });
   var root_proto_default10 = selectRoot2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/select/trigger.proto.js
+  // ../packages/prototypes/shadcn/src/select/trigger.proto.ts
   function renderChevron(renderer) {
     return renderer.el("span", { style: tw("pointer-events-none flex shrink-0 items-center opacity-50") }, renderer.svg.root({
       viewBox: "0 0 24 24",
@@ -16229,7 +16800,7 @@
   });
   var trigger_proto_default8 = selectTrigger2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/select/value.proto.js
+  // ../packages/prototypes/shadcn/src/select/value.proto.ts
   var selectValue2 = definePrototype({
     name: "shadcn-select-value",
     setup() {
@@ -16241,7 +16812,7 @@
   });
   var value_proto_default2 = selectValue2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/select/content.proto.js
+  // ../packages/prototypes/shadcn/src/select/content.proto.ts
   var selectContent2 = definePrototype({
     name: "shadcn-select-content",
     setup(def2) {
@@ -16286,7 +16857,7 @@
   });
   var content_proto_default8 = selectContent2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/select/item.proto.js
+  // ../packages/prototypes/shadcn/src/select/item.proto.ts
   function renderCheck(renderer, selected) {
     return renderer.el("span", { style: tw("pointer-events-none flex size-5 shrink-0 items-center justify-center") }, selected ? renderer.svg.root({
       viewBox: "0 0 24 24",
@@ -16337,7 +16908,7 @@
     }
   });
   var item_proto_default4 = selectItem2;
-  // node_modules/@proto.ui/prototypes-base/dist/dialog/shared.js
+  // ../packages/prototypes/base/src/dialog/shared.ts
   var nextDialogRootId = 0;
   function createDialogRootId() {
     nextDialogRootId += 1;
@@ -16359,10 +16930,10 @@
         requestVersion: prev.requestVersion + 1
       }));
       return true;
-    } catch (error4) {
-      if (error4?.code === "CONTEXT_DISCONNECTED")
+    } catch (error5) {
+      if (error5?.code === "CONTEXT_DISCONNECTED")
         return false;
-      throw error4;
+      throw error5;
     }
   }
   var DIALOG_FAMILY = createAnatomyFamily("base-dialog", {
@@ -16390,7 +16961,7 @@
   });
   var DIALOG_CONTEXT = createContextKey("base-dialog");
 
-  // node_modules/@proto.ui/prototypes-base/dist/dialog/root.proto.js
+  // ../packages/prototypes/base/src/dialog/root.proto.ts
   function sameContext4(a, b) {
     return a.rootId === b.rootId && a.open === b.open && a.openFocusReason === b.openFocusReason && a.returnFocusReason === b.returnFocusReason && a.controlled === b.controlled && a.disabled === b.disabled && a.alert === b.alert && a.a11yLabel === b.a11yLabel && a.requestedOpen === b.requestedOpen && a.requestReason === b.requestReason && a.requestFocusReason === b.requestFocusReason && a.requestVersion === b.requestVersion;
   }
@@ -16518,7 +17089,7 @@
       setupDialogRoot(def2);
     }
   });
-  // node_modules/@proto.ui/prototypes-base/dist/dialog/command.js
+  // ../packages/prototypes/base/src/dialog/command.ts
   function setupDialogCommand(def2, reasonPrefix) {
     asTrigger();
     def2.props.define({
@@ -16557,10 +17128,13 @@
         clearTransient(`reason: ${reasonPrefix} disabled => reset interaction`);
     };
     def2.event.onGlobal("key.down", (_run, ev) => {
-      const detail = ev?.detail;
+      const detail = ev;
       if (disabled.get() || !focused.get() || detail?.key !== " ")
         return;
-      detail?.preventDefault?.();
+      ev.control.requestDefaultActionPrevention({
+        reason: `${reasonPrefix}.space-activation`,
+        source: reasonPrefix
+      });
     });
     def2.event.on("pointer.enter", () => {
       if (!disabled.get())
@@ -16579,7 +17153,7 @@
     return { disabled, syncDisabled };
   }
 
-  // node_modules/@proto.ui/prototypes-base/dist/dialog/trigger.proto.js
+  // ../packages/prototypes/base/src/dialog/trigger.proto.ts
   function setupDialogTrigger(def2) {
     def2.anatomy.claim(DIALOG_FAMILY, { role: "trigger" });
     const command = setupDialogCommand(def2, "dialog trigger");
@@ -16609,7 +17183,7 @@
       const ctx = run2.context.read(DIALOG_CONTEXT);
       if (command.disabled.get())
         return;
-      const openFocusReason = ev?.detail?.key ? "keyboard" : "pointer";
+      const openFocusReason = ev?.key ? "keyboard" : "pointer";
       requestDialogOpen(run2, !ctx.open, "trigger.press", openFocusReason);
     });
   }
@@ -16621,7 +17195,7 @@
     name: "base-dialog-trigger",
     setup: setupDialogTrigger
   });
-  // node_modules/@proto.ui/prototypes-base/dist/dialog/overlay.proto.js
+  // ../packages/prototypes/base/src/dialog/overlay.proto.ts
   function projectDialogMaskHandle(result) {
     const open = result.getState?.("open");
     const asTransition2 = result.getAsHookHandle?.("asTransition");
@@ -16723,7 +17297,7 @@
       def2.feedback.style.use(tw("fixed inset-0"));
     }
   });
-  // node_modules/@proto.ui/prototypes-base/dist/dialog/content.proto.js
+  // ../packages/prototypes/base/src/dialog/content.proto.ts
   function projectDialogContentHandle(result) {
     const open = result.getState?.("open");
     const asTransition2 = result.getAsHookHandle?.("asTransition");
@@ -16779,10 +17353,10 @@
     const hasLivePart = (run2, role2) => {
       try {
         return run2.anatomy.has(DIALOG_FAMILY, role2);
-      } catch (error4) {
-        if (error4?.code === "ANATOMY_CLAIM_INVALID")
+      } catch (error5) {
+        if (error5?.code === "ANATOMY_CLAIM_INVALID")
           return false;
-        throw error4;
+        throw error5;
       }
     };
     const syncA11yRelations = (run2, ctx) => {
@@ -16917,7 +17491,7 @@
       def2.feedback.style.use(tw("fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"));
     }
   });
-  // node_modules/@proto.ui/prototypes-base/dist/dialog/title.proto.js
+  // ../packages/prototypes/base/src/dialog/title.proto.ts
   function setupDialogTitle(def2) {
     def2.anatomy.claim(DIALOG_FAMILY, { role: "title" });
     const id = def2.state.string("dialogTitleId", "");
@@ -16938,7 +17512,7 @@
     name: "base-dialog-title",
     setup: setupDialogTitle
   });
-  // node_modules/@proto.ui/prototypes-base/dist/dialog/description.proto.js
+  // ../packages/prototypes/base/src/dialog/description.proto.ts
   function setupDialogDescription(def2) {
     def2.anatomy.claim(DIALOG_FAMILY, { role: "description" });
     const id = def2.state.string("dialogDescriptionId", "");
@@ -16958,7 +17532,7 @@
     name: "base-dialog-description",
     setup: setupDialogDescription
   });
-  // node_modules/@proto.ui/prototypes-base/dist/dialog/close.proto.js
+  // ../packages/prototypes/base/src/dialog/close.proto.ts
   function setupDialogClose(def2) {
     def2.anatomy.claim(DIALOG_FAMILY, { role: "close" });
     const command = setupDialogCommand(def2, "dialog close");
@@ -16974,7 +17548,7 @@
     def2.event.on("press.commit", (run2, ev) => {
       if (command.disabled.get())
         return;
-      const returnFocusReason = ev?.detail?.key ? "keyboard" : "pointer";
+      const returnFocusReason = ev?.key ? "keyboard" : "pointer";
       requestDialogOpen(run2, false, "close.press", returnFocusReason);
     });
   }
@@ -16986,7 +17560,7 @@
     name: "base-dialog-close",
     setup: setupDialogClose
   });
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dialog/close.proto.js
+  // ../packages/prototypes/shadcn/src/dialog/close.proto.ts
   var dialogClose2 = definePrototype({
     name: "shadcn-dialog-close",
     setup() {
@@ -16995,7 +17569,7 @@
   });
   var close_proto_default2 = dialogClose2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dialog/content.proto.js
+  // ../packages/prototypes/shadcn/src/dialog/content.proto.ts
   var dialogContent2 = definePrototype({
     name: "shadcn-dialog-content",
     setup(def2) {
@@ -17016,7 +17590,7 @@
   });
   var content_proto_default10 = dialogContent2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dialog/close-icon.proto.js
+  // ../packages/prototypes/shadcn/src/dialog/close-icon.proto.ts
   var dialogCloseIcon = definePrototype({
     name: "shadcn-dialog-close-icon",
     setup(def2) {
@@ -17055,7 +17629,7 @@
   });
   var close_icon_proto_default = dialogCloseIcon;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dialog/description.proto.js
+  // ../packages/prototypes/shadcn/src/dialog/description.proto.ts
   var dialogDescription2 = definePrototype({
     name: "shadcn-dialog-description",
     setup(def2) {
@@ -17065,7 +17639,7 @@
   });
   var description_proto_default2 = dialogDescription2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dialog/overlay.proto.js
+  // ../packages/prototypes/shadcn/src/dialog/overlay.proto.ts
   var dialogMask2 = definePrototype({
     name: "shadcn-dialog-mask",
     setup(def2) {
@@ -17086,7 +17660,7 @@
   });
   var overlay_proto_default2 = dialogMask2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dialog/root.proto.js
+  // ../packages/prototypes/shadcn/src/dialog/root.proto.ts
   var dialogRoot2 = definePrototype({
     name: "shadcn-dialog-root",
     setup(def2) {
@@ -17096,7 +17670,7 @@
   });
   var root_proto_default12 = dialogRoot2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dialog/title.proto.js
+  // ../packages/prototypes/shadcn/src/dialog/title.proto.ts
   var dialogTitle2 = definePrototype({
     name: "shadcn-dialog-title",
     setup(def2) {
@@ -17106,7 +17680,7 @@
   });
   var title_proto_default2 = dialogTitle2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dialog/trigger.proto.js
+  // ../packages/prototypes/shadcn/src/dialog/trigger.proto.ts
   var dialogTrigger2 = definePrototype({
     name: "shadcn-dialog-trigger",
     setup() {
@@ -17115,7 +17689,7 @@
   });
   var trigger_proto_default10 = dialogTrigger2;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dialog/header.proto.js
+  // ../packages/prototypes/shadcn/src/dialog/header.proto.ts
   var dialogHeader = definePrototype({
     name: "shadcn-dialog-header",
     setup(def2) {
@@ -17126,7 +17700,7 @@
   });
   var header_proto_default = dialogHeader;
 
-  // node_modules/@proto.ui/prototypes-shadcn/dist/dialog/footer.proto.js
+  // ../packages/prototypes/shadcn/src/dialog/footer.proto.ts
   var dialogFooter = definePrototype({
     name: "shadcn-dialog-footer",
     setup(def2) {
@@ -17136,14 +17710,17 @@
     }
   });
   var footer_proto_default = dialogFooter;
-  // src/index.ts
-  var PROTO_UI_VERSION = "0.2.0";
+  // index.ts
+  globalThis.__sailbreak_proto_ui_metadata = { proto_ui_version: "0.3.0-alpha.0", proto_ui_commit: "9c8891ca22fefafb1346e6ebd02d1f80cae2ec24" };
+  var BUILD_METADATA = globalThis.__sailbreak_proto_ui_metadata;
+  var PROTO_UI_VERSION = typeof BUILD_METADATA?.proto_ui_version === "string" ? BUILD_METADATA.proto_ui_version : "main-snapshot";
+  var PROTO_UI_COMMIT = typeof BUILD_METADATA?.proto_ui_commit === "string" ? BUILD_METADATA.proto_ui_commit : "unrecorded";
   var PROTOCOL_MAJOR = 1;
   var PROTOCOL_MINOR = 0;
   var HOST_NAME = "sailbreak";
   var GPUI_VERSION = "0.2.2";
   var HOST_PLATFORM = "embedded-quickjs";
-  var REGISTRY_DIGEST = "proto-ui-shadcn-0.2.0";
+  var REGISTRY_DIGEST = `proto-ui-main@${PROTO_UI_COMMIT}`;
 
   class LogicalBus {
     listeners = new Map;
@@ -17344,6 +17921,8 @@
     record.events.push({ type: "diagnostic", diagnostic: { code, detail, fatal } });
   }
   function emitStyle(record) {
+    if (record.disposed)
+      return;
     record.events.push({
       type: "style",
       session_id: record.session_id,
@@ -17353,6 +17932,8 @@
     });
   }
   function emitA11y(record, value) {
+    if (record.disposed)
+      return;
     record.a11y = a11ySnapshot(value, record);
     record.events.push({
       type: "a11y",
@@ -17363,6 +17944,8 @@
     });
   }
   function emitState(record, value) {
+    if (record.disposed)
+      return;
     for (const unsubscribe of record.state_unsubs.splice(0))
       unsubscribe();
     record.exposed_handles = recordOf(value) ?? {};
@@ -17397,7 +17980,12 @@
     wiring.attach("event", [
       [EVENT_ROOT_TARGET_CAP, () => record.root_bus],
       [EVENT_GLOBAL_TARGET_CAP, () => record.global_bus],
-      [EVENT_EMIT_CAP, (key) => {
+      [EVENT_CANCEL_DEFAULT_ACTION_CAP, () => {
+        emitDiagnostic(record, "default-action-not-applicable", "GPUI owns the native default action; no browser cancellation was claimed", false);
+      }]
+    ]);
+    wiring.attach("expose-event", [
+      [EXPOSE_EVENT_SINK_CAP, (key) => {
         record.events.push({
           type: "signal",
           session_id: record.session_id,
@@ -17406,9 +17994,6 @@
           sequence: nextOutputSequence(record),
           key
         });
-      }],
-      [EVENT_CANCEL_DEFAULT_ACTION_CAP, () => {
-        emitDiagnostic(record, "default-action-not-applicable", "GPUI owns the native default action; no browser cancellation was claimed", false);
       }]
     ]);
     wiring.attach("focus", [
@@ -17503,7 +18088,8 @@
       a11y: null,
       state_values: {},
       exposed_handles: {},
-      state_unsubs: []
+      state_unsubs: [],
+      disposed: false
     };
   }
   function runtimeHost(record) {
@@ -17565,12 +18151,12 @@
           registry_digest: REGISTRY_DIGEST
         }
       });
-      session2.mount().catch((error4) => {
-        emitDiagnostic(record, "runtime-mount-failed", String(error4), true);
+      session2.mount().catch((error5) => {
+        emitDiagnostic(record, "runtime-mount-failed", String(error5), true);
       });
-    } catch (error4) {
+    } catch (error5) {
       sessions.delete(sessionId);
-      throw error4;
+      throw error5;
     }
   }
   function sessionFor(command) {
@@ -17643,16 +18229,30 @@
     record.session?.controller.applyRawProps(record.props);
     record.session?.controller.update();
   }
+  function remount(command) {
+    const record = sessionFor(command);
+    const session2 = record.session;
+    if (!session2)
+      throw new Error("session is not ready to remount");
+    record.pending_commit = undefined;
+    session2.unmount();
+    session2.mount().catch((error5) => {
+      emitDiagnostic(record, "runtime-mount-failed", String(error5), true);
+    });
+  }
   function unmount(command) {
     const record = sessionFor(command);
-    record.session?.unmount().catch((error4) => {
-      emitDiagnostic(record, "runtime-unmount-failed", String(error4), true);
+    record.session?.unmount().catch((error5) => {
+      emitDiagnostic(record, "runtime-unmount-failed", String(error5), true);
     });
   }
   function dispose(command) {
     const record = sessionFor(command);
-    record.session?.dispose().catch((error4) => {
-      emitDiagnostic(record, "runtime-dispose-failed", String(error4), true);
+    record.disposed = true;
+    for (const unsubscribe of record.state_unsubs.splice(0))
+      unsubscribe();
+    record.session?.dispose().catch((error5) => {
+      emitDiagnostic(record, "runtime-dispose-failed", String(error5), true);
     });
     sessions.delete(record.session_id);
   }
@@ -17683,6 +18283,9 @@
         break;
       case "set_props":
         setProps(command);
+        break;
+      case "remount":
+        remount(command);
         break;
       case "unmount":
         unmount(command);

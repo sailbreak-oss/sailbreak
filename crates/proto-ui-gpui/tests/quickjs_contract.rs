@@ -28,7 +28,7 @@ fn embedded_runtime_materializes_the_real_shadcn_button() {
             _ => None,
         })
         .expect("ready event");
-    assert_eq!(handshake.proto_ui, "0.2.0");
+    assert_eq!(handshake.proto_ui, "0.3.0-alpha.0");
     assert!(handshake.registry_digest.starts_with("sha256:"));
     assert!(
         events
@@ -175,4 +175,28 @@ fn embedded_registry_contains_every_published_shadcn_direct_entry() {
         PrototypeKey::all().iter().map(|key| key.as_str()).collect();
     let actual: std::collections::BTreeSet<&str> = keys.iter().map(String::as_str).collect();
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn bridge_rejects_oversized_messages_before_quickjs() {
+    let mut bridge = QuickJsBridge::new().expect("embedded QuickJS starts");
+    let padding = "x".repeat(256 * 1024);
+    let serialized = format!(r#"{{"type":"registry","padding":"{padding}"}}"#);
+    assert!(matches!(
+        bridge.dispatch_json(&serialized),
+        Err(proto_ui_gpui::BridgeError::Decode { .. })
+    ));
+}
+
+#[test]
+fn bridge_rejects_json_nested_beyond_the_protocol_limit() {
+    let mut bridge = QuickJsBridge::new().expect("embedded QuickJS starts");
+    let mut serialized = "null".to_owned();
+    for _ in 0..17 {
+        serialized = format!("[{serialized}]");
+    }
+    assert!(matches!(
+        bridge.dispatch_json(&serialized),
+        Err(proto_ui_gpui::BridgeError::Decode { .. })
+    ));
 }

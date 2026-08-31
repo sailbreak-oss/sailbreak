@@ -1,15 +1,16 @@
-The embedded JavaScript bundle is generated from Proto UI 0.2.0 packages:
+The embedded JavaScript bundle is generated from the Proto UI `main` snapshot recorded in `upstream.json`.
 
-- @proto.ui/core
-- @proto.ui/runtime
-- @proto.ui/prototypes-base
-- @proto.ui/prototypes-shadcn
-- @proto.ui/module-a11y
-- @proto.ui/module-as-trigger
-- @proto.ui/module-event
-- @proto.ui/module-expose-state
-- @proto.ui/module-feedback
-- @proto.ui/module-focus
+The bundle includes Proto UI packages under the MIT License:
 
-Proto UI is distributed under the MIT License. Source and license text:
+- `@proto.ui/core`
+- `@proto.ui/runtime`
+- `@proto.ui/prototypes-base`
+- `@proto.ui/prototypes-shadcn`
+- the `@proto.ui/module-*` packages required by those packages
+
+Proto UI source and license:
 https://github.com/Proto-UI/Proto-UI
+
+`@proto.ui/prototypes-shadcn` is an unofficial implementation derived from shadcn/ui.
+The shadcn/ui-derived material is distributed under the MIT License.
+Source: https://github.com/shadcn-ui/ui
