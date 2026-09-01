@@ -32,7 +32,7 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Install Linux GUI build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes libxcb1-dev libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev
+        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libxcb1-dev libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev
       - name: Build release binaries
         run: cargo build --release --locked --package sailbreak --package sailbreak-daemon --package sailbreak-gui --target ${{ matrix.target }}
       - name: Package Linux archive

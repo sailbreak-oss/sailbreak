@@ -186,7 +186,7 @@ pub fn validate_power_write(value: u32, range: &PowerValueRange) -> Result<()> {
         });
     }
     let offset = value - range.min;
-    if offset % range.increment != 0 {
+    if !offset.is_multiple_of(range.increment) {
         return Err(LctrlError::InvalidArgument {
             detail: format!(
                 "power value {value} not aligned to increment {} from min {}",

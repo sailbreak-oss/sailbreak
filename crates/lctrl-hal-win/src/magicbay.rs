@@ -51,17 +51,17 @@ pub fn coalesce_magicbay_devices(mut devices: Vec<MagicBayDevice>) -> Vec<MagicB
     let mut merged: Vec<MagicBayDevice> = Vec::with_capacity(devices.len());
     for device in devices {
         let device_is_interface = is_usb_interface_instance(&device.path);
-        if device.bus == "usb" {
-            if let Some(existing) = merged.iter_mut().find(|existing| {
+        if device.bus == "usb"
+            && let Some(existing) = merged.iter_mut().find(|existing| {
                 existing.bus == "usb"
                     && existing.vid == device.vid
                     && existing.pid == device.pid
                     && existing.kind == device.kind
                     && is_usb_merge_pair(existing, &device, device_is_interface)
-            }) {
-                merge_usb_interfaces(existing, &device);
-                continue;
-            }
+            })
+        {
+            merge_usb_interfaces(existing, &device);
+            continue;
         }
         merged.push(device);
     }

@@ -52,10 +52,10 @@ impl Setting<String> for InMemorySetting {
                 channel: "test-setting".into(),
             });
         }
-        if read_number > 1 {
-            if let Some(value) = &self.readback_override {
-                return Ok(value.clone());
-            }
+        if read_number > 1
+            && let Some(value) = &self.readback_override
+        {
+            return Ok(value.clone());
         }
         Ok(self.value.borrow().clone())
     }

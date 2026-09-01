@@ -286,13 +286,13 @@ fn merge_fallback(destination: &mut Fallback, patch: &Fallback) {
 }
 
 fn validate_power_limits(profile: &ResolvedProfile) -> Result<()> {
-    if let (Some(pl1), Some(pl2)) = (profile.goal.pl1_w, profile.goal.pl2_w) {
-        if pl1 > pl2 {
-            return Err(invalid(format!(
-                "profile {:?} violates PL1 <= PL2: PL1={pl1}, PL2={pl2}",
-                profile.name
-            )));
-        }
+    if let (Some(pl1), Some(pl2)) = (profile.goal.pl1_w, profile.goal.pl2_w)
+        && pl1 > pl2
+    {
+        return Err(invalid(format!(
+            "profile {:?} violates PL1 <= PL2: PL1={pl1}, PL2={pl2}",
+            profile.name
+        )));
     }
     Ok(())
 }
@@ -333,10 +333,10 @@ fn validate_fallback_chain(
     if !visiting.insert(name.clone()) {
         return Err(invalid(format!("fallback cycle includes profile {name:?}")));
     }
-    if let Some(profile) = profiles.get(name) {
-        if let Some(FallbackTarget::Profile(target)) = &profile.fallback.on_temp_exceed {
-            validate_fallback_chain(target, profiles, visiting, done)?;
-        }
+    if let Some(profile) = profiles.get(name)
+        && let Some(FallbackTarget::Profile(target)) = &profile.fallback.on_temp_exceed
+    {
+        validate_fallback_chain(target, profiles, visiting, done)?;
     }
     visiting.remove(name);
     done.insert(name.clone());

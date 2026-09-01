@@ -1666,12 +1666,12 @@ fn execute_panel(
                 PanelRate::Fps120 => Some(120),
                 PanelRate::Auto => None,
             };
-            if let Some(hz) = requested {
-                if !capability.supports_hz(hz) {
-                    return Err(LctrlError::InvalidArgument {
-                        detail: format!("panel refresh rate {hz} Hz is outside supported range"),
-                    });
-                }
+            if let Some(hz) = requested
+                && !capability.supports_hz(hz)
+            {
+                return Err(LctrlError::InvalidArgument {
+                    detail: format!("panel refresh rate {hz} Hz is outside supported range"),
+                });
             }
             if apply == ApplyMode::DryRun {
                 return structured_output(
@@ -2809,18 +2809,18 @@ fn restore_managed_snapshot(
         (PowerLimitKind::Pl2, baseline.pl2_uw, current.pl2_uw),
         (PowerLimitKind::Tau, baseline.tau_us, current.tau_us),
     ] {
-        if baseline_value != current_value {
-            if let Some(value) = baseline_value {
-                let service = services.tuning.ok_or_else(|| LctrlError::Unsupported {
-                    feature: format!("snapshot.restore.{}", power_limit_kind_name(kind)),
-                })?;
-                apply_change!(
-                    service.set_power_limit(kind, value, apply),
-                    |report: &lctrl_core::ChangeReport<u64>| {
-                        ManagedRollback::PowerLimit(kind, *report.previous())
-                    }
-                );
-            }
+        if baseline_value != current_value
+            && let Some(value) = baseline_value
+        {
+            let service = services.tuning.ok_or_else(|| LctrlError::Unsupported {
+                feature: format!("snapshot.restore.{}", power_limit_kind_name(kind)),
+            })?;
+            apply_change!(
+                service.set_power_limit(kind, value, apply),
+                |report: &lctrl_core::ChangeReport<u64>| {
+                    ManagedRollback::PowerLimit(kind, *report.previous())
+                }
+            );
         }
     }
     if baseline.backlight != current.backlight

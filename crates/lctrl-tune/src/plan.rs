@@ -39,12 +39,11 @@ impl Planner {
             if let Some(detail) = unavailable_detail(platform, target, capabilities) {
                 skipped.push(UnavailableTarget { target, detail });
             } else {
-                if let Some(capability) = capabilities.get(capability_id) {
-                    if capability.availability == Availability::Limited {
-                        if let Some(detail) = &capability.detail {
-                            warnings.push(format!("{} is limited: {detail}", target.as_str()));
-                        }
-                    }
+                if let Some(capability) = capabilities.get(capability_id)
+                    && capability.availability == Availability::Limited
+                    && let Some(detail) = &capability.detail
+                {
+                    warnings.push(format!("{} is limited: {detail}", target.as_str()));
                 }
                 writes.push(setting);
             }
