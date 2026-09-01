@@ -255,7 +255,6 @@ fn has_supported_prefix(token: &str) -> bool {
         "rotate-",
         "fill-",
         "stroke-",
-        "stroke-",
         "overflow-",
         "cursor-",
         "z-",

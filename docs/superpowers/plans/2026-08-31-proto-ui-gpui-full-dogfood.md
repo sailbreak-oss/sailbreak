@@ -303,6 +303,7 @@ Decode Proto-UI `TemplateChildren` without serializing JS objects. Map reserved 
 - [ ] **Step 4: Add GPUI projection without local component semantics**
 
 Keep the existing `button_element` behavior as the first specialization, but move common layout/style application into `ProtoSurface`. The GPUI element tree may add layout-only wrappers; it may not add a second hover, pressed, disabled, selected, or open state machine.
+- [x] **Deferred (Task 3 Step 4):** `proto_surface.rs` does not yet consume the typed `TemplateSnapshot`/`NativeStyle`; the first production consumer is the `ProtoSurface` introduced in Task 4 (AccessKit) and Task 5 (stateful primitives). Data-model round-trip coverage is in `template_contract.rs`/`style_contract.rs`.
 
 - [ ] **Step 5: Run GREEN and commit**
 

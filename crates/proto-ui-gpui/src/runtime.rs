@@ -304,6 +304,28 @@ impl ProtoSessionHost {
         })
     }
 
+    /// Advance the host-controlled virtual clock used by delayed Runtime work.
+    pub fn advance_time(&mut self, milliseconds: u64) -> Result<DispatchOutcome> {
+        self.ensure_alive()?;
+        if milliseconds == 0 {
+            return Ok(DispatchOutcome::default());
+        }
+        let (session_id, instance_id) = {
+            let record = self.record()?;
+            (
+                record.request.session_id.clone(),
+                record.request.instance_id.clone(),
+            )
+        };
+        let events = self.dispatch(&BridgeCommand::AdvanceTime {
+            session_id,
+            instance_id,
+            milliseconds,
+        })?;
+        self.record_mut()
+            .and_then(|record| absorb_events(record, &events))
+    }
+
     pub fn remount(&mut self) -> Result<ViewEpoch> {
         self.ensure_alive()?;
         let (session_id, instance_id, previous_epoch) = {
@@ -480,20 +502,24 @@ fn check_input_route(record: &SessionRecord, route_ref: &str) -> Result<()> {
 fn absorb_events(record: &mut SessionRecord, events: &[BridgeEvent]) -> Result<DispatchOutcome> {
     let max_projection_epoch = events.iter().filter_map(event_projection_epoch).max();
     let mut deferred = Vec::new();
-    let mut outcome = DispatchOutcome {
-        events: events.to_vec(),
-        ..DispatchOutcome::default()
-    };
+    let mut applied = Vec::new();
+    let mut outcome = DispatchOutcome::default();
 
     for event in events {
         if let Some(epoch) = event_epoch(event) {
-            let current_epoch = record
-                .protocol
-                .current_epoch()
-                .ok_or(BridgeError::Unmounted)?;
             if !matches!(event, BridgeEvent::Projection { .. }) {
-                if max_projection_epoch.is_some_and(|max| epoch < max) || epoch < current_epoch {
+                let current_epoch = record
+                    .protocol
+                    .current_epoch()
+                    .ok_or(BridgeError::Unmounted)?;
+                if max_projection_epoch.is_some_and(|max| epoch < max) {
                     continue;
+                }
+                if epoch < current_epoch {
+                    return Err(BridgeError::StaleEpoch {
+                        expected: current_epoch,
+                        received: epoch,
+                    });
                 }
                 if epoch > current_epoch {
                     deferred.push(event);
@@ -502,6 +528,7 @@ fn absorb_events(record: &mut SessionRecord, events: &[BridgeEvent]) -> Result<D
             }
         }
         absorb_event(record, event, &mut outcome)?;
+        applied.push(event.clone());
     }
 
     for event in deferred {
@@ -512,7 +539,9 @@ fn absorb_events(record: &mut SessionRecord, events: &[BridgeEvent]) -> Result<D
             continue;
         }
         absorb_event(record, event, &mut outcome)?;
+        applied.push(event.clone());
     }
+    outcome.events = applied;
     Ok(outcome)
 }
 
@@ -533,15 +562,14 @@ fn absorb_event(
                 .protocol
                 .current_epoch()
                 .ok_or(BridgeError::Unmounted)?;
-            if projection.view_epoch != current_epoch {
-                if projection.view_epoch > current_epoch {
-                    record.protocol.install_view(projection.view_epoch)?;
-                } else {
-                    return Err(BridgeError::StaleEpoch {
-                        expected: current_epoch,
-                        received: projection.view_epoch,
-                    });
-                }
+            if projection.view_epoch < current_epoch {
+                return Err(BridgeError::StaleEpoch {
+                    expected: current_epoch,
+                    received: projection.view_epoch,
+                });
+            }
+            if projection.view_epoch > current_epoch {
+                record.protocol.install_view(projection.view_epoch)?;
             }
             if projection.commit_id == 0 {
                 return Err(BridgeError::InvalidCommit);

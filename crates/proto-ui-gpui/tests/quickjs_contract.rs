@@ -200,3 +200,27 @@ fn bridge_rejects_json_nested_beyond_the_protocol_limit() {
         Err(proto_ui_gpui::BridgeError::Decode { .. })
     ));
 }
+
+#[test]
+fn stale_unmount_epoch_is_rejected_before_runtime() {
+    let mut bridge = QuickJsBridge::new().expect("embedded QuickJS starts");
+    let session_id = SessionId::new("session-1").expect("session id");
+    let instance_id = InstanceId::new("instance-1").expect("instance id");
+    let start = BridgeCommand::Start {
+        session_id: session_id.clone(),
+        instance_id: instance_id.clone(),
+        prototype: PrototypeKey::ShadcnButton,
+        props: serde_json::Map::new(),
+        slot: SlotProjection::new("button-slot", "Apply"),
+    };
+    bridge.dispatch(&start).expect("button starts");
+    let unmount = BridgeCommand::Unmount {
+        session_id,
+        instance_id,
+        view_epoch: proto_ui_gpui::ViewEpoch::new(99).expect("view epoch"),
+    };
+    assert!(matches!(
+        bridge.dispatch(&unmount),
+        Err(proto_ui_gpui::BridgeError::Runtime { .. })
+    ));
+}

@@ -164,3 +164,47 @@ fn input_waits_for_the_projection_ack_barrier() -> Result<(), BridgeError> {
     ));
     Ok(())
 }
+
+#[test]
+fn superseded_ack_keeps_input_blocked_until_applied() -> Result<(), BridgeError> {
+    let request = request("session-1", "instance-1");
+    let mut host = ProtoSessionHost::new()?;
+    let snapshot = host.start(request.clone())?;
+    let superseded = ProjectionAck::with_status(
+        request.session_id.clone(),
+        request.instance_id.clone(),
+        snapshot.projection.view_epoch,
+        snapshot.projection.commit_id,
+        proto_ui_gpui::ProjectionStatus::Superseded,
+    );
+    assert_eq!(
+        host.acknowledge(superseded)?,
+        proto_ui_gpui::CommitDisposition::Superseded
+    );
+    let input = InputRequest::new(
+        proto_ui_gpui::InputEnvelope::new(
+            request.session_id.clone(),
+            request.instance_id.clone(),
+            snapshot.projection.view_epoch,
+            1,
+            proto_ui_gpui::InputPayload::new(
+                "sample-1",
+                "route-1",
+                InputSource::Mouse,
+                InputKind::PointerDown,
+            ),
+        ),
+        None,
+    );
+    assert!(matches!(
+        host.input(input),
+        Err(BridgeError::ProjectionPending { .. })
+    ));
+    host.acknowledge(ProjectionAck::applied(
+        request.session_id,
+        request.instance_id,
+        snapshot.projection.view_epoch,
+        snapshot.projection.commit_id,
+    ))?;
+    Ok(())
+}
