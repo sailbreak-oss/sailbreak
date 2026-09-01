@@ -7,8 +7,8 @@
 use std::{cell::RefCell, env, rc::Rc, sync::Arc};
 
 use gpui::{
-    App, Application, Bounds, Context, Div, IntoElement, Render, Stateful, Window, WindowBounds,
-    WindowOptions, div, prelude::*, px, rgb, size,
+    App, Bounds, Context, Div, IntoElement, Render, Stateful, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, rgb, size,
 };
 use lctrl_core::{Availability, CapabilitySet, HardwareInfo, LctrlError, Platform, Result};
 use lctrl_hal::Hal;
@@ -18,6 +18,7 @@ use proto_ui_gpui::{
 };
 
 mod proto_surface;
+pub use proto_surface::{AccessibleProjection, project_a11y};
 
 // Palette tokens: a cool instrument-panel base, with one signal color and one
 // caution color. Keeping these in one place makes the dashboard's visual
@@ -297,58 +298,67 @@ fn action_button(
         return unavailable_button(id, label);
     };
 
-    proto_surface::button_element(id, label, state)
-        .on_hover(cx.listener(move |this, hovered, _, cx| {
-            let kind = if *hovered {
-                InputKind::PointerEnter
-            } else {
-                InputKind::PointerLeave
-            };
-            this.dispatch_proto(id, kind, InputSource::Mouse);
-            cx.notify();
-        }))
-        .on_mouse_down(
-            gpui::MouseButton::Left,
-            cx.listener(move |this, _, _, cx| {
-                this.dispatch_proto(id, InputKind::Focus, InputSource::Mouse);
-                this.dispatch_proto(id, InputKind::PointerDown, InputSource::Mouse);
+    let dashboard_entity = cx.entity().downgrade();
+    proto_surface::button_element(id, label, state, move |_, _, cx| {
+        dashboard_entity
+            .update(cx, |this, cx| {
+                this.handle_accessible_proto_click(id, action);
                 cx.notify();
-            }),
-        )
-        .on_mouse_up(
-            gpui::MouseButton::Left,
-            cx.listener(move |this, _, _, cx| {
-                this.dispatch_proto(id, InputKind::PointerUp, InputSource::Mouse);
-                cx.notify();
-            }),
-        )
-        .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
-            this.dispatch_proto(id, InputKind::Focus, InputSource::Keyboard);
-            this.dispatch_proto_with_detail(
-                id,
-                InputKind::KeyDown,
-                InputSource::Keyboard,
-                Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
-            );
+            })
+            .ok();
+    })
+    .on_hover(cx.listener(move |this, hovered, _, cx| {
+        let kind = if *hovered {
+            InputKind::PointerEnter
+        } else {
+            InputKind::PointerLeave
+        };
+        this.dispatch_proto(id, kind, InputSource::Mouse);
+        cx.notify();
+    }))
+    .on_mouse_down(
+        gpui::MouseButton::Left,
+        cx.listener(move |this, _, _, cx| {
+            this.dispatch_proto(id, InputKind::Focus, InputSource::Mouse);
+            this.dispatch_proto(id, InputKind::PointerDown, InputSource::Mouse);
             cx.notify();
-        }))
-        .on_key_up(cx.listener(move |this, event: &gpui::KeyUpEvent, _, cx| {
-            this.dispatch_proto_with_detail(
-                id,
-                InputKind::KeyUp,
-                InputSource::Keyboard,
-                Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
-            );
+        }),
+    )
+    .on_mouse_up(
+        gpui::MouseButton::Left,
+        cx.listener(move |this, _, _, cx| {
+            this.dispatch_proto(id, InputKind::PointerUp, InputSource::Mouse);
             cx.notify();
-        }))
-        .on_click(cx.listener(move |this, event, _, cx| {
-            let source = match event {
-                gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
-                gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
-            };
-            this.handle_proto_click(id, action, source);
-            cx.notify();
-        }))
+        }),
+    )
+    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+        this.dispatch_proto(id, InputKind::Focus, InputSource::Keyboard);
+        this.dispatch_proto_with_detail(
+            id,
+            InputKind::KeyDown,
+            InputSource::Keyboard,
+            Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
+        );
+        cx.notify();
+    }))
+    .on_key_up(cx.listener(move |this, event: &gpui::KeyUpEvent, _, cx| {
+        this.dispatch_proto_with_detail(
+            id,
+            InputKind::KeyUp,
+            InputSource::Keyboard,
+            Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
+        );
+        cx.notify();
+    }))
+    .on_click(cx.listener(move |this, event, _, cx| {
+        let source = match event {
+            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
+            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
+            gpui::ClickEvent::Touch(_) => InputSource::Touch,
+        };
+        this.handle_proto_click(id, action, source);
+        cx.notify();
+    }))
 }
 
 fn unavailable_button(id: &'static str, label: &'static str) -> Stateful<Div> {
@@ -452,7 +462,7 @@ pub fn run_with_controller(
 
     let failure = Rc::new(RefCell::new(None::<String>));
     let reported_failure = Rc::clone(&failure);
-    Application::new().run(move |cx: &mut App| {
+    gpui_platform::application().run(move |cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(WINDOW_WIDTH), px(WINDOW_HEIGHT)), cx);
         if let Err(error) = cx.open_window(
             WindowOptions {
@@ -595,6 +605,10 @@ impl Dashboard {
         if self.dispatch_proto(id, InputKind::PressCommit, source) {
             self.apply_action(action);
         }
+    }
+
+    fn handle_accessible_proto_click(&mut self, id: &str, action: DashboardAction) {
+        self.handle_proto_click(id, action, InputSource::Accessibility);
     }
 }
 
@@ -1113,7 +1127,7 @@ mod tests {
     }
 
     #[test]
-    fn proto_button_signal_is_the_single_command_activation_gateway() {
+    fn accessibility_click_uses_the_single_proto_activation_gateway() {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         struct Recorder {
@@ -1139,10 +1153,9 @@ mod tests {
             controller.clone(),
         );
 
-        dashboard.handle_proto_click(
+        dashboard.handle_accessible_proto_click(
             "battery-status",
             DashboardAction::RunCommand(BATTERY_STATUS_COMMAND),
-            InputSource::Mouse,
         );
 
         assert_eq!(controller.calls.load(Ordering::SeqCst), 1);

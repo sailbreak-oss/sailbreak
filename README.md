@@ -18,7 +18,7 @@ Unsupported or unverified hardware channels return structured errors or appear a
 
 ## Build and test
 
-Requires Rust 1.85 or newer.
+Requires Rust 1.95 or newer. The repository pins Rust 1.95.0 because the reviewed GPUI revision uses `std::hint::cold_path`.
 
 ```bash
 cargo fmt --all -- --check
@@ -28,28 +28,31 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo build --release --workspace
 ```
 
-Regenerate the embedded Proto-UI bundle only when upgrading the pinned package revision:
+Regenerate the embedded Proto-UI bundle only when upgrading its recorded `main` commit:
 
 ```bash
-(cd tools/proto-ui-bridge && bun install --frozen-lockfile && bun run build)
+PROTO_UI_SHA=$(gh api repos/Proto-UI/Proto-UI/commits/main --jq .sha)
+(cd tools/proto-ui-bridge && bun run sync-head -- --sha "$PROTO_UI_SHA" && bun run bundle:check)
 ```
 
 The CI workflow exercises Linux and Windows. Hardware smoke tests are intentionally not part of CI; run them only on the target machine with the recovery path prepared.
 
 ## GUI status
 
-The GUI is built with Rust [GPUI 0.2.2](https://github.com/zed-industries/zed/tree/v0.2.2/crates/gpui) and an embedded QuickJS runtime. It executes the pinned Proto-UI 0.2.0 Shadcn registry in-process; Bun is used only when regenerating the embedded bundle under `tools/proto-ui-bridge`, and is never spawned by the released GUI. The sidebar and action bar are real `shadcn-button` projections. Rust owns the native GPUI surface and Slot content; Proto UI owns Button state, lifecycle, event semantics, accessibility intent, and style tokens.
+The GUI pins Zed GPUI commit [`399258feeaf90ad8a3a208c99221ee87b6452f38`](https://github.com/zed-industries/zed/tree/399258feeaf90ad8a3a208c99221ee87b6452f38/crates/gpui) and embeds QuickJS. It executes the exact Proto-UI `main` snapshot recorded in `tools/proto-ui-bridge/upstream.json`; Bun is a bundle-generation tool only and is never spawned by the released GUI. The sidebar and action bar are real `shadcn-button` projections. Rust owns the native GPUI surface and Slot content; Proto UI owns Button state, lifecycle, event semantics, accessibility intent, and style tokens.
+
+The pinned revision changes the published 0.2.2 host API: accessibility builders live in `crates/gpui/src/elements/div.rs`, platform construction is `gpui_platform::application()` from `crates/gpui_platform/src/gpui_platform.rs`, and `ClickEvent` includes a `Touch` variant. Sailbreak records these deltas explicitly; it does not claim touch behavior beyond preserving the input source on the bridge.
 
 The first host profile is intentionally partial: the registry contains the published Shadcn direct entries, while the current Sailbreak surface admits the Button slice. Unsupported host capabilities return structured diagnostics rather than silently becoming local Rust controls.
 
 The embedded profile currently proves:
 
-- all published Shadcn 0.2.0 direct entries are resolved through one governed registry;
+- every recorded Proto-UI Shadcn direct entry is resolved through one governed registry;
 - `shadcn-button` variants (`default`, `destructive`, `outline`, `secondary`, `ghost`, `link`) and sizes (`default`, `sm`, `lg`, `icon`) are projected from Runtime style tokens;
 - pointer hover/press, keyboard and native GPUI click activation, disabled gating, focus intent, Slot content, and semantic a11y snapshots cross the bridge;
-- the Rust host never sends a second activation for the same native sample.
+- Button role, stable accessible label, disabled/toggled/selected node state, and `AccessibleAction::Click` are projected through native AccessKit; the explicit accessibility handler returns before GPUI's fallback click synthesis, so one request follows one Proto `PressCommit` path.
 
-Native AccessKit role projection, overlay/positioning, text-control, touch, and a generic multi-process transport remain outside the current GPUI 0.2.2 profile. They are explicit omissions, not hidden local fallbacks or support claims.
+Overlay/positioning, text-control, touch support guarantees, and a generic multi-process transport remain outside the current host profile. They are explicit omissions, not hidden local fallbacks or support claims.
 
 Writes remain guarded. A mutation is never executed from a button without the dry-run, permission, readback, rollback, and unavailable-channel semantics enforced by the CLI service layer. Commands that return `unsupported`/`unavailable` surface that fact instead of synthesizing success.
 
@@ -166,7 +169,7 @@ Small focused pull requests are preferred. Keep platform-specific code in its HA
 Paste the following prompt into a fresh coding-agent session when delegating a change:
 
 ```text
-You are contributing to sailbreak-cli, a Rust 2024 workspace for cross-platform Lenovo hardware control. The toolchain baseline is Rust 1.85 or newer.
+You are contributing to sailbreak-cli, a Rust 2024 workspace for cross-platform Lenovo hardware control. The pinned toolchain baseline is Rust 1.95.0.
 
 Goal: <one observable behavior>. Name the command or channel, relevant specification section, and acceptance evidence.
 Repository rules:

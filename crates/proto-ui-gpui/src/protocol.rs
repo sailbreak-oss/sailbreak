@@ -227,6 +227,10 @@ pub struct A11ySnapshot {
     pub disabled: bool,
     pub focused: bool,
     pub focus_visible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toggled: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<String>,
 }
@@ -240,6 +244,8 @@ impl A11ySnapshot {
             disabled,
             focused: false,
             focus_visible: false,
+            selected: None,
+            toggled: None,
             actions: vec!["activate".to_owned()],
         }
     }
@@ -384,6 +390,7 @@ pub enum InputSource {
     Mouse,
     Keyboard,
     Accessibility,
+    Touch,
     Programmatic,
 }
 

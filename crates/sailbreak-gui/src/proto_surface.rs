@@ -1,5 +1,6 @@
-use gpui::{Div, Stateful, div, prelude::*, px, rgb};
-use proto_ui_gpui::{ColorValue, ProtoButtonState};
+use gpui::accesskit::{ActionData, Role};
+use gpui::{AccessibleAction, App, Div, Stateful, Toggled, Window, div, prelude::*, px, rgb};
+use proto_ui_gpui::{A11ySnapshot, ColorValue, ProtoButtonState};
 
 /// Project a Proto UI Button snapshot into the native GPUI surface.
 ///
@@ -10,6 +11,7 @@ pub fn button_element(
     id: &'static str,
     label: &'static str,
     state: &ProtoButtonState,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let style = &state.style;
     let mut element = div()
@@ -30,6 +32,9 @@ pub fn button_element(
         .text_sm()
         .font_weight(gpui::FontWeight::MEDIUM)
         .focusable();
+    if let Some(snapshot) = &state.a11y {
+        element = apply_a11y(element, snapshot, on_a11y_click);
+    }
 
     if style.pointer_events_none {
         element = element.cursor_not_allowed();
@@ -56,4 +61,64 @@ fn to_hsla(color: ColorValue) -> gpui::Hsla {
     let mut rgba = rgb(color.rgb);
     rgba.a = color.alpha;
     rgba.into()
+}
+
+/// Native AccessKit projection for one resolved Proto UI a11y snapshot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AccessibleProjection {
+    pub role: Role,
+    pub label: String,
+    pub disabled: bool,
+    pub selected: Option<bool>,
+    pub toggled: Option<Toggled>,
+    pub action: Option<AccessibleAction>,
+}
+
+/// Map a resolved `A11ySnapshot` to the pinned GPUI AccessKit surface.
+pub fn project_a11y(snapshot: &A11ySnapshot) -> AccessibleProjection {
+    AccessibleProjection {
+        role: role_for(&snapshot.role),
+        label: snapshot.name.clone(),
+        disabled: snapshot.disabled,
+        selected: snapshot.selected,
+        toggled: snapshot
+            .toggled
+            .map(|value| if value { Toggled::True } else { Toggled::False }),
+        action: snapshot
+            .actions
+            .iter()
+            .any(|action| action == "activate")
+            .then_some(AccessibleAction::Click),
+    }
+}
+
+fn apply_a11y(
+    mut element: Stateful<Div>,
+    snapshot: &A11ySnapshot,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let projection = project_a11y(snapshot);
+    element = element.role(projection.role).aria_label(projection.label);
+    if let Some(selected) = projection.selected {
+        element = element.aria_selected(selected);
+    }
+    if let Some(toggled) = projection.toggled {
+        element = element.aria_toggled(toggled);
+    }
+    if projection.disabled {
+        element = element.a11y_synthetic_children(|builder| {
+            builder.parent_node().set_disabled();
+        });
+    }
+    if projection.action == Some(AccessibleAction::Click) {
+        element = element.on_a11y_action(AccessibleAction::Click, on_a11y_click);
+    }
+    element
+}
+
+fn role_for(role: &str) -> Role {
+    match role {
+        "button" => Role::Button,
+        _ => Role::Unknown,
+    }
 }

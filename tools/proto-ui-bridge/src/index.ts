@@ -75,6 +75,8 @@ type WireA11y = {
   disabled: boolean;
   focused: boolean;
   focus_visible: boolean;
+  selected?: boolean;
+  toggled?: boolean;
   actions?: string[];
 };
 type WireEvent =
@@ -393,12 +395,16 @@ function a11ySnapshot(value: unknown, record: SessionRecord): WireA11y {
     : stringValue(nameObject?.value) ?? stringValue(object?.name) ?? record.slot.accessible_name;
   const actionsObject = object ? recordOf(object.actions) : null;
   const actions = actionsObject ? Object.keys(actionsObject) : [];
+  const selected = booleanValue(states?.selected);
+  const toggled = booleanValue(states?.checked) ?? booleanValue(states?.pressed);
   return {
     role: stringValue(object?.role) ?? 'generic',
     name,
     disabled: booleanValue(states?.disabled) ?? false,
     focused: booleanValue(states?.focused) ?? false,
     focus_visible: booleanValue(states?.focusVisible) ?? false,
+    ...(selected !== null ? { selected } : {}),
+    ...(toggled !== null ? { toggled } : {}),
     ...(actions.length > 0 ? { actions } : {}),
   };
 }

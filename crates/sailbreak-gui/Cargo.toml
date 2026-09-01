@@ -2,13 +2,14 @@
 name = "sailbreak-gui"
 version = "0.1.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.95"
 publish = false
 repository.workspace = true
 description = "Embedded Proto-UI Shadcn GPUI dashboard for Sailbreak"
 
 [dependencies]
-gpui = { version = "=0.2.2", default-features = true, features = ["wayland", "x11"] }
+gpui.workspace = true
+gpui_platform.workspace = true
 lctrl-core = { path = "../lctrl-core" }
 lctrl-hal = { path = "../lctrl-hal" }
 proto-ui-gpui = { path = "../proto-ui-gpui" }

@@ -242,3 +242,23 @@ fn remount_command_is_data_only_and_round_trips() {
     assert_eq!(value["type"], "remount");
     assert!(serde_json::from_value::<proto_ui_gpui::BridgeCommand>(value).is_ok());
 }
+
+#[test]
+fn touch_source_and_accessible_state_round_trip_without_loss() {
+    assert_eq!(
+        serde_json::to_value(InputSource::Touch).expect("touch source serializes"),
+        serde_json::json!("touch")
+    );
+
+    let mut snapshot = A11ySnapshot::button("Pinned", true);
+    snapshot.selected = Some(true);
+    snapshot.toggled = Some(false);
+    let value = serde_json::to_value(&snapshot).expect("a11y snapshot serializes");
+    assert_eq!(value["disabled"], true);
+    assert_eq!(value["selected"], true);
+    assert_eq!(value["toggled"], false);
+    assert_eq!(
+        serde_json::from_value::<A11ySnapshot>(value).expect("a11y snapshot decodes"),
+        snapshot
+    );
+}

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, work/sailbreak-implementation]
+    branches: [main, "work/**"]
   pull_request:
 
 permissions:
@@ -28,7 +28,7 @@ jobs:
         run: |
           node --test scripts/build-bundle.test.mjs
           bun run bundle:check
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt, clippy
       - name: Install Linux GUI build dependencies

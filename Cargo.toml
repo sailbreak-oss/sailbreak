@@ -15,3 +15,5 @@ thiserror = "2"
 parking_lot = "0.12"
 clap = { version = "4", features = ["derive"] }
 sha2 = "0.10"
+gpui = { git = "https://github.com/zed-industries/zed", rev = "399258feeaf90ad8a3a208c99221ee87b6452f38", default-features = true }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "399258feeaf90ad8a3a208c99221ee87b6452f38", default-features = true, features = ["wayland", "x11"] }
