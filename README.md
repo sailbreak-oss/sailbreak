@@ -39,22 +39,23 @@ The CI workflow exercises Linux and Windows. Hardware smoke tests are intentiona
 
 ## GUI status
 
-The GUI pins Zed GPUI commit [`399258feeaf90ad8a3a208c99221ee87b6452f38`](https://github.com/zed-industries/zed/tree/399258feeaf90ad8a3a208c99221ee87b6452f38/crates/gpui) and embeds QuickJS. It executes the exact Proto-UI `main` snapshot recorded in `tools/proto-ui-bridge/upstream.json`; Bun is a bundle-generation tool only and is never spawned by the released GUI. The sidebar and action bar are real `shadcn-button` projections. Rust owns the native GPUI surface and Slot content; Proto UI owns Button state, lifecycle, event semantics, accessibility intent, and style tokens.
+The GUI pins Zed GPUI commit [`399258feeaf90ad8a3a208c99221ee87b6452f38`](https://github.com/zed-industries/zed/tree/399258feeaf90ad8a3a208c99221ee87b6452f38/crates/gpui) and embeds QuickJS. It executes the exact Proto-UI `main` snapshot recorded in `tools/proto-ui-bridge/upstream.json`; Bun is a bundle-generation tool only and is never spawned by the released GUI. The sidebar/action bar Buttons and the performance-preview Toggle are real Shadcn projections. Rust owns the native GPUI surface and Slot content; Proto UI owns component state, lifecycle, event semantics, accessibility intent, and style tokens.
 
 The pinned revision changes the published 0.2.2 host API: accessibility builders live in `crates/gpui/src/elements/div.rs`, platform construction is `gpui_platform::application()` from `crates/gpui_platform/src/gpui_platform.rs`, and `ClickEvent` includes a `Touch` variant. Sailbreak records these deltas explicitly; it does not claim touch behavior beyond preserving the input source on the bridge.
 
-The first host profile is intentionally partial: the registry contains the published Shadcn direct entries, while the current Sailbreak surface admits the Button slice. Unsupported host capabilities return structured diagnostics rather than silently becoming local Rust controls.
+The first host profile is intentionally partial: the governed registry contains every recorded Shadcn direct entry, while the Sailbreak surface currently admits Button and Toggle. Unsupported host capabilities return structured diagnostics rather than silently becoming local Rust controls.
 
 The embedded profile currently proves:
 
 - every recorded Proto-UI Shadcn direct entry is resolved through one governed registry;
 - `shadcn-button` variants (`default`, `destructive`, `outline`, `secondary`, `ghost`, `link`) and sizes (`default`, `sm`, `lg`, `icon`) are projected from Runtime style tokens;
+- `shadcn-toggle` covers `default`/`outline`, `default`/`sm`/`lg`, controlled and uncontrolled active state, disabled suppression, focus-visible styling, replacement/disposal, and one `activeChange` per native activation;
 - pointer hover/press, keyboard and native GPUI click activation, disabled gating, focus intent, Slot content, and semantic a11y snapshots cross the bridge;
 - Button role, stable accessible label, disabled/toggled/selected node state, and `AccessibleAction::Click` are projected through native AccessKit; the explicit accessibility handler returns before GPUI's fallback click synthesis, so one request follows one Proto `PressCommit` path.
 
 Overlay/positioning, text-control, touch support guarantees, and a generic multi-process transport remain outside the current host profile. They are explicit omissions, not hidden local fallbacks or support claims.
 
-Writes remain guarded. A mutation is never executed from a button without the dry-run, permission, readback, rollback, and unavailable-channel semantics enforced by the CLI service layer. Commands that return `unsupported`/`unavailable` surface that fact instead of synthesizing success.
+Writes remain guarded. The migrated performance-preview Toggle invokes only the existing `--dry-run` CLI command when activated; clearing it performs no command. Any future mutation remains subject to the CLI service layer's permission, readback, rollback, and unavailable-channel semantics.
 
 ## Install
 

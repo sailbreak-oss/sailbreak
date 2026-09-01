@@ -14,7 +14,8 @@ use lctrl_core::{Availability, CapabilitySet, HardwareInfo, LctrlError, Platform
 use lctrl_hal::Hal;
 use proto_ui_gpui::{
     BridgeError, DispatchOutcome, InputKind, InputSource, ProtoButtonHost, ProtoButtonState,
-    ShadcnButtonSize, ShadcnButtonVariant,
+    ProtoToggleHost, ProtoToggleSnapshot, ShadcnButtonSize, ShadcnButtonVariant,
+    ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
 };
 
 mod proto_surface;
@@ -122,7 +123,7 @@ const SIDEBAR_BUTTON_IDS: [&str; 7] = [
     "sidebar-section-6",
 ];
 
-const ACTION_BUTTONS: [(&str, &str, ShadcnButtonVariant, ShadcnButtonSize); 8] = [
+const ACTION_BUTTONS: [(&str, &str, ShadcnButtonVariant, ShadcnButtonSize); 7] = [
     (
         "refresh-status",
         "REFRESH STATUS",
@@ -165,64 +166,87 @@ const ACTION_BUTTONS: [(&str, &str, ShadcnButtonVariant, ShadcnButtonSize); 8] =
         ShadcnButtonVariant::Destructive,
         ShadcnButtonSize::Sm,
     ),
-    (
-        "dry-run-performance",
-        "DRY-RUN PERFORMANCE",
-        ShadcnButtonVariant::Secondary,
-        ShadcnButtonSize::Sm,
-    ),
 ];
+const PERFORMANCE_PREVIEW_TOGGLE_ID: &str = "performance-preview";
+
+fn performance_preview_props(active: bool) -> ToggleProps {
+    ToggleProps {
+        variant: ToggleVariant::Outline,
+        size: ToggleSize::Sm,
+        active: Some(active),
+        default_active: false,
+        disabled: false,
+    }
+}
 
 struct ProtoUiState {
     host: Option<ProtoButtonHost>,
+    toggle_host: Option<ProtoToggleHost>,
     error: Option<String>,
 }
 
 impl ProtoUiState {
     fn new() -> Self {
-        let mut host = match ProtoButtonHost::new() {
-            Ok(host) => host,
-            Err(error) => {
-                return Self {
-                    host: None,
-                    error: Some(error.to_string()),
-                };
-            }
-        };
+        match Self::build() {
+            Ok((host, toggle_host)) => Self {
+                host: Some(host),
+                toggle_host: Some(toggle_host),
+                error: None,
+            },
+            Err(error) => Self {
+                host: None,
+                toggle_host: None,
+                error: Some(error.to_string()),
+            },
+        }
+    }
+
+    fn build() -> std::result::Result<(ProtoButtonHost, ProtoToggleHost), BridgeError> {
+        let mut host = ProtoButtonHost::new()?;
         for (index, _) in SECTION_NAMES.iter().enumerate() {
             let variant = if index == 0 {
                 ShadcnButtonVariant::Secondary
             } else {
                 ShadcnButtonVariant::Ghost
             };
-            if let Err(error) = host.register_button(
+            host.register_button(
                 SIDEBAR_BUTTON_IDS[index],
                 SECTION_BUTTON_LABELS[index],
                 variant,
                 ShadcnButtonSize::Sm,
-            ) {
-                return Self {
-                    host: None,
-                    error: Some(error.to_string()),
-                };
-            }
+            )?;
         }
         for (id, label, variant, size) in ACTION_BUTTONS {
-            if let Err(error) = host.register_button(id, label, variant, size) {
-                return Self {
-                    host: None,
-                    error: Some(error.to_string()),
-                };
-            }
+            host.register_button(id, label, variant, size)?;
         }
-        Self {
-            host: Some(host),
-            error: None,
+
+        let mut toggle_host = ProtoToggleHost::new()?;
+        toggle_host.register(
+            PERFORMANCE_PREVIEW_TOGGLE_ID,
+            "PERFORMANCE PREVIEW",
+            performance_preview_props(false),
+        )?;
+        Ok((host, toggle_host))
+    }
+
+    fn unavailable_error(&self) -> BridgeError {
+        BridgeError::Runtime {
+            detail: self
+                .error
+                .clone()
+                .unwrap_or_else(|| "Proto UI host is unavailable".to_owned()),
         }
     }
 
     fn button(&self, id: &str) -> Option<&ProtoButtonState> {
         self.host.as_ref()?.button(id)
+    }
+
+    fn toggle(&self, id: &str) -> std::result::Result<ProtoToggleSnapshot, BridgeError> {
+        self.toggle_host
+            .as_ref()
+            .ok_or_else(|| self.unavailable_error())?
+            .snapshot(id)
     }
 
     fn dispatch(
@@ -232,15 +256,38 @@ impl ProtoUiState {
         source: InputSource,
         detail: Option<serde_json::Value>,
     ) -> std::result::Result<DispatchOutcome, BridgeError> {
+        let unavailable = self.unavailable_error();
         self.host
             .as_mut()
-            .ok_or_else(|| BridgeError::Runtime {
-                detail: self
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| "Proto UI host is unavailable".to_owned()),
-            })?
+            .ok_or(unavailable)?
             .dispatch(id, kind, source, detail)
+    }
+
+    fn dispatch_toggle(
+        &mut self,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) -> std::result::Result<ToggleDispatchOutcome, BridgeError> {
+        let unavailable = self.unavailable_error();
+        self.toggle_host
+            .as_mut()
+            .ok_or(unavailable)?
+            .dispatch(id, kind, source, detail)
+    }
+
+    fn set_toggle_active(
+        &mut self,
+        id: &str,
+        active: bool,
+    ) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.unavailable_error();
+        self.toggle_host
+            .as_mut()
+            .ok_or(unavailable)?
+            .set_props(id, performance_preview_props(active))?;
+        Ok(())
     }
 
     fn set_variant(
@@ -248,14 +295,10 @@ impl ProtoUiState {
         id: &str,
         variant: ShadcnButtonVariant,
     ) -> std::result::Result<DispatchOutcome, BridgeError> {
+        let unavailable = self.unavailable_error();
         self.host
             .as_mut()
-            .ok_or_else(|| BridgeError::Runtime {
-                detail: self
-                    .error
-                    .clone()
-                    .unwrap_or_else(|| "Proto UI host is unavailable".to_owned()),
-            })?
+            .ok_or(unavailable)?
             .set_variant(id, variant)
     }
 }
@@ -361,6 +404,79 @@ fn action_button(
     }))
 }
 
+fn toggle_action(
+    dashboard: &Dashboard,
+    cx: &mut Context<Dashboard>,
+    id: &'static str,
+    label: &'static str,
+    action: DashboardAction,
+) -> Stateful<Div> {
+    let Ok(state) = dashboard.proto.toggle(id) else {
+        return unavailable_button(id, label);
+    };
+    let dashboard_entity = cx.entity().downgrade();
+    proto_surface::toggle_element(id, label, &state, move |_, _, cx| {
+        dashboard_entity
+            .update(cx, |this, cx| {
+                this.handle_accessible_proto_toggle(id, action);
+                cx.notify();
+            })
+            .ok();
+    })
+    .on_hover(cx.listener(move |this, hovered, _, cx| {
+        let kind = if *hovered {
+            InputKind::PointerEnter
+        } else {
+            InputKind::PointerLeave
+        };
+        this.dispatch_proto_toggle(id, kind, InputSource::Mouse, None);
+        cx.notify();
+    }))
+    .on_mouse_down(
+        gpui::MouseButton::Left,
+        cx.listener(move |this, _, _, cx| {
+            this.dispatch_proto_toggle(id, InputKind::Focus, InputSource::Mouse, None);
+            this.dispatch_proto_toggle(id, InputKind::PointerDown, InputSource::Mouse, None);
+            cx.notify();
+        }),
+    )
+    .on_mouse_up(
+        gpui::MouseButton::Left,
+        cx.listener(move |this, _, _, cx| {
+            this.dispatch_proto_toggle(id, InputKind::PointerUp, InputSource::Mouse, None);
+            cx.notify();
+        }),
+    )
+    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+        this.dispatch_proto_toggle(id, InputKind::Focus, InputSource::Keyboard, None);
+        this.dispatch_proto_toggle(
+            id,
+            InputKind::KeyDown,
+            InputSource::Keyboard,
+            Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
+        );
+        cx.notify();
+    }))
+    .on_key_up(cx.listener(move |this, event: &gpui::KeyUpEvent, _, cx| {
+        this.dispatch_proto_toggle(
+            id,
+            InputKind::KeyUp,
+            InputSource::Keyboard,
+            Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
+        );
+        cx.notify();
+    }))
+    .on_click(cx.listener(move |this, event, _, cx| {
+        let source = match event {
+            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
+            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
+            gpui::ClickEvent::Touch(_) => InputSource::Touch,
+        };
+        this.handle_proto_toggle(id, action, source);
+        cx.notify();
+    }))
+}
+
 fn unavailable_button(id: &'static str, label: &'static str) -> Stateful<Div> {
     div()
         .id(id)
@@ -422,11 +538,11 @@ fn action_bar(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoEl
             "MAGICBAY DETECT",
             DashboardAction::RunCommand(MAGICBAY_COMMAND),
         ),
-        action_button(
+        toggle_action(
             dashboard,
             cx,
-            "dry-run-performance",
-            "DRY-RUN PERFORMANCE",
+            PERFORMANCE_PREVIEW_TOGGLE_ID,
+            "PERFORMANCE PREVIEW",
             DashboardAction::RunCommand(PERFORMANCE_DRY_RUN_COMMAND),
         ),
     ])
@@ -601,6 +717,27 @@ impl Dashboard {
         }
     }
 
+    fn dispatch_proto_toggle(
+        &mut self,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) -> bool {
+        match self.proto.dispatch_toggle(id, kind, source, detail) {
+            Ok(outcome) => {
+                if let Some(diagnostic) = outcome.diagnostics.last() {
+                    self.snapshot.status_message = format!("Proto UI: {}", diagnostic.detail);
+                }
+                outcome.active_change_count == 1
+            }
+            Err(error) => {
+                self.snapshot.status_message = format!("Proto UI action failed: {error}");
+                false
+            }
+        }
+    }
+
     fn handle_proto_click(&mut self, id: &str, action: DashboardAction, source: InputSource) {
         if self.dispatch_proto(id, InputKind::PressCommit, source) {
             self.apply_action(action);
@@ -609,6 +746,47 @@ impl Dashboard {
 
     fn handle_accessible_proto_click(&mut self, id: &str, action: DashboardAction) {
         self.handle_proto_click(id, action, InputSource::Accessibility);
+    }
+
+    fn handle_proto_toggle(&mut self, id: &str, action: DashboardAction, source: InputSource) {
+        let Ok(current) = self.proto.toggle(id) else {
+            self.snapshot.status_message = "Proto UI toggle is unavailable".to_owned();
+            return;
+        };
+        let next_active = !current.active;
+        if !self.dispatch_proto_toggle(id, InputKind::PressCommit, source, None) {
+            return;
+        }
+
+        let command_succeeded = if next_active {
+            match action {
+                DashboardAction::RunCommand(args) => match self.controller.execute(args) {
+                    Ok(message) => {
+                        self.snapshot.status_message = message.trim().to_owned();
+                        true
+                    }
+                    Err(error) => {
+                        self.snapshot.status_message = format!("Action failed: {error}");
+                        false
+                    }
+                },
+                other => {
+                    self.apply_action(other);
+                    true
+                }
+            }
+        } else {
+            self.snapshot.status_message = "Performance preview cleared".to_owned();
+            true
+        };
+
+        if command_succeeded && let Err(error) = self.proto.set_toggle_active(id, next_active) {
+            self.snapshot.status_message = format!("Proto UI action failed: {error}");
+        }
+    }
+
+    fn handle_accessible_proto_toggle(&mut self, id: &str, action: DashboardAction) {
+        self.handle_proto_toggle(id, action, InputSource::Accessibility);
     }
 }
 
@@ -1166,6 +1344,67 @@ mod tests {
                 .unwrap()
                 .click_count,
             1
+        );
+    }
+
+    #[test]
+    fn performance_preview_toggle_uses_runtime_state_and_cli_gateway() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Recorder {
+            calls: AtomicUsize,
+        }
+
+        impl GuiController for Recorder {
+            fn refresh(&self) -> Result<DashboardSnapshot> {
+                Ok(DashboardSnapshot::unavailable(Platform::Linux, "refreshed"))
+            }
+
+            fn execute(&self, args: &[&str]) -> Result<String> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Ok(format!("executed {}", args.join(" ")))
+            }
+        }
+
+        let controller = Arc::new(Recorder {
+            calls: AtomicUsize::new(0),
+        });
+        let mut dashboard = Dashboard::with_controller(
+            DashboardSnapshot::unavailable(Platform::Linux, "initial"),
+            controller.clone(),
+        );
+
+        assert!(
+            !dashboard
+                .proto
+                .toggle(PERFORMANCE_PREVIEW_TOGGLE_ID)
+                .unwrap()
+                .active
+        );
+        dashboard.handle_accessible_proto_toggle(
+            PERFORMANCE_PREVIEW_TOGGLE_ID,
+            DashboardAction::RunCommand(PERFORMANCE_DRY_RUN_COMMAND),
+        );
+        assert_eq!(controller.calls.load(Ordering::SeqCst), 1);
+        assert!(
+            dashboard
+                .proto
+                .toggle(PERFORMANCE_PREVIEW_TOGGLE_ID)
+                .unwrap()
+                .active
+        );
+
+        dashboard.handle_accessible_proto_toggle(
+            PERFORMANCE_PREVIEW_TOGGLE_ID,
+            DashboardAction::RunCommand(PERFORMANCE_DRY_RUN_COMMAND),
+        );
+        assert_eq!(controller.calls.load(Ordering::SeqCst), 1);
+        assert!(
+            !dashboard
+                .proto
+                .toggle(PERFORMANCE_PREVIEW_TOGGLE_ID)
+                .unwrap()
+                .active
         );
     }
 }

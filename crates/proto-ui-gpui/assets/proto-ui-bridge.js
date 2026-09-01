@@ -896,6 +896,16 @@
     }
     return ctx.scheduleDelay(durationMs, callback);
   }
+  // ../packages/core/src/text-control.ts
+  function canonicalizeLineEndings(value) {
+    return value.replace(/\r\n/g, `
+`).replace(/\r/g, `
+`);
+  }
+  function canonicalizeTextControlValue(value, lineMode) {
+    const normalized = canonicalizeLineEndings(value);
+    return lineMode === "single" ? normalized.replace(/\n/g, "") : normalized;
+  }
   // ../packages/core/src/caps/token.ts
   function cap(id) {
     return { id };
@@ -11045,6 +11055,7 @@
   class TextControlModuleImpl extends ModuleBase {
     prototypeName;
     supported;
+    declaration;
     declared = false;
     initialized = false;
     valueMode = null;
@@ -11057,7 +11068,9 @@
     constructor(caps14, prototypeName, declarations) {
       super(caps14);
       this.prototypeName = prototypeName;
-      this.supported = Boolean(getModuleDeclaration({ modules: declarations }, TEXT_CONTROL_DECLARATION));
+      const declaration = getModuleDeclaration({ modules: declarations }, TEXT_CONTROL_DECLARATION);
+      this.declaration = declaration?.config ?? null;
+      this.supported = this.declaration !== null;
       if (this.supported)
         this.refreshHost();
     }
@@ -11089,18 +11102,23 @@
     }
     sync(next) {
       this.sys.ensureCallback("textControl.sync");
+      if (this.declaration?.lineMode === "single" && (typeof next.rows === "number" || next.wrap !== undefined)) {
+        throw new Error("[TextControl] rows/wrap are not compatible with single-line mode");
+      }
       if (!this.initialized) {
         this.valueMode = next.valueMode ?? "uncontrolled";
-        this.value = this.valueMode === "controlled" ? next.value ?? "" : next.defaultValue ?? "";
+        this.value = this.valueMode === "controlled" ? this.canonicalize(next.value ?? "") : this.canonicalize(next.defaultValue ?? "");
         this.initialized = true;
       }
       this.patch = Object.freeze({
         ...this.patch,
         ...next,
-        valueMode: this.valueMode ?? "uncontrolled"
+        valueMode: this.valueMode ?? "uncontrolled",
+        value: typeof next.value === "string" ? this.canonicalize(next.value) : this.patch.value,
+        defaultValue: typeof next.defaultValue === "string" ? this.canonicalize(next.defaultValue) : this.patch.defaultValue
       });
       if (this.valueMode === "controlled")
-        this.value = this.patch.value ?? "";
+        this.value = this.canonicalize(this.patch.value ?? "");
       this.syncLease();
     }
     snapshot() {
@@ -11154,9 +11172,14 @@
       this.lease?.update(this.effectivePatch());
     }
     receive(event2) {
-      this.composing = event2.composing;
-      if (this.valueMode === "uncontrolled" && event2.type === "input") {
-        this.value = event2.value;
+      const canonicalEvent = Object.freeze({
+        ...event2,
+        value: this.canonicalize(event2.value),
+        data: typeof event2.data === "string" ? this.canonicalize(event2.data) : event2.data
+      });
+      this.composing = canonicalEvent.composing;
+      if (this.valueMode === "uncontrolled" && canonicalEvent.type === "input") {
+        this.value = canonicalEvent.value;
       }
       const runInCallback = this.caps.has(TEXT_CONTROL_RUN_IN_CALLBACK_CAP) ? this.caps.get(TEXT_CONTROL_RUN_IN_CALLBACK_CAP) : (callback) => callback();
       runInCallback(() => {
@@ -11164,14 +11187,18 @@
         if (!run2)
           return;
         for (const listener of this.listeners) {
-          if (listener.type === event2.type)
-            listener.callback(run2, event2);
+          if (listener.type === canonicalEvent.type)
+            listener.callback(run2, canonicalEvent);
         }
       });
       const mustRestoreControlledValue = this.valueMode === "controlled" && (event2.type === "input" && !event2.composing || event2.type === "compositionend");
       if (!mustRestoreControlledValue)
         return;
       queueMicrotask(() => this.syncLease());
+    }
+    canonicalize(value) {
+      const lineMode = this.declaration?.lineMode ?? "multiline";
+      return canonicalizeTextControlValue(value, lineMode);
     }
   }
 
@@ -17711,7 +17738,7 @@
   });
   var footer_proto_default = dialogFooter;
   // index.ts
-  globalThis.__sailbreak_proto_ui_metadata = { proto_ui_version: "0.3.0-alpha.0", proto_ui_commit: "9c8891ca22fefafb1346e6ebd02d1f80cae2ec24" };
+  globalThis.__sailbreak_proto_ui_metadata = { proto_ui_version: "0.3.0-alpha.0", proto_ui_commit: "18b9c78f73135c36fb949f97acc0c2124cbf9ecc" };
   var BUILD_METADATA = globalThis.__sailbreak_proto_ui_metadata;
   var PROTO_UI_VERSION = typeof BUILD_METADATA?.proto_ui_version === "string" ? BUILD_METADATA.proto_ui_version : "main-snapshot";
   var PROTO_UI_COMMIT = typeof BUILD_METADATA?.proto_ui_commit === "string" ? BUILD_METADATA.proto_ui_commit : "unrecorded";
@@ -18009,12 +18036,9 @@
       a11y: record.a11y
     });
   }
-  function emitState(record, value) {
+  function emitStateValues(record) {
     if (record.disposed)
       return;
-    for (const unsubscribe of record.state_unsubs.splice(0))
-      unsubscribe();
-    record.exposed_handles = recordOf(value) ?? {};
     record.state_values = exposedStates(record.exposed_handles);
     record.events.push({
       type: "state",
@@ -18023,12 +18047,20 @@
       view_epoch: record.session?.mountEpoch ?? 1,
       values: { ...record.state_values }
     });
+  }
+  function setExposes(record, value) {
+    if (record.disposed)
+      return;
+    for (const unsubscribe of record.state_unsubs.splice(0))
+      unsubscribe();
+    record.exposed_handles = recordOf(value) ?? {};
+    emitStateValues(record);
     for (const candidate of Object.values(record.exposed_handles)) {
       const candidateObject = recordOf(candidate);
       const subscribe = candidateObject?.subscribe;
       if (typeof subscribe !== "function")
         continue;
-      const unsubscribe = subscribe.call(candidate, () => emitState(record, record.exposed_handles));
+      const unsubscribe = subscribe.call(candidate, () => emitStateValues(record));
       if (typeof unsubscribe === "function")
         record.state_unsubs.push(unsubscribe);
     }
@@ -18095,7 +18127,7 @@
       [A11Y_PROJECT_CAP, (snapshot) => emitA11y(record, snapshot)]
     ]);
     wiring.attach("expose-state", [
-      [EXPOSE_STATE_SET_EXPOSES_CAP, (exposes) => emitState(record, exposes)]
+      [EXPOSE_STATE_SET_EXPOSES_CAP, (exposes) => setExposes(record, exposes)]
     ]);
   }
   function projection(record, children) {

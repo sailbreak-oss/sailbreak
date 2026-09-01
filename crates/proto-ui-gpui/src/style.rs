@@ -174,6 +174,7 @@ fn is_supported_token(token: &str) -> bool {
             | "z-50"
             | "z-[100]"
             | "group/button"
+            | "group/toggle"
             | "bg-background"
             | "bg-primary"
             | "bg-primary/80"

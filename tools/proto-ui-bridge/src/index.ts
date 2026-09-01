@@ -476,10 +476,8 @@ function emitA11y(record: SessionRecord, value: unknown): void {
   });
 }
 
-function emitState(record: SessionRecord, value: unknown): void {
+function emitStateValues(record: SessionRecord): void {
   if (record.disposed) return;
-  for (const unsubscribe of record.state_unsubs.splice(0)) unsubscribe();
-  record.exposed_handles = recordOf(value) ?? {};
   record.state_values = exposedStates(record.exposed_handles);
   record.events.push({
     type: 'state',
@@ -488,11 +486,18 @@ function emitState(record: SessionRecord, value: unknown): void {
     view_epoch: record.session?.mountEpoch ?? 1,
     values: { ...record.state_values },
   });
+}
+
+function setExposes(record: SessionRecord, value: unknown): void {
+  if (record.disposed) return;
+  for (const unsubscribe of record.state_unsubs.splice(0)) unsubscribe();
+  record.exposed_handles = recordOf(value) ?? {};
+  emitStateValues(record);
   for (const candidate of Object.values(record.exposed_handles)) {
     const candidateObject = recordOf(candidate);
     const subscribe = candidateObject?.subscribe;
     if (typeof subscribe !== 'function') continue;
-    const unsubscribe = subscribe.call(candidate, () => emitState(record, record.exposed_handles));
+    const unsubscribe = subscribe.call(candidate, () => emitStateValues(record));
     if (typeof unsubscribe === 'function') record.state_unsubs.push(unsubscribe);
   }
 }
@@ -561,7 +566,7 @@ function attachCapabilities(record: SessionRecord, wiring: ModuleWiringLike): vo
     [A11Y_PROJECT_CAP, (snapshot: unknown) => emitA11y(record, snapshot)],
   ]);
   wiring.attach('expose-state', [
-    [EXPOSE_STATE_SET_EXPOSES_CAP, (exposes: unknown) => emitState(record, exposes)],
+    [EXPOSE_STATE_SET_EXPOSES_CAP, (exposes: unknown) => setExposes(record, exposes)],
   ]);
 }
 

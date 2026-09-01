@@ -1,6 +1,6 @@
 use gpui::accesskit::{ActionData, Role};
 use gpui::{AccessibleAction, App, Div, Stateful, Toggled, Window, div, prelude::*, px, rgb};
-use proto_ui_gpui::{A11ySnapshot, ColorValue, ProtoButtonState};
+use proto_ui_gpui::{A11ySnapshot, ButtonStyle, ColorValue, ProtoButtonState, ProtoToggleSnapshot};
 
 /// Project a Proto UI Button snapshot into the native GPUI surface.
 ///
@@ -13,7 +13,32 @@ pub fn button_element(
     state: &ProtoButtonState,
     on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    let style = &state.style;
+    action_element(id, label, &state.style, state.a11y.as_ref(), on_a11y_click)
+}
+
+/// Project a Proto UI Toggle snapshot through the same native action surface.
+pub fn toggle_element(
+    id: &'static str,
+    label: &'static str,
+    state: &ProtoToggleSnapshot,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    action_element(
+        id,
+        label,
+        &state.resolved_style,
+        state.a11y.as_ref(),
+        on_a11y_click,
+    )
+}
+
+fn action_element(
+    id: &'static str,
+    label: &'static str,
+    style: &ButtonStyle,
+    a11y: Option<&A11ySnapshot>,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
     let mut element = div()
         .id(id)
         .debug_selector(move || id.to_owned())
@@ -32,10 +57,9 @@ pub fn button_element(
         .text_sm()
         .font_weight(gpui::FontWeight::MEDIUM)
         .focusable();
-    if let Some(snapshot) = &state.a11y {
+    if let Some(snapshot) = a11y {
         element = apply_a11y(element, snapshot, on_a11y_click);
     }
-
     if style.pointer_events_none {
         element = element.cursor_not_allowed();
     } else {
@@ -53,7 +77,6 @@ pub fn button_element(
     if let Some(ring) = style.ring {
         element = element.border_2().border_color(to_hsla(ring));
     }
-
     element.child(label)
 }
 
