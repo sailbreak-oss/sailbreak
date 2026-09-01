@@ -167,6 +167,10 @@ impl ButtonStyle {
 fn apply_token(style: &mut ButtonStyle, token: &str, theme: ShadcnTheme) -> bool {
     match token {
         "group/button"
+        | "group/toggle"
+        | "min-w-7"
+        | "min-w-8"
+        | "min-w-9"
         | "inline-flex"
         | "shrink-0"
         | "items-center"
@@ -233,6 +237,10 @@ fn apply_token(style: &mut ButtonStyle, token: &str, theme: ShadcnTheme) -> bool
         }
         "px-2.5" => {
             style.padding_x = 10.0;
+            true
+        }
+        "px-3" => {
+            style.padding_x = 12.0;
             true
         }
         "text-[0.8rem]" | "text-xs" => true,

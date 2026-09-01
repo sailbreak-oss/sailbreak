@@ -46,6 +46,11 @@ fn default_active_variant_size_and_a11y_project_from_runtime() -> Result<(), Bri
         "unsupported: {:?}",
         snapshot.native_style.unsupported
     );
+    assert!(
+        snapshot.resolved_style.unsupported.is_empty(),
+        "resolved unsupported: {:?}",
+        snapshot.resolved_style.unsupported
+    );
     let a11y = snapshot
         .session
         .a11y
@@ -72,6 +77,15 @@ fn uncontrolled_activation_emits_once_and_updates_exposed_active() -> Result<(),
     )?;
     assert_eq!(outcome.active_change_count, 1);
     assert!(host.snapshot("wifi")?.active);
+
+    let outcome = host.dispatch(
+        "wifi",
+        InputKind::PressCommit,
+        InputSource::Accessibility,
+        None,
+    )?;
+    assert_eq!(outcome.active_change_count, 1);
+    assert!(!host.snapshot("wifi")?.active);
     Ok(())
 }
 
