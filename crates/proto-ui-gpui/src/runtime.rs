@@ -488,13 +488,13 @@ fn check_input_route(record: &SessionRecord, route_ref: &str) -> Result<()> {
             kind: "route".to_owned(),
         });
     }
-    if let Some(expected) = &record.route_ref {
-        if expected != route_ref {
-            return Err(BridgeError::RouteMismatch {
-                expected: expected.clone(),
-                received: route_ref.to_owned(),
-            });
-        }
+    if let Some(expected) = &record.route_ref
+        && expected != route_ref
+    {
+        return Err(BridgeError::RouteMismatch {
+            expected: expected.clone(),
+            received: route_ref.to_owned(),
+        });
     }
     Ok(())
 }
@@ -506,25 +506,25 @@ fn absorb_events(record: &mut SessionRecord, events: &[BridgeEvent]) -> Result<D
     let mut outcome = DispatchOutcome::default();
 
     for event in events {
-        if let Some(epoch) = event_epoch(event) {
-            if !matches!(event, BridgeEvent::Projection { .. }) {
-                let current_epoch = record
-                    .protocol
-                    .current_epoch()
-                    .ok_or(BridgeError::Unmounted)?;
-                if max_projection_epoch.is_some_and(|max| epoch < max) {
-                    continue;
-                }
-                if epoch < current_epoch {
-                    return Err(BridgeError::StaleEpoch {
-                        expected: current_epoch,
-                        received: epoch,
-                    });
-                }
-                if epoch > current_epoch {
-                    deferred.push(event);
-                    continue;
-                }
+        if let Some(epoch) = event_epoch(event)
+            && !matches!(event, BridgeEvent::Projection { .. })
+        {
+            let current_epoch = record
+                .protocol
+                .current_epoch()
+                .ok_or(BridgeError::Unmounted)?;
+            if max_projection_epoch.is_some_and(|max| epoch < max) {
+                continue;
+            }
+            if epoch < current_epoch {
+                return Err(BridgeError::StaleEpoch {
+                    expected: current_epoch,
+                    received: epoch,
+                });
+            }
+            if epoch > current_epoch {
+                deferred.push(event);
+                continue;
             }
         }
         absorb_event(record, event, &mut outcome)?;

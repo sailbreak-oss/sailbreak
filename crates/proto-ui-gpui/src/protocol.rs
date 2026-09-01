@@ -824,13 +824,13 @@ impl BridgeState {
 
     pub fn install_view(&mut self, epoch: ViewEpoch) -> Result<()> {
         self.ensure_alive()?;
-        if let Some(current) = self.view_epoch {
-            if epoch <= current {
-                return Err(BridgeError::StaleEpoch {
-                    expected: current,
-                    received: epoch,
-                });
-            }
+        if let Some(current) = self.view_epoch
+            && epoch <= current
+        {
+            return Err(BridgeError::StaleEpoch {
+                expected: current,
+                received: epoch,
+            });
         }
         self.view_epoch = Some(epoch);
         self.last_commit_id = 0;

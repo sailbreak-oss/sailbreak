@@ -159,7 +159,7 @@ fn friendly_name(guid: &GUID) -> Result<String> {
     if status != 0 && status != ERROR_MORE_DATA {
         return Err(map_win_error(status, "PowerReadFriendlyName size"));
     }
-    if size < 2 || size % 2 != 0 {
+    if size < 2 || !size.is_multiple_of(2) {
         return Err(LctrlError::ChannelUnavailable {
             channel: format!("PowerReadFriendlyName returned invalid byte length {size}"),
         });

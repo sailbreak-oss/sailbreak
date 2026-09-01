@@ -228,17 +228,17 @@ mod native {
     ) -> Vec<MagicBayDevice> {
         let mut grouped: Vec<(MagicBayDevice, Option<String>)> = Vec::with_capacity(devices.len());
         for (device, container) in devices {
-            if let Some(container) = container.as_ref() {
-                if let Some((existing, _)) = grouped.iter_mut().find(|(existing, known)| {
+            if let Some(container) = container.as_ref()
+                && let Some((existing, _)) = grouped.iter_mut().find(|(existing, known)| {
                     known.as_ref() == Some(container)
                         && existing.bus == "usb"
                         && existing.vid == device.vid
                         && existing.pid == device.pid
                         && existing.kind == device.kind
-                }) {
-                    merge_usb_interfaces(existing, &device);
-                    continue;
-                }
+                })
+            {
+                merge_usb_interfaces(existing, &device);
+                continue;
             }
             grouped.push((device, container));
         }
