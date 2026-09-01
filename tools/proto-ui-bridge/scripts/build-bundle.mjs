@@ -201,6 +201,9 @@ async function checkBundle() {
     if (manifest.lockfile_sha256 !== expectedLockfileDigest) {
       fail(`manifest lockfile digest ${manifest.lockfile_sha256} does not match ${expectedLockfileDigest}`);
     }
+    if (JSON.stringify(manifest.package_versions) !== JSON.stringify(result.packageVersions)) {
+      fail('manifest package graph does not match the checked-out package manifests');
+    }
     process.stdout.write(`[Proto UI bundle] check passed ${sha} ${expectedDigest}\n`);
   } finally {
     await rm(sourceRoot, { recursive: true, force: true });

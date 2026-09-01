@@ -17721,6 +17721,7 @@
   var GPUI_VERSION = "0.2.2";
   var HOST_PLATFORM = "embedded-quickjs";
   var REGISTRY_DIGEST = `proto-ui-main@${PROTO_UI_COMMIT}`;
+  var MAX_BRIDGE_MESSAGE_BYTES = 256 * 1024;
 
   class LogicalBus {
     listeners = new Map;
@@ -17773,6 +17774,7 @@
     "shadcn-dialog-footer": footer_proto_default
   };
   var sessions = new Map;
+  var bridgeFailed = false;
   function recordOf(value) {
     if (value === null || typeof value !== "object" || Array.isArray(value))
       return null;
@@ -17830,6 +17832,21 @@
     }
     return result;
   }
+  function utf8Length(value) {
+    let length = 0;
+    for (const character of value) {
+      const code = character.codePointAt(0) ?? 0;
+      if (code <= 127)
+        length += 1;
+      else if (code <= 2047)
+        length += 2;
+      else if (code <= 65535)
+        length += 3;
+      else
+        length += 4;
+    }
+    return length;
+  }
   function jsonObject(value) {
     const parsed = jsonValue(value);
     if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
@@ -17853,6 +17870,19 @@
     const object = recordOf(value);
     if (!object)
       return null;
+    if (object.kind === "svg-node") {
+      const tag = stringValue(object.tag);
+      if (!tag)
+        throw new Error("SVG template node is missing a tag");
+      const children2 = templateChildren(object.children, record);
+      const attributes = svgAttributes(object.props, tag);
+      return {
+        kind: "svg",
+        tag,
+        attributes,
+        ...children2.length > 0 ? { children: children2 } : {}
+      };
+    }
     const type = object.type;
     const reserved = recordOf(type);
     if (reserved && reserved.kind === "slot") {
@@ -17869,6 +17899,19 @@
       ...style2.length > 0 ? { style: style2 } : {},
       ...children.length > 0 ? { children } : {}
     };
+  }
+  function svgAttributes(value, tag) {
+    const object = recordOf(value);
+    if (!object)
+      throw new Error(`SVG ${tag} props must be an object`);
+    const attributes = {};
+    for (const [name, candidate] of Object.entries(object)) {
+      if (typeof candidate !== "string" && typeof candidate !== "number" && typeof candidate !== "boolean") {
+        throw new Error(`SVG ${tag} attribute ${name} is not a primitive`);
+      }
+      attributes[name] = String(candidate);
+    }
+    return attributes;
   }
   function templateChildren(value, record) {
     const values = Array.isArray(value) ? value : [value];
@@ -17919,6 +17962,25 @@
   }
   function emitDiagnostic(record, code, detail, fatal) {
     record.events.push({ type: "diagnostic", diagnostic: { code, detail, fatal } });
+  }
+  function cancelDelayTasks(record) {
+    for (const task of [...record.delay_tasks])
+      task.cancel();
+  }
+  function advanceTime(record, milliseconds) {
+    if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) {
+      throw new Error("advance_time requires a non-negative safe integer");
+    }
+    if (record.virtual_time > Number.MAX_SAFE_INTEGER - milliseconds) {
+      throw new Error("virtual clock overflow");
+    }
+    record.virtual_time += milliseconds;
+    while (true) {
+      const due = [...record.delay_tasks].filter((task) => task.due <= record.virtual_time).sort((left, right) => left.due - right.due);
+      if (due.length === 0)
+        return;
+      due[0].run();
+    }
   }
   function emitStyle(record) {
     if (record.disposed)
@@ -18089,7 +18151,9 @@
       state_values: {},
       exposed_handles: {},
       state_unsubs: [],
-      disposed: false
+      disposed: false,
+      virtual_time: 0,
+      delay_tasks: new Set
     };
   }
   function runtimeHost(record) {
@@ -18098,12 +18162,43 @@
       getRawProps: () => record.props,
       schedule: (task) => task(),
       scheduleDelay: (durationMs, task) => {
-        let active = true;
-        const timer = { cancel: () => {
-          active = false;
-        } };
-        if (durationMs <= 0 && active)
+        if (!Number.isFinite(durationMs) || durationMs < 0) {
+          emitDiagnostic(record, "delayed-task-dropped", "delay must be a finite non-negative number", false);
+          return { cancel: () => {
+            return;
+          } };
+        }
+        if (durationMs === 0) {
           task();
+          return { cancel: () => {
+            return;
+          } };
+        }
+        if (record.delay_tasks.size >= 64 || record.virtual_time > Number.MAX_SAFE_INTEGER - durationMs) {
+          emitDiagnostic(record, "delayed-task-dropped", "delay queue capacity or clock range exceeded", false);
+          return { cancel: () => {
+            return;
+          } };
+        }
+        let active = true;
+        let timer;
+        timer = {
+          due: record.virtual_time + durationMs,
+          cancel: () => {
+            if (!active)
+              return;
+            active = false;
+            record.delay_tasks.delete(timer);
+          },
+          run: () => {
+            if (!active)
+              return;
+            active = false;
+            record.delay_tasks.delete(timer);
+            task();
+          }
+        };
+        record.delay_tasks.add(timer);
         return timer;
       },
       commit: (children, signal) => {
@@ -18202,6 +18297,11 @@
     if (kind === "press_commit") {
       if (record.seen_press_samples.has(sampleId))
         return;
+      if (record.seen_press_samples.size >= 1024) {
+        const oldest = record.seen_press_samples.values().next().value;
+        if (typeof oldest === "string")
+          record.seen_press_samples.delete(oldest);
+      }
       record.seen_press_samples.add(sampleId);
     }
     const eventType = kind.replaceAll("_", ".");
@@ -18235,13 +18335,23 @@
     if (!session2)
       throw new Error("session is not ready to remount");
     record.pending_commit = undefined;
+    cancelDelayTasks(record);
     session2.unmount();
     session2.mount().catch((error5) => {
       emitDiagnostic(record, "runtime-mount-failed", String(error5), true);
     });
   }
+  function advanceSessionTime(command) {
+    const record = sessionFor(command);
+    advanceTime(record, getRequiredNumber(command, "milliseconds"));
+  }
   function unmount(command) {
     const record = sessionFor(command);
+    const epoch = getRequiredNumber(command, "view_epoch");
+    if (record.session && record.session.mountEpoch !== epoch) {
+      throw new Error(`stale unmount request: expected ${record.session.mountEpoch}/${epoch}`);
+    }
+    cancelDelayTasks(record);
     record.session?.unmount().catch((error5) => {
       emitDiagnostic(record, "runtime-unmount-failed", String(error5), true);
     });
@@ -18249,6 +18359,7 @@
   function dispose(command) {
     const record = sessionFor(command);
     record.disposed = true;
+    cancelDelayTasks(record);
     for (const unsubscribe of record.state_unsubs.splice(0))
       unsubscribe();
     record.session?.dispose().catch((error5) => {
@@ -18264,6 +18375,8 @@
     };
   }
   function dispatch(serialized) {
+    if (bridgeFailed)
+      throw new Error("bridge is terminally failed after message overflow");
     const command = recordOf(JSON.parse(serialized));
     if (!command)
       throw new Error("bridge command must be a JSON object");
@@ -18281,6 +18394,9 @@
       case "input":
         input(command);
         break;
+      case "advance_time":
+        advanceSessionTime(command);
+        break;
       case "set_props":
         setProps(command);
         break;
@@ -18296,13 +18412,29 @@
       default:
         throw new Error(`unknown bridge command: ${String(command.type)}`);
     }
-    const events = directEvents;
+    const events = [...directEvents];
     for (const record of sessions.values()) {
       if (record.events.length === 0)
         continue;
-      events.push(...record.events.splice(0));
+      events.push(...record.events);
     }
-    return JSON.stringify(events);
+    const output = JSON.stringify(events);
+    if (utf8Length(output) > MAX_BRIDGE_MESSAGE_BYTES) {
+      bridgeFailed = true;
+      return JSON.stringify([
+        {
+          type: "diagnostic",
+          diagnostic: {
+            code: "message-overflow",
+            detail: `bridge response exceeds ${MAX_BRIDGE_MESSAGE_BYTES} bytes`,
+            fatal: true
+          }
+        }
+      ]);
+    }
+    for (const record of sessions.values())
+      record.events.splice(0);
+    return output;
   }
   var bridge = { dispatch };
   globalThis.__sailbreak_proto_ui_bridge_v1 = bridge;

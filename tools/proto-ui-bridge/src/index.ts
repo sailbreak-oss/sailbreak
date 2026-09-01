@@ -49,6 +49,7 @@ const HOST_NAME = 'sailbreak';
 const GPUI_VERSION = '0.2.2';
 const HOST_PLATFORM = 'embedded-quickjs';
 const REGISTRY_DIGEST = `proto-ui-main@${PROTO_UI_COMMIT}`;
+const MAX_BRIDGE_MESSAGE_BYTES = 256 * 1024;
 
 type JsonPrimitive = null | boolean | number | string;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -66,7 +67,8 @@ type CommitSignal = { done(): void };
 type WireTemplateNode =
   | { kind: 'container'; tag: string; style?: string[]; children?: WireTemplateNode[] }
   | { kind: 'text'; text: string }
-  | { kind: 'slot'; slot_id: string };
+  | { kind: 'slot'; slot_id: string }
+  | { kind: 'svg'; tag: string; attributes: Record<string, string>; children?: WireTemplateNode[] };
 type WireA11y = {
   role: string;
   name: string;
@@ -146,6 +148,12 @@ type PendingCommit = {
   signal: CommitSignal;
 };
 
+type DelayTask = {
+  due: number;
+  run(): void;
+  cancel(): void;
+};
+
 class LogicalBus {
   private readonly listeners = new Map<string, Set<Listener>>();
 
@@ -188,6 +196,8 @@ type SessionRecord = {
   exposed_handles: Record<string, unknown>;
   state_unsubs: Array<() => void>;
   disposed: boolean;
+  virtual_time: number;
+  delay_tasks: Set<DelayTask>;
 };
 
 type Registry = Record<string, Prototype>;
@@ -226,6 +236,7 @@ const registry: Registry = {
 };
 
 const sessions = new Map<string, SessionRecord>();
+let bridgeFailed = false;
 
 function recordOf(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -281,6 +292,18 @@ function jsonValue(value: unknown, depth = 0): JsonValue | undefined {
   return result;
 }
 
+function utf8Length(value: string): number {
+  let length = 0;
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code <= 0x7f) length += 1;
+    else if (code <= 0x7ff) length += 2;
+    else if (code <= 0xffff) length += 3;
+    else length += 4;
+  }
+  return length;
+}
+
 function jsonObject(value: unknown): JsonObject {
   const parsed = jsonValue(value);
   if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
@@ -303,6 +326,18 @@ function templateNode(value: unknown, record: SessionRecord): WireTemplateNode |
   }
   const object = recordOf(value);
   if (!object) return null;
+  if (object.kind === 'svg-node') {
+    const tag = stringValue(object.tag);
+    if (!tag) throw new Error('SVG template node is missing a tag');
+    const children = templateChildren(object.children, record);
+    const attributes = svgAttributes(object.props, tag);
+    return {
+      kind: 'svg',
+      tag,
+      attributes,
+      ...(children.length > 0 ? { children } : {}),
+    };
+  }
   const type = object.type;
   const reserved = recordOf(type);
   if (reserved && reserved.kind === 'slot') {
@@ -319,6 +354,23 @@ function templateNode(value: unknown, record: SessionRecord): WireTemplateNode |
     ...(style.length > 0 ? { style } : {}),
     ...(children.length > 0 ? { children } : {}),
   };
+}
+
+function svgAttributes(value: unknown, tag: string): Record<string, string> {
+  const object = recordOf(value);
+  if (!object) throw new Error(`SVG ${tag} props must be an object`);
+  const attributes: Record<string, string> = {};
+  for (const [name, candidate] of Object.entries(object)) {
+    if (
+      typeof candidate !== 'string' &&
+      typeof candidate !== 'number' &&
+      typeof candidate !== 'boolean'
+    ) {
+      throw new Error(`SVG ${tag} attribute ${name} is not a primitive`);
+    }
+    attributes[name] = String(candidate);
+  }
+  return attributes;
 }
 
 function templateChildren(value: unknown, record: SessionRecord): WireTemplateNode[] {
@@ -372,6 +424,27 @@ function nextOutputSequence(record: SessionRecord): number {
 
 function emitDiagnostic(record: SessionRecord, code: string, detail: string, fatal: boolean): void {
   record.events.push({ type: 'diagnostic', diagnostic: { code, detail, fatal } });
+}
+
+function cancelDelayTasks(record: SessionRecord): void {
+  for (const task of [...record.delay_tasks]) task.cancel();
+}
+
+function advanceTime(record: SessionRecord, milliseconds: number): void {
+  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) {
+    throw new Error('advance_time requires a non-negative safe integer');
+  }
+  if (record.virtual_time > Number.MAX_SAFE_INTEGER - milliseconds) {
+    throw new Error('virtual clock overflow');
+  }
+  record.virtual_time += milliseconds;
+  while (true) {
+    const due = [...record.delay_tasks]
+      .filter((task) => task.due <= record.virtual_time)
+      .sort((left, right) => left.due - right.due);
+    if (due.length === 0) return;
+    due[0].run();
+  }
 }
 
 function emitStyle(record: SessionRecord): void {
@@ -549,6 +622,8 @@ function createRecord(
     exposed_handles: {},
     state_unsubs: [],
     disposed: false,
+    virtual_time: 0,
+    delay_tasks: new Set<DelayTask>(),
   };
 }
 
@@ -558,9 +633,38 @@ function runtimeHost(record: SessionRecord) {
     getRawProps: () => record.props,
     schedule: (task: () => void) => task(),
     scheduleDelay: (durationMs: number, task: () => void) => {
+      if (!Number.isFinite(durationMs) || durationMs < 0) {
+        emitDiagnostic(record, 'delayed-task-dropped', 'delay must be a finite non-negative number', false);
+        return { cancel: () => undefined };
+      }
+      if (durationMs === 0) {
+        task();
+        return { cancel: () => undefined };
+      }
+      if (
+        record.delay_tasks.size >= 64 ||
+        record.virtual_time > Number.MAX_SAFE_INTEGER - durationMs
+      ) {
+        emitDiagnostic(record, 'delayed-task-dropped', 'delay queue capacity or clock range exceeded', false);
+        return { cancel: () => undefined };
+      }
       let active = true;
-      const timer = { cancel: () => { active = false; } };
-      if (durationMs <= 0 && active) task();
+      let timer!: DelayTask;
+      timer = {
+        due: record.virtual_time + durationMs,
+        cancel: () => {
+          if (!active) return;
+          active = false;
+          record.delay_tasks.delete(timer);
+        },
+        run: () => {
+          if (!active) return;
+          active = false;
+          record.delay_tasks.delete(timer);
+          task();
+        },
+      };
+      record.delay_tasks.add(timer);
       return timer;
     },
     commit: (children: TemplateChildren, signal?: CommitSignal) => {
@@ -653,6 +757,10 @@ function input(command: Record<string, unknown>): void {
   const sampleId = getRequiredString(inputObject, 'sample_id');
   if (kind === 'press_commit') {
     if (record.seen_press_samples.has(sampleId)) return;
+    if (record.seen_press_samples.size >= 1024) {
+      const oldest = record.seen_press_samples.values().next().value;
+      if (typeof oldest === 'string') record.seen_press_samples.delete(oldest);
+    }
     record.seen_press_samples.add(sampleId);
   }
   const eventType = kind.replaceAll('_', '.');
@@ -692,14 +800,25 @@ function remount(command: Record<string, unknown>): void {
   const session = record.session;
   if (!session) throw new Error('session is not ready to remount');
   record.pending_commit = undefined;
+  cancelDelayTasks(record);
   void session.unmount();
   void session.mount().catch((error: unknown) => {
     emitDiagnostic(record, 'runtime-mount-failed', String(error), true);
   });
 }
 
+function advanceSessionTime(command: Record<string, unknown>): void {
+  const record = sessionFor(command);
+  advanceTime(record, getRequiredNumber(command, 'milliseconds'));
+}
+
 function unmount(command: Record<string, unknown>): void {
   const record = sessionFor(command);
+  const epoch = getRequiredNumber(command, 'view_epoch');
+  if (record.session && record.session.mountEpoch !== epoch) {
+    throw new Error(`stale unmount request: expected ${record.session.mountEpoch}/${epoch}`);
+  }
+  cancelDelayTasks(record);
   void record.session?.unmount().catch((error: unknown) => {
     emitDiagnostic(record, 'runtime-unmount-failed', String(error), true);
   });
@@ -708,6 +827,7 @@ function unmount(command: Record<string, unknown>): void {
 function dispose(command: Record<string, unknown>): void {
   const record = sessionFor(command);
   record.disposed = true;
+  cancelDelayTasks(record);
   for (const unsubscribe of record.state_unsubs.splice(0)) unsubscribe();
   void record.session?.dispose().catch((error: unknown) => {
     emitDiagnostic(record, 'runtime-dispose-failed', String(error), true);
@@ -725,6 +845,7 @@ function registryEvent(): WireEvent {
 
 
 function dispatch(serialized: string): string {
+  if (bridgeFailed) throw new Error('bridge is terminally failed after message overflow');
   const command = recordOf(JSON.parse(serialized));
   if (!command) throw new Error('bridge command must be a JSON object');
   const directEvents: WireEvent[] = [];
@@ -741,6 +862,9 @@ function dispatch(serialized: string): string {
     case 'input':
       input(command);
       break;
+    case 'advance_time':
+      advanceSessionTime(command);
+      break;
     case 'set_props':
       setProps(command);
       break;
@@ -756,12 +880,27 @@ function dispatch(serialized: string): string {
     default:
       throw new Error(`unknown bridge command: ${String(command.type)}`);
   }
-  const events: WireEvent[] = directEvents;
+  const events: WireEvent[] = [...directEvents];
   for (const record of sessions.values()) {
     if (record.events.length === 0) continue;
-    events.push(...record.events.splice(0));
+    events.push(...record.events);
   }
-  return JSON.stringify(events);
+  const output = JSON.stringify(events);
+  if (utf8Length(output) > MAX_BRIDGE_MESSAGE_BYTES) {
+    bridgeFailed = true;
+    return JSON.stringify([
+      {
+        type: 'diagnostic',
+        diagnostic: {
+          code: 'message-overflow',
+          detail: `bridge response exceeds ${MAX_BRIDGE_MESSAGE_BYTES} bytes`,
+          fatal: true,
+        },
+      },
+    ]);
+  }
+  for (const record of sessions.values()) record.events.splice(0);
+  return output;
 }
 
 const bridge = { dispatch };

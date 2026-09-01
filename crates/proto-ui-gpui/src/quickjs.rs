@@ -2,7 +2,9 @@ use rquickjs::{CatchResultExt, Context, Function, Object, Runtime};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::protocol::{BridgeCommand, BridgeError, BridgeEvent, PrototypeKey, Result};
+use crate::protocol::{
+    BridgeCommand, BridgeError, BridgeEvent, PROTOCOL_MAJOR, PROTOCOL_MINOR, PrototypeKey, Result,
+};
 const MAX_BRIDGE_MESSAGE_BYTES: usize = 256 * 1024;
 const MAX_JSON_DEPTH: usize = 16;
 
@@ -10,10 +12,29 @@ const BRIDGE_BUNDLE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/assets/proto-ui-bridge.js"
 ));
+const BUNDLE_MANIFEST: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tools/proto-ui-bridge/upstream.json"
+));
 
 fn bundle_digest() -> String {
     let digest = Sha256::digest(BRIDGE_BUNDLE.as_bytes());
     format!("sha256:{digest:x}")
+}
+
+fn recorded_bundle_digest() -> Result<String> {
+    let manifest: Value =
+        serde_json::from_str(BUNDLE_MANIFEST).map_err(|error| BridgeError::Decode {
+            detail: format!("invalid embedded Proto UI manifest: {error}"),
+        })?;
+    let digest = manifest
+        .get("bundle_sha256")
+        .and_then(Value::as_str)
+        .filter(|value| value.starts_with("sha256:") && value.len() == 71)
+        .ok_or_else(|| BridgeError::Decode {
+            detail: "embedded Proto UI manifest has no valid bundle digest".to_owned(),
+        })?;
+    Ok(digest.to_owned())
 }
 
 fn host_platform() -> &'static str {
@@ -43,10 +64,19 @@ impl QuickJsBridge {
         context
             .with(|ctx| ctx.eval::<(), _>(BRIDGE_BUNDLE))
             .map_err(runtime_error)?;
+        let digest = bundle_digest();
+        let recorded_digest = recorded_bundle_digest()?;
+        if digest != recorded_digest {
+            return Err(BridgeError::Runtime {
+                detail: format!(
+                    "embedded Proto UI bundle digest {digest} does not match recorded {recorded_digest}"
+                ),
+            });
+        }
         Ok(Self {
             _runtime: runtime,
             context,
-            bundle_digest: bundle_digest(),
+            bundle_digest: digest,
         })
     }
 
@@ -104,6 +134,19 @@ impl QuickJsBridge {
             })?;
         for event in &mut events {
             if let BridgeEvent::Ready { handshake } = event {
+                if handshake.protocol.major != PROTOCOL_MAJOR
+                    || handshake.protocol.minor != PROTOCOL_MINOR
+                {
+                    return Err(BridgeError::Runtime {
+                        detail: format!(
+                            "unsupported Proto UI bridge protocol {}.{}, expected {}.{}",
+                            handshake.protocol.major,
+                            handshake.protocol.minor,
+                            PROTOCOL_MAJOR,
+                            PROTOCOL_MINOR
+                        ),
+                    });
+                }
                 handshake.registry_digest = self.bundle_digest.clone();
                 handshake.host.platform = host_platform().to_owned();
             }

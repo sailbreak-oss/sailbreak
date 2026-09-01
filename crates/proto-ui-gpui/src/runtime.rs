@@ -156,7 +156,7 @@ impl ProtoSessionHost {
             props: request.props.clone(),
             slot: request.slot.clone(),
         };
-        let events = self.bridge.dispatch(&command)?;
+        let events = self.dispatch(&command)?;
         let projection = events
             .iter()
             .find_map(|event| match event {
@@ -196,7 +196,7 @@ impl ProtoSessionHost {
         };
         absorb_events(&mut record, &events)?;
         self.session = Some(record);
-        Ok(self.snapshot())
+        self.snapshot()
     }
 
     pub fn acknowledge(&mut self, ack: ProjectionAck) -> Result<CommitDisposition> {
@@ -231,9 +231,7 @@ impl ProtoSessionHost {
             (pending_commit, record.protocol.clone())
         };
         let disposition = next_protocol.accept_ack(ack.clone())?;
-        let events = self
-            .bridge
-            .dispatch(&BridgeCommand::ProjectionAck { ack })?;
+        let events = self.dispatch(&BridgeCommand::ProjectionAck { ack })?;
         let record = self.record_mut()?;
         record.protocol = next_protocol;
         absorb_events(record, &events)?;
@@ -263,7 +261,7 @@ impl ProtoSessionHost {
             protocol.accept_input(request.input.clone())?;
             protocol
         };
-        let events = self.bridge.dispatch(&BridgeCommand::Input {
+        let events = self.dispatch(&BridgeCommand::Input {
             input: request.input.clone(),
             detail: request.detail.clone(),
         })?;
@@ -287,7 +285,7 @@ impl ProtoSessionHost {
             )?;
             record.pending_commit
         };
-        let events = self.bridge.dispatch(&BridgeCommand::SetProps {
+        let events = self.dispatch(&BridgeCommand::SetProps {
             session_id: request.session_id.clone(),
             instance_id: request.instance_id.clone(),
             props: request.props.clone(),
@@ -316,7 +314,7 @@ impl ProtoSessionHost {
                 record.projection.view_epoch,
             )
         };
-        let events = self.bridge.dispatch(&BridgeCommand::Remount {
+        let events = self.dispatch(&BridgeCommand::Remount {
             session_id,
             instance_id,
         })?;
@@ -345,7 +343,7 @@ impl ProtoSessionHost {
             )
         };
         if self.record()?.mounted {
-            self.bridge.dispatch(&BridgeCommand::Unmount {
+            self.dispatch(&BridgeCommand::Unmount {
                 session_id,
                 instance_id,
                 view_epoch,
@@ -362,28 +360,23 @@ impl ProtoSessionHost {
         if self.disposed {
             return Ok(());
         }
-        let result = if let Some(record) = self.session.as_ref() {
-            self.bridge
-                .dispatch(&BridgeCommand::Dispose {
-                    session_id: record.request.session_id.clone(),
-                    instance_id: record.request.instance_id.clone(),
-                })
-                .map(|_| ())
-        } else {
-            Ok(())
+        let command = self.session.as_ref().map(|record| BridgeCommand::Dispose {
+            session_id: record.request.session_id.clone(),
+            instance_id: record.request.instance_id.clone(),
+        });
+        let result = match command {
+            Some(command) => self.dispatch(&command).map(|_| ()),
+            None => Ok(()),
         };
         self.disposed = true;
         self.session = None;
         result
     }
 
-    #[must_use]
-    pub fn snapshot(&self) -> SessionSnapshot {
-        let record = self
-            .session
-            .as_ref()
-            .expect("ProtoSessionHost::snapshot requires a started session");
-        SessionSnapshot {
+    pub fn snapshot(&self) -> Result<SessionSnapshot> {
+        self.ensure_alive()?;
+        let record = self.record()?;
+        Ok(SessionSnapshot {
             session_id: record.request.session_id.clone(),
             instance_id: record.request.instance_id.clone(),
             prototype: record.request.prototype,
@@ -393,7 +386,7 @@ impl ProtoSessionHost {
             state_values: record.state_values.clone(),
             diagnostics: record.diagnostics.clone(),
             pending_commit: record.pending_commit.is_some(),
-        }
+        })
     }
 
     fn ensure_alive(&self) -> Result<()> {
@@ -401,6 +394,18 @@ impl ProtoSessionHost {
             Err(BridgeError::Disposed)
         } else {
             Ok(())
+        }
+    }
+
+    fn dispatch(&mut self, command: &BridgeCommand) -> Result<Vec<BridgeEvent>> {
+        match self.bridge.dispatch(command) {
+            Ok(events) => Ok(events),
+            Err(error @ BridgeError::Runtime { .. }) => {
+                self.disposed = true;
+                self.session = None;
+                Err(error)
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -473,155 +478,188 @@ fn check_input_route(record: &SessionRecord, route_ref: &str) -> Result<()> {
 }
 
 fn absorb_events(record: &mut SessionRecord, events: &[BridgeEvent]) -> Result<DispatchOutcome> {
-    for event in events {
-        let BridgeEvent::Projection { projection } = event else {
-            continue;
-        };
-        check_identity(
-            &record.request.session_id,
-            &record.request.instance_id,
-            &projection.session_id,
-            &projection.instance_id,
-        )?;
-        let current_epoch = record
-            .protocol
-            .current_epoch()
-            .ok_or(BridgeError::Unmounted)?;
-        if projection.view_epoch < current_epoch {
-            return Err(BridgeError::StaleEpoch {
-                expected: current_epoch,
-                received: projection.view_epoch,
-            });
-        }
-        if projection.view_epoch > current_epoch {
-            record.protocol.install_view(projection.view_epoch)?;
-        }
-    }
+    let max_projection_epoch = events.iter().filter_map(event_projection_epoch).max();
+    let mut deferred = Vec::new();
     let mut outcome = DispatchOutcome {
         events: events.to_vec(),
         ..DispatchOutcome::default()
     };
+
     for event in events {
-        match event {
-            BridgeEvent::Projection { projection } => {
-                check_identity(
-                    &record.request.session_id,
-                    &record.request.instance_id,
-                    &projection.session_id,
-                    &projection.instance_id,
-                )?;
-                let current_epoch = record
-                    .protocol
-                    .current_epoch()
-                    .ok_or(BridgeError::Unmounted)?;
-                if projection.view_epoch != current_epoch {
-                    if projection.view_epoch > current_epoch {
-                        record.protocol.install_view(projection.view_epoch)?;
-                    } else {
-                        return Err(BridgeError::StaleEpoch {
-                            expected: current_epoch,
-                            received: projection.view_epoch,
-                        });
-                    }
+        if let Some(epoch) = event_epoch(event) {
+            let current_epoch = record
+                .protocol
+                .current_epoch()
+                .ok_or(BridgeError::Unmounted)?;
+            if !matches!(event, BridgeEvent::Projection { .. }) {
+                if max_projection_epoch.is_some_and(|max| epoch < max) || epoch < current_epoch {
+                    continue;
                 }
-                if projection.commit_id == 0 {
-                    return Err(BridgeError::InvalidCommit);
-                }
-                if projection.commit_id < record.projection.commit_id {
-                    return Err(BridgeError::StaleCommit {
-                        last: record.projection.commit_id,
-                        received: projection.commit_id,
-                    });
-                }
-                record.projection = projection.clone();
-                record.style = projection.style.clone();
-                record.a11y = projection.a11y.clone();
-                record.pending_commit = Some(projection.commit_id);
-                record.mounted = true;
-            }
-            BridgeEvent::Style {
-                session_id,
-                instance_id,
-                view_epoch,
-                style,
-            } => {
-                check_identity(
-                    &record.request.session_id,
-                    &record.request.instance_id,
-                    session_id,
-                    instance_id,
-                )?;
-                check_epoch(record, *view_epoch)?;
-                record.style = style.clone();
-            }
-            BridgeEvent::A11y {
-                session_id,
-                instance_id,
-                view_epoch,
-                a11y,
-            } => {
-                check_identity(
-                    &record.request.session_id,
-                    &record.request.instance_id,
-                    session_id,
-                    instance_id,
-                )?;
-                check_epoch(record, *view_epoch)?;
-                record.a11y = Some(a11y.clone());
-            }
-            BridgeEvent::State {
-                session_id,
-                instance_id,
-                view_epoch,
-                values,
-            } => {
-                check_identity(
-                    &record.request.session_id,
-                    &record.request.instance_id,
-                    session_id,
-                    instance_id,
-                )?;
-                check_epoch(record, *view_epoch)?;
-                record.state_values = values.clone().into_iter().collect();
-            }
-            BridgeEvent::Signal {
-                session_id,
-                instance_id,
-                view_epoch,
-                sequence,
-                key,
-            } => {
-                check_identity(
-                    &record.request.session_id,
-                    &record.request.instance_id,
-                    session_id,
-                    instance_id,
-                )?;
-                check_epoch(record, *view_epoch)?;
-                if *sequence <= record.last_output_sequence {
-                    return Err(BridgeError::NonMonotonicSequence {
-                        last: record.last_output_sequence,
-                        received: *sequence,
-                    });
-                }
-                record.last_output_sequence = *sequence;
-                if key == "click" {
-                    outcome.click_emitted = true;
+                if epoch > current_epoch {
+                    deferred.push(event);
+                    continue;
                 }
             }
-            BridgeEvent::Diagnostic { diagnostic } => {
-                if diagnostic.fatal {
-                    return Err(BridgeError::Runtime {
-                        detail: diagnostic.detail.clone(),
-                    });
-                }
-                record.diagnostics.push(diagnostic.clone());
-                outcome.diagnostics.push(diagnostic.clone());
-            }
-            BridgeEvent::Registry { .. } | BridgeEvent::Ready { .. } => {}
         }
+        absorb_event(record, event, &mut outcome)?;
+    }
+
+    for event in deferred {
+        let Some(epoch) = event_epoch(event) else {
+            continue;
+        };
+        if record.protocol.current_epoch() != Some(epoch) {
+            continue;
+        }
+        absorb_event(record, event, &mut outcome)?;
     }
     Ok(outcome)
+}
+
+fn absorb_event(
+    record: &mut SessionRecord,
+    event: &BridgeEvent,
+    outcome: &mut DispatchOutcome,
+) -> Result<()> {
+    match event {
+        BridgeEvent::Projection { projection } => {
+            check_identity(
+                &record.request.session_id,
+                &record.request.instance_id,
+                &projection.session_id,
+                &projection.instance_id,
+            )?;
+            let current_epoch = record
+                .protocol
+                .current_epoch()
+                .ok_or(BridgeError::Unmounted)?;
+            if projection.view_epoch != current_epoch {
+                if projection.view_epoch > current_epoch {
+                    record.protocol.install_view(projection.view_epoch)?;
+                } else {
+                    return Err(BridgeError::StaleEpoch {
+                        expected: current_epoch,
+                        received: projection.view_epoch,
+                    });
+                }
+            }
+            if projection.commit_id == 0 {
+                return Err(BridgeError::InvalidCommit);
+            }
+            if projection.commit_id < record.projection.commit_id {
+                return Err(BridgeError::StaleCommit {
+                    last: record.projection.commit_id,
+                    received: projection.commit_id,
+                });
+            }
+            record.projection = projection.clone();
+            record.style = projection.style.clone();
+            record.a11y = projection.a11y.clone();
+            record.pending_commit = Some(projection.commit_id);
+            record.mounted = true;
+        }
+        BridgeEvent::Style {
+            session_id,
+            instance_id,
+            view_epoch,
+            style,
+        } => {
+            check_identity(
+                &record.request.session_id,
+                &record.request.instance_id,
+                session_id,
+                instance_id,
+            )?;
+            check_epoch(record, *view_epoch)?;
+            record.style = style.clone();
+        }
+        BridgeEvent::A11y {
+            session_id,
+            instance_id,
+            view_epoch,
+            a11y,
+        } => {
+            check_identity(
+                &record.request.session_id,
+                &record.request.instance_id,
+                session_id,
+                instance_id,
+            )?;
+            check_epoch(record, *view_epoch)?;
+            record.a11y = Some(a11y.clone());
+        }
+        BridgeEvent::State {
+            session_id,
+            instance_id,
+            view_epoch,
+            values,
+        } => {
+            check_identity(
+                &record.request.session_id,
+                &record.request.instance_id,
+                session_id,
+                instance_id,
+            )?;
+            check_epoch(record, *view_epoch)?;
+            record.state_values = values.clone().into_iter().collect();
+        }
+        BridgeEvent::Signal {
+            session_id,
+            instance_id,
+            view_epoch,
+            sequence,
+            key,
+        } => {
+            check_identity(
+                &record.request.session_id,
+                &record.request.instance_id,
+                session_id,
+                instance_id,
+            )?;
+            check_epoch(record, *view_epoch)?;
+            if *sequence <= record.last_output_sequence {
+                return Err(BridgeError::NonMonotonicSequence {
+                    last: record.last_output_sequence,
+                    received: *sequence,
+                });
+            }
+            record.last_output_sequence = *sequence;
+            if key == "click" {
+                outcome.click_emitted = true;
+            }
+        }
+        BridgeEvent::Diagnostic { diagnostic } => {
+            if diagnostic.fatal {
+                return Err(BridgeError::Runtime {
+                    detail: diagnostic.detail.clone(),
+                });
+            }
+            record.diagnostics.push(diagnostic.clone());
+            outcome.diagnostics.push(diagnostic.clone());
+        }
+        BridgeEvent::Registry { .. } | BridgeEvent::Ready { .. } => {}
+    }
+    Ok(())
+}
+
+fn event_epoch(event: &BridgeEvent) -> Option<ViewEpoch> {
+    match event {
+        BridgeEvent::Projection { projection } => Some(projection.view_epoch),
+        BridgeEvent::Style { view_epoch, .. }
+        | BridgeEvent::A11y { view_epoch, .. }
+        | BridgeEvent::State { view_epoch, .. }
+        | BridgeEvent::Signal { view_epoch, .. } => Some(*view_epoch),
+        BridgeEvent::Registry { .. }
+        | BridgeEvent::Ready { .. }
+        | BridgeEvent::Diagnostic { .. } => None,
+    }
+}
+
+fn event_projection_epoch(event: &BridgeEvent) -> Option<ViewEpoch> {
+    match event {
+        BridgeEvent::Projection { projection } => Some(projection.view_epoch),
+        _ => None,
+    }
 }
 
 fn check_epoch(record: &SessionRecord, received: ViewEpoch) -> Result<()> {

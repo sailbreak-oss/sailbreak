@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use serde::{Deserialize, Serialize};
 
@@ -159,6 +159,13 @@ pub enum TemplateNode {
     Slot {
         slot_id: String,
     },
+    Svg {
+        tag: String,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        attributes: BTreeMap<String, String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        children: Vec<Self>,
+    },
 }
 
 impl TemplateNode {
@@ -166,6 +173,19 @@ impl TemplateNode {
     pub fn slot(slot_id: impl Into<String>) -> Self {
         Self::Slot {
             slot_id: slot_id.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn svg(
+        tag: impl Into<String>,
+        attributes: BTreeMap<String, String>,
+        children: Vec<Self>,
+    ) -> Self {
+        Self::Svg {
+            tag: tag.into(),
+            attributes,
+            children,
         }
     }
 }
@@ -300,6 +320,7 @@ fn contains_slot(nodes: &[TemplateNode], slot_id: &str) -> bool {
     nodes.iter().any(|node| match node {
         TemplateNode::Slot { slot_id: candidate } => candidate == slot_id,
         TemplateNode::Container { children, .. } => contains_slot(children, slot_id),
+        TemplateNode::Svg { children, .. } => contains_slot(children, slot_id),
         TemplateNode::Text { .. } => false,
     })
 }
@@ -454,6 +475,8 @@ pub enum AckDisposition {
 pub enum BridgeError {
     #[error("invalid {kind} identity")]
     InvalidIdentity { kind: String },
+    #[error("duplicate semantic id: {id}")]
+    DuplicateSemanticId { id: String },
     #[error("view epoch must be greater than zero")]
     InvalidEpoch,
     #[error("commit id must be greater than zero")]
@@ -691,6 +714,11 @@ pub enum BridgeCommand {
     Remount {
         session_id: SessionId,
         instance_id: InstanceId,
+    },
+    AdvanceTime {
+        session_id: SessionId,
+        instance_id: InstanceId,
+        milliseconds: u64,
     },
     Unmount {
         session_id: SessionId,

@@ -17,6 +17,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Bun for the Proto UI bundle check
+        if: matrix.os == 'ubuntu-latest'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - name: Check the recorded Proto UI bundle identity
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: tools/proto-ui-bridge
+        run: |
+          node --test scripts/build-bundle.test.mjs
+          bun run bundle:check
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
