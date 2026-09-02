@@ -90,7 +90,6 @@ fn replacement_preserves_identity_without_stale_nodes() -> Result<(), BridgeErro
     assert_eq!(after.session.session_id, before.session.session_id);
     assert_eq!(after.session.instance_id, before.session.instance_id);
     assert!(after.session.projection.commit_id > before.session.projection.commit_id);
-    assert!(after.removed_semantic_ids.is_empty());
 
     let epoch = host.remount("rule")?;
     assert!(epoch > before.session.projection.view_epoch);

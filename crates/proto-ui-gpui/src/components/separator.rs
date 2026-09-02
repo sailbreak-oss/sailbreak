@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 
 use crate::{
     AdapterSnapshot, BridgeError, ColorValue, CommitDisposition, NativeStyle, ProtoAdapter,
-    PrototypeKey, PrototypeProfile, Result, SemanticId, SessionId, SessionSnapshot, ShadcnTheme,
+    PrototypeKey, PrototypeProfile, Result, SessionId, SessionSnapshot, ShadcnTheme,
     SlotProjection, StartRequest, ViewEpoch,
 };
 
@@ -67,7 +67,6 @@ pub struct ProtoSeparatorSnapshot {
     pub color: ColorValue,
     pub orientation: SeparatorOrientation,
     pub decorative: bool,
-    pub removed_semantic_ids: Vec<SemanticId>,
 }
 
 pub struct ProtoSeparatorHost {
@@ -152,9 +151,10 @@ fn build_snapshot(
         .state_values
         .get("orientation")
         .and_then(Value::as_str)
-        .map(|orientation| match orientation {
-            "vertical" => SeparatorOrientation::Vertical,
-            _ => SeparatorOrientation::Horizontal,
+        .and_then(|orientation| match orientation {
+            "horizontal" => Some(SeparatorOrientation::Horizontal),
+            "vertical" => Some(SeparatorOrientation::Vertical),
+            _ => None,
         })
         .unwrap_or(props.orientation);
     let decorative = snapshot
@@ -170,6 +170,5 @@ fn build_snapshot(
             .unwrap_or_else(|| ColorValue::opaque(theme.border)),
         orientation,
         decorative,
-        removed_semantic_ids: Vec::new(),
     }
 }
