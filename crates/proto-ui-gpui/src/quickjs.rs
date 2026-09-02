@@ -8,6 +8,8 @@ use crate::protocol::{
     BridgeCommand, BridgeError, BridgeEvent, PROTOCOL_MAJOR, PROTOCOL_MINOR, PrototypeKey, Result,
 };
 const MAX_BRIDGE_MESSAGE_BYTES: usize = 256 * 1024;
+const MAX_SHARED_PENDING_PER_SESSION: usize = 256;
+const MAX_SHARED_PENDING_TOTAL: usize = 1024;
 const MAX_JSON_DEPTH: usize = 16;
 
 const BRIDGE_BUNDLE: &str = include_str!(concat!(
@@ -175,6 +177,7 @@ pub(crate) struct SharedQuickJsBridge {
 struct SharedQuickJsBridgeState {
     bridge: QuickJsBridge,
     pending: BTreeMap<String, Vec<BridgeEvent>>,
+    failed: Option<String>,
 }
 
 impl SharedQuickJsBridge {
@@ -183,6 +186,7 @@ impl SharedQuickJsBridge {
             state: Rc::new(RefCell::new(SharedQuickJsBridgeState {
                 bridge: QuickJsBridge::new()?,
                 pending: BTreeMap::new(),
+                failed: None,
             })),
         })
     }
@@ -193,6 +197,11 @@ impl SharedQuickJsBridge {
         target_session: Option<&str>,
     ) -> Result<Vec<BridgeEvent>> {
         let mut state = self.state.borrow_mut();
+        if let Some(detail) = &state.failed {
+            return Err(BridgeError::Runtime {
+                detail: detail.clone(),
+            });
+        }
         let fresh = state.bridge.dispatch(command)?;
         let mut events = target_session
             .and_then(|session| state.pending.remove(session))
@@ -202,6 +211,16 @@ impl SharedQuickJsBridge {
                 if target_session == Some(session) {
                     events.push(event);
                 } else {
+                    let per_session = state.pending.get(session).map_or(0, Vec::len);
+                    let total = state.pending.values().map(Vec::len).sum::<usize>();
+                    if per_session >= MAX_SHARED_PENDING_PER_SESSION
+                        || total >= MAX_SHARED_PENDING_TOTAL
+                    {
+                        let detail =
+                            format!("shared bridge pending event overflow for session {session}");
+                        state.failed = Some(detail.clone());
+                        return Err(BridgeError::Runtime { detail });
+                    }
                     state
                         .pending
                         .entry(session.to_owned())
@@ -215,12 +234,14 @@ impl SharedQuickJsBridge {
         Ok(events)
     }
 
-    pub(crate) fn drain(&self, target_session: &str) -> Vec<BridgeEvent> {
-        self.state
-            .borrow_mut()
-            .pending
-            .remove(target_session)
-            .unwrap_or_default()
+    pub(crate) fn drain(&self, target_session: &str) -> Result<Vec<BridgeEvent>> {
+        let mut state = self.state.borrow_mut();
+        if let Some(detail) = &state.failed {
+            return Err(BridgeError::Runtime {
+                detail: detail.clone(),
+            });
+        }
+        Ok(state.pending.remove(target_session).unwrap_or_default())
     }
 }
 

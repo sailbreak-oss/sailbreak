@@ -204,7 +204,7 @@ fn stale_parent_link_is_rejected_and_thumb_replacement_uses_current_root_epoch()
 
     assert!(matches!(
         host.register_thumb_with_parent("wifi-thumb-stale", stale_parent),
-        Err(BridgeError::Runtime { .. })
+        Err(BridgeError::StaleParent { .. })
     ));
     host.replace_thumb("wifi", "wifi-thumb-new")?;
     assert_eq!(
@@ -222,5 +222,25 @@ fn disposal_removes_root_and_thumb_sessions() -> Result<(), BridgeError> {
     host.dispose("wifi")?;
     assert!(host.snapshot("wifi").is_err());
     assert!(host.thumb_snapshot("wifi-thumb").is_err());
+    Ok(())
+}
+
+#[test]
+fn sibling_sessions_do_not_leak_state_or_signals() -> Result<(), BridgeError> {
+    let mut host = ProtoSwitchHost::new()?;
+    register_switch(&mut host, "wifi")?;
+    register_switch(&mut host, "camera")?;
+
+    let outcome = host.dispatch(
+        "wifi",
+        InputKind::PressCommit,
+        InputSource::Accessibility,
+        None,
+    )?;
+    assert_eq!(outcome.checked_change_count, 1);
+    assert!(host.snapshot("wifi")?.checked);
+    assert!(host.thumb_snapshot("wifi-thumb")?.checked);
+    assert!(!host.snapshot("camera")?.checked);
+    assert!(!host.thumb_snapshot("camera-thumb")?.checked);
     Ok(())
 }

@@ -457,7 +457,7 @@ impl ProtoSessionHost {
     pub fn drain_events(&mut self) -> Result<DispatchOutcome> {
         self.ensure_alive()?;
         let session_id = self.record()?.request.session_id.clone();
-        let events = self.bridge.drain(session_id.as_str());
+        let events = self.bridge.drain(session_id.as_str())?;
         self.record_mut()
             .and_then(|record| absorb_events(record, &events))
     }

@@ -170,18 +170,20 @@ impl ProtoToggleHost {
 
     pub fn snapshot(&self, id: &str) -> Result<ProtoToggleSnapshot> {
         let props = self.require_props(id)?.clone();
+        let theme = self.adapter.theme();
         let snapshot = self.adapter.snapshot_current(id)?;
         let active = snapshot
             .state_bool("active")
             .unwrap_or_else(|| props.active.unwrap_or(props.default_active));
         let disabled = snapshot.state_bool("disabled").unwrap_or(props.disabled);
         let a11y = snapshot.session.a11y.clone();
+        let resolved_style = ButtonStyle::from_projection(&snapshot.session.style, theme);
         Ok(ProtoToggleSnapshot {
             id: snapshot.id,
             label: snapshot.label,
             session: snapshot.session,
             native_style: snapshot.native_style,
-            resolved_style: snapshot.resolved_style,
+            resolved_style,
             active,
             disabled,
             a11y,

@@ -4,10 +4,10 @@ use serde_json::{Map, Value};
 
 use crate::quickjs::SharedQuickJsBridge;
 use crate::{
-    BridgeDiagnostic, BridgeError, BridgeEvent, ButtonStyle, CommitDisposition, InputEnvelope,
-    InputKind, InputPayload, InputRequest, InputSource, LogicalParentRef, NativeStyle,
-    ProjectionAck, PropsRequest, ProtoSessionHost, PrototypeKey, Result, SessionSnapshot,
-    ShadcnTheme, StartRequest, ViewEpoch, translate_projection,
+    BridgeDiagnostic, BridgeError, BridgeEvent, CommitDisposition, InputEnvelope, InputKind,
+    InputPayload, InputRequest, InputSource, LogicalParentRef, NativeStyle, ProjectionAck,
+    PropsRequest, ProtoSessionHost, PrototypeKey, Result, SessionSnapshot, ShadcnTheme,
+    StartRequest, ViewEpoch, translate_projection,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -24,7 +24,6 @@ pub struct AdapterSnapshot {
     pub profile: PrototypeProfile,
     pub session: SessionSnapshot,
     pub native_style: NativeStyle,
-    pub resolved_style: ButtonStyle,
 }
 
 impl AdapterSnapshot {
@@ -108,7 +107,10 @@ impl ProtoAdapter {
 
         let mut host = ProtoSessionHost::with_shared_bridge(self.bridge.clone())?;
         host.start(request)?;
-        acknowledge_pending(&mut host)?;
+        if let Err(error) = acknowledge_pending(&mut host) {
+            let _ = host.dispose();
+            return Err(error);
+        }
         self.sessions.insert(
             id.clone(),
             ManagedSession {
@@ -130,6 +132,7 @@ impl ProtoAdapter {
         detail: Option<Value>,
     ) -> Result<AdapterDispatchOutcome> {
         let session = self.session_mut(id)?;
+        prepare_session(&mut session.host)?;
         session.next_sequence =
             session
                 .next_sequence
@@ -166,6 +169,7 @@ impl ProtoAdapter {
 
     pub fn set_props(&mut self, id: &str, props: Map<String, Value>) -> Result<CommitDisposition> {
         let session = self.session_mut(id)?;
+        prepare_session(&mut session.host)?;
         let snapshot = session.host.snapshot()?;
         let disposition = session.host.set_props(PropsRequest::new(
             snapshot.session_id,
@@ -200,7 +204,9 @@ impl ProtoAdapter {
     }
 
     pub fn remount(&mut self, id: &str) -> Result<ViewEpoch> {
-        self.session_mut(id)?.host.remount()
+        let session = self.session_mut(id)?;
+        prepare_session(&mut session.host)?;
+        session.host.remount()
     }
 
     pub fn dispose(&mut self, id: &str) -> Result<()> {
@@ -214,6 +220,11 @@ impl ProtoAdapter {
     #[must_use]
     pub fn contains(&self, id: &str) -> bool {
         self.sessions.contains_key(id)
+    }
+
+    #[must_use]
+    pub fn theme(&self) -> ShadcnTheme {
+        self.theme
     }
 
     fn session(&self, id: &str) -> Result<&ManagedSession> {
@@ -232,7 +243,6 @@ fn build_snapshot(session: &ManagedSession, theme: ShadcnTheme) -> Result<Adapte
         label: session.label.clone(),
         profile: session.profile,
         native_style: translate_projection(&snapshot.style, theme),
-        resolved_style: ButtonStyle::from_projection(&snapshot.style, theme),
         session: snapshot,
     })
 }
@@ -248,6 +258,11 @@ fn acknowledge_pending(host: &mut ProtoSessionHost) -> Result<()> {
         ))?;
     }
     Ok(())
+}
+
+fn prepare_session(host: &mut ProtoSessionHost) -> Result<()> {
+    host.drain_events()?;
+    acknowledge_pending(host)
 }
 
 fn validate_identity(value: &str, kind: &str) -> Result<()> {

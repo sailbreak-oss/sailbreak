@@ -152,9 +152,28 @@ impl ProtoSwitchHost {
             })?
             .to_owned();
         let current = self.adapter.parent_ref(&parent_id)?;
-        if current != parent {
-            return Err(BridgeError::Runtime {
-                detail: format!("stale parent reference for switch thumb {id}"),
+        if current.session_id != parent.session_id {
+            return Err(BridgeError::SessionMismatch {
+                expected: current.session_id,
+                received: parent.session_id,
+            });
+        }
+        if current.instance_id != parent.instance_id {
+            return Err(BridgeError::InstanceMismatch {
+                expected: current.instance_id,
+                received: parent.instance_id,
+            });
+        }
+        if current.route_ref != parent.route_ref {
+            return Err(BridgeError::ParentRouteMismatch {
+                expected: current.route_ref,
+                received: parent.route_ref,
+            });
+        }
+        if current.view_epoch != parent.view_epoch {
+            return Err(BridgeError::StaleParent {
+                expected: current.view_epoch,
+                received: parent.view_epoch,
             });
         }
         let request = StartRequest::new(
@@ -234,6 +253,7 @@ impl ProtoSwitchHost {
 
     pub fn snapshot(&mut self, id: &str) -> Result<ProtoSwitchSnapshot> {
         let props = self.require_root(id)?.clone();
+        let theme = self.adapter.theme();
         let root = self.adapter.snapshot(id)?;
         let checked = root
             .state_bool("checked")
@@ -242,6 +262,7 @@ impl ProtoSwitchHost {
         let hovered = root.state_bool("hovered").unwrap_or(false);
         let pressed = root.state_bool("pressed").unwrap_or(false);
         let focus_visible = root.state_bool("focusVisible").unwrap_or(false);
+        let root_resolved_style = ButtonStyle::from_projection(&root.session.style, theme);
         let a11y = root.session.a11y.clone();
         let thumb_id = self
             .thumbs
@@ -254,7 +275,7 @@ impl ProtoSwitchHost {
         Ok(ProtoSwitchSnapshot {
             id: root.id.clone(),
             label: root.label.clone(),
-            root: root_snapshot(root),
+            root: root_snapshot(root, root_resolved_style),
             thumb,
             checked,
             disabled,
@@ -269,13 +290,15 @@ impl ProtoSwitchHost {
         if !self.thumbs.contains_key(id) {
             return Err(unknown_switch(id));
         }
+        let theme = self.adapter.theme();
         let snapshot = self.adapter.snapshot(id)?;
         let checked = snapshot.state_bool("checked").unwrap_or(false);
+        let resolved_style = ButtonStyle::from_projection(&snapshot.session.style, theme);
         Ok(SwitchThumbSnapshot {
             id: snapshot.id.clone(),
             session: snapshot.session,
             native_style: snapshot.native_style,
-            resolved_style: snapshot.resolved_style,
+            resolved_style,
             checked,
         })
     }
@@ -302,12 +325,12 @@ impl ProtoSwitchHost {
     }
 }
 
-fn root_snapshot(snapshot: AdapterSnapshot) -> SwitchRootSnapshot {
+fn root_snapshot(snapshot: AdapterSnapshot, resolved_style: ButtonStyle) -> SwitchRootSnapshot {
     SwitchRootSnapshot {
         id: snapshot.id,
         session: snapshot.session,
         native_style: snapshot.native_style,
-        resolved_style: snapshot.resolved_style,
+        resolved_style,
     }
 }
 
