@@ -14,7 +14,11 @@ mod theme;
 pub use button_host::{ProtoButtonHost, ProtoButtonState, ShadcnButtonSize, ShadcnButtonVariant};
 pub use components::{
     AdapterDispatchOutcome, AdapterSnapshot, CheckboxDispatchOutcome, CheckboxIndicatorSnapshot,
-    CheckboxProps, CheckboxRootSnapshot, ProtoAdapter, ProtoCheckboxHost, ProtoCheckboxSnapshot,
+    CheckboxProps, CheckboxRootSnapshot, DropdownContentProps, DropdownContentSnapshot,
+    DropdownDispatchOutcome, DropdownItemProps, DropdownItemSnapshot, DropdownItemVariant,
+    DropdownOpenEntry, DropdownRootProps, DropdownRootSnapshot, DropdownSnapshot,
+    DropdownTriggerIndicatorIcon, DropdownTriggerProps, DropdownTriggerSnapshot, ProtoAdapter,
+    ProtoCheckboxHost, ProtoCheckboxSnapshot, ProtoDropdownHost, ProtoDropdownSnapshot,
     ProtoSelectHost, ProtoSelectSnapshot, ProtoSeparatorHost, ProtoSeparatorSnapshot,
     ProtoSwitchHost, ProtoSwitchSnapshot, ProtoTabsHost, ProtoTextareaHost, ProtoTextareaSnapshot,
     ProtoToggleHost, ProtoToggleSnapshot, PrototypeProfile, SelectContentPosition,

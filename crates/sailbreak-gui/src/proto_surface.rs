@@ -10,11 +10,12 @@ use gpui::{
     px, relative, rgb, rgba, size,
 };
 use proto_ui_gpui::{
-    A11ySnapshot, ButtonStyle, ColorValue, PlacementSnapshot, ProtoButtonState,
-    ProtoSeparatorSnapshot, ProtoTextareaSnapshot, ProtoToggleSnapshot, SelectContentSnapshot,
-    SelectItemSnapshot, SelectTriggerSnapshot, SelectValueSnapshot, SeparatorOrientation,
-    TabsContentSnapshot, TabsListSnapshot, TabsTriggerSnapshot, TextControlEvent,
-    TextControlEventType, TextControlSelection, TextControlSelectionDirection, ViewEpoch,
+    A11ySnapshot, ButtonStyle, ColorValue, DropdownContentSnapshot, DropdownItemSnapshot,
+    DropdownTriggerSnapshot, PlacementSnapshot, ProtoButtonState, ProtoSeparatorSnapshot,
+    ProtoTextareaSnapshot, ProtoToggleSnapshot, SelectContentSnapshot, SelectItemSnapshot,
+    SelectTriggerSnapshot, SelectValueSnapshot, SeparatorOrientation, TabsContentSnapshot,
+    TabsListSnapshot, TabsTriggerSnapshot, TextControlEvent, TextControlEventType,
+    TextControlSelection, TextControlSelectionDirection, ViewEpoch,
 };
 
 /// Project a Proto UI Button snapshot into the native GPUI surface.
@@ -134,6 +135,59 @@ pub fn select_item_element(
     } else {
         element
     }
+}
+
+/// Project a Dropdown Trigger through a caller-owned native focus handle.
+pub fn dropdown_trigger_element(
+    id: &'static str,
+    label: &'static str,
+    state: &DropdownTriggerSnapshot,
+    focus_handle: Option<&FocusHandle>,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    action_element(
+        id,
+        label,
+        &state.resolved_style,
+        state.a11y.as_ref(),
+        focus_handle,
+        on_a11y_click,
+    )
+}
+
+/// Project a Dropdown Content portal from the last Rust-owned placement fact.
+/// No layout or paint callback calls JavaScript.
+pub fn dropdown_content_element(
+    id: &'static str,
+    state: &DropdownContentSnapshot,
+) -> Stateful<Div> {
+    let mut element = state.placement.as_ref().map_or_else(
+        || div().id(id).debug_selector(move || id.to_owned()),
+        |placement| overlay_surface_element(id, placement),
+    );
+    if let Some(a11y) = state.a11y.as_ref() {
+        element = apply_a11y(element, a11y, |_, _, _| {});
+    }
+    if !state.present {
+        element = element.opacity(0.0);
+    }
+    element
+}
+
+/// Project one Dropdown menu item through Proto-resolved action styling.
+pub fn dropdown_item_element(
+    id: &'static str,
+    state: &DropdownItemSnapshot,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    action_element(
+        id,
+        state.label.clone(),
+        &state.resolved_style,
+        state.a11y.as_ref(),
+        None,
+        on_a11y_click,
+    )
 }
 
 pub fn tab_list_element(id: &'static str, state: &TabsListSnapshot) -> Stateful<Div> {
@@ -1350,6 +1404,8 @@ fn role_for(role: &str) -> Role {
         "tab" => Role::Tab,
         "tablist" => Role::TabList,
         "tabpanel" => Role::TabPanel,
+        "menu" => Role::Menu,
+        "menuitem" => Role::MenuItem,
         _ => Role::Unknown,
     }
 }

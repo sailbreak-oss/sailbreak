@@ -13,19 +13,22 @@ use gpui::{
 use lctrl_core::{Availability, CapabilitySet, HardwareInfo, LctrlError, Platform, Result};
 use lctrl_hal::Hal;
 use proto_ui_gpui::{
-    BridgeError, DispatchOutcome, FocusOperationResult, InputKind, InputSource, ProtoButtonHost,
-    ProtoButtonState, ProtoSelectHost, ProtoSelectSnapshot, ProtoSeparatorHost,
-    ProtoSeparatorSnapshot, ProtoTabsHost, ProtoTextareaHost, ProtoTextareaSnapshot,
-    ProtoToggleHost, ProtoToggleSnapshot, SelectContentProps, SelectDispatchOutcome,
-    SelectItemProps, SelectRootProps, SelectTriggerProps, SelectValueProps, SeparatorProps,
-    ShadcnButtonSize, ShadcnButtonVariant, TabsActivationMode, TabsContentProps, TabsListProps,
-    TabsOrientation, TabsRootProps, TabsSnapshot, TabsTriggerProps, TextareaProps,
-    ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
+    BridgeError, DispatchOutcome, DropdownContentProps, DropdownDispatchOutcome, DropdownItemProps,
+    DropdownRootProps, DropdownSnapshot, DropdownTriggerProps, FocusOperationResult, InputKind,
+    InputSource, ProtoButtonHost, ProtoButtonState, ProtoDropdownHost, ProtoSelectHost,
+    ProtoSelectSnapshot, ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoTabsHost,
+    ProtoTextareaHost, ProtoTextareaSnapshot, ProtoToggleHost, ProtoToggleSnapshot,
+    SelectContentProps, SelectDispatchOutcome, SelectItemProps, SelectRootProps,
+    SelectTriggerProps, SelectValueProps, SeparatorProps, ShadcnButtonSize, ShadcnButtonVariant,
+    TabsActivationMode, TabsContentProps, TabsListProps, TabsOrientation, TabsRootProps,
+    TabsSnapshot, TabsTriggerProps, TextareaProps, ToggleDispatchOutcome, ToggleProps, ToggleSize,
+    ToggleVariant,
 };
 
 mod proto_surface;
 pub use proto_surface::{
-    AccessibleProjection, overlay_surface_element, project_a11y, select_content_element,
+    AccessibleProjection, dropdown_content_element, dropdown_item_element,
+    dropdown_trigger_element, overlay_surface_element, project_a11y, select_content_element,
     select_item_element, select_value_element,
 };
 
@@ -230,6 +233,74 @@ const POWER_SCHEME_SELECT_TRIGGER_ID: &str = "power-scheme-trigger";
 const POWER_SCHEME_SELECT_VALUE_ID: &str = "power-scheme-value";
 const POWER_SCHEME_SELECT_CONTENT_ID: &str = "power-scheme-content";
 
+const STATUS_ACTIONS_DROPDOWN_ROOT_ID: &str = "status-actions-dropdown";
+const STATUS_ACTIONS_DROPDOWN_TRIGGER_ID: &str = "status-actions-trigger";
+const STATUS_ACTIONS_DROPDOWN_CONTENT_ID: &str = "status-actions-content";
+const STATUS_ACTIONS_DROPDOWN_ITEM_IDS: [&str; 3] =
+    ["daemon-status", "battery-status", "thermal-sensors"];
+const SYSTEM_ACTIONS_DROPDOWN_ROOT_ID: &str = "system-actions-dropdown";
+const SYSTEM_ACTIONS_DROPDOWN_TRIGGER_ID: &str = "system-actions-trigger";
+const SYSTEM_ACTIONS_DROPDOWN_CONTENT_ID: &str = "system-actions-content";
+const SYSTEM_ACTIONS_DROPDOWN_ITEM_IDS: [&str; 3] =
+    ["power-schemes", "diagnostics", "magicbay-detect"];
+
+#[derive(Clone, Copy)]
+struct DropdownActionSpec {
+    id: &'static str,
+    label: &'static str,
+    value: &'static str,
+    capability: Option<&'static str>,
+    action: DashboardAction,
+}
+
+const STATUS_ACTION_SPECS: [DropdownActionSpec; 3] = [
+    DropdownActionSpec {
+        id: "daemon-status",
+        label: "DAEMON STATUS",
+        value: "daemon-status",
+        capability: None,
+        action: DashboardAction::RunCommand(DAEMON_STATUS_COMMAND),
+    },
+    DropdownActionSpec {
+        id: "battery-status",
+        label: "BATTERY STATUS",
+        value: "battery-status",
+        capability: Some("battery.status"),
+        action: DashboardAction::RunCommand(BATTERY_STATUS_COMMAND),
+    },
+    DropdownActionSpec {
+        id: "thermal-sensors",
+        label: "THERMAL SENSORS",
+        value: "thermal-sensors",
+        capability: Some("perf.temp"),
+        action: DashboardAction::RunCommand(THERMAL_SENSORS_COMMAND),
+    },
+];
+
+const SYSTEM_ACTION_SPECS: [DropdownActionSpec; 3] = [
+    DropdownActionSpec {
+        id: "power-schemes",
+        label: "POWER SCHEMES",
+        value: "power-schemes",
+        capability: Some("power.scheme"),
+        action: DashboardAction::RunCommand(POWER_SCHEMES_COMMAND),
+    },
+    DropdownActionSpec {
+        id: "diagnostics",
+        label: "DIAGNOSTICS",
+        value: "diagnostics",
+        capability: Some("diagnostics.inventory"),
+        action: DashboardAction::RunCommand(DIAGNOSTICS_COMMAND),
+    },
+    DropdownActionSpec {
+        id: "magicbay-detect",
+        label: "MAGICBAY DETECT",
+        value: "magicbay-detect",
+        capability: Some("magicbay.inventory"),
+        action: DashboardAction::RunCommand(MAGICBAY_COMMAND),
+    },
+];
+
 fn unavailable_select_root_props() -> SelectRootProps {
     SelectRootProps {
         disabled: true,
@@ -272,12 +343,16 @@ struct ProtoUiState {
     tuning_select_snapshot: Option<ProtoSelectSnapshot>,
     power_select_host: Option<ProtoSelectHost>,
     power_select_snapshot: Option<ProtoSelectSnapshot>,
+    status_dropdown_host: Option<ProtoDropdownHost>,
+    status_dropdown_snapshot: Option<DropdownSnapshot>,
+    system_dropdown_host: Option<ProtoDropdownHost>,
+    system_dropdown_snapshot: Option<DropdownSnapshot>,
     select_error: Option<String>,
+    dropdown_error: Option<String>,
     error: Option<String>,
 }
-
 impl ProtoUiState {
-    fn new() -> Self {
+    fn new(capabilities: &CapabilitySet) -> Self {
         let (host, toggle_host, separator_host) = match Self::build_core() {
             Ok(hosts) => hosts,
             Err(error) => {
@@ -297,7 +372,12 @@ impl ProtoUiState {
                     tuning_select_snapshot: None,
                     power_select_host: None,
                     power_select_snapshot: None,
+                    status_dropdown_host: None,
+                    status_dropdown_snapshot: None,
+                    system_dropdown_host: None,
+                    system_dropdown_snapshot: None,
                     select_error: None,
+                    dropdown_error: None,
                     error: Some(error.to_string()),
                 };
             }
@@ -323,6 +403,17 @@ impl ProtoUiState {
             Ok((host, snapshot)) => (Some(host), Some(snapshot)),
             Err(_) => (None, None),
         };
+        let (status_dropdown_host, status_dropdown_snapshot, status_error) =
+            match Self::build_status_dropdown(capabilities) {
+                Ok((host, snapshot)) => (Some(host), Some(snapshot), None),
+                Err(error) => (None, None, Some(error.to_string())),
+            };
+        let (system_dropdown_host, system_dropdown_snapshot, system_error) =
+            match Self::build_system_dropdown(capabilities) {
+                Ok((host, snapshot)) => (Some(host), Some(snapshot), None),
+                Err(error) => (None, None, Some(error.to_string())),
+            };
+        let dropdown_error = status_error.or(system_error);
         Self {
             host: Some(host),
             toggle_host: Some(toggle_host),
@@ -339,7 +430,12 @@ impl ProtoUiState {
             tuning_select_snapshot,
             power_select_host,
             power_select_snapshot,
+            status_dropdown_host,
+            status_dropdown_snapshot,
+            system_dropdown_host,
+            system_dropdown_snapshot,
             select_error: None,
+            dropdown_error,
             error: None,
         }
     }
@@ -379,6 +475,69 @@ impl ProtoUiState {
             separator_host.register(id, SeparatorProps::default())?;
         }
         Ok((host, toggle_host, separator_host))
+    }
+
+    fn build_status_dropdown(
+        capabilities: &CapabilitySet,
+    ) -> std::result::Result<(ProtoDropdownHost, DropdownSnapshot), BridgeError> {
+        Self::build_action_dropdown(
+            STATUS_ACTIONS_DROPDOWN_ROOT_ID,
+            STATUS_ACTIONS_DROPDOWN_TRIGGER_ID,
+            STATUS_ACTIONS_DROPDOWN_CONTENT_ID,
+            "Status actions",
+            &STATUS_ACTION_SPECS,
+            capabilities,
+        )
+    }
+
+    fn build_system_dropdown(
+        capabilities: &CapabilitySet,
+    ) -> std::result::Result<(ProtoDropdownHost, DropdownSnapshot), BridgeError> {
+        Self::build_action_dropdown(
+            SYSTEM_ACTIONS_DROPDOWN_ROOT_ID,
+            SYSTEM_ACTIONS_DROPDOWN_TRIGGER_ID,
+            SYSTEM_ACTIONS_DROPDOWN_CONTENT_ID,
+            "System actions",
+            &SYSTEM_ACTION_SPECS,
+            capabilities,
+        )
+    }
+
+    fn build_action_dropdown(
+        root_id: &'static str,
+        trigger_id: &'static str,
+        content_id: &'static str,
+        label: &'static str,
+        specs: &[DropdownActionSpec],
+        capabilities: &CapabilitySet,
+    ) -> std::result::Result<(ProtoDropdownHost, DropdownSnapshot), BridgeError> {
+        let mut host = ProtoDropdownHost::new()?;
+        host.register_root(root_id, label, DropdownRootProps::default())?;
+        host.register_trigger(
+            trigger_id,
+            root_id,
+            DropdownTriggerProps {
+                indicator: true,
+                ..DropdownTriggerProps::default()
+            },
+        )?;
+        host.register_content(content_id, root_id, DropdownContentProps::default())?;
+        for spec in specs {
+            host.register_item(
+                spec.id,
+                spec.label,
+                content_id,
+                DropdownItemProps {
+                    value: spec.value.to_owned(),
+                    text_value: spec.label.to_owned(),
+                    disabled: !capability_available(capabilities, spec.capability),
+                    ..DropdownItemProps::default()
+                },
+            )?;
+        }
+        host.setup()?;
+        let snapshot = host.snapshot()?;
+        Ok((host, snapshot))
     }
 
     fn build_textarea()
@@ -778,6 +937,117 @@ impl ProtoUiState {
         Ok(outcome)
     }
 
+    fn dropdown_snapshot(&self, root_id: &str) -> Option<&DropdownSnapshot> {
+        match root_id {
+            STATUS_ACTIONS_DROPDOWN_ROOT_ID => self.status_dropdown_snapshot.as_ref(),
+            SYSTEM_ACTIONS_DROPDOWN_ROOT_ID => self.system_dropdown_snapshot.as_ref(),
+            _ => None,
+        }
+    }
+
+    fn dropdown_host_mut(&mut self, root_id: &str) -> Option<&mut ProtoDropdownHost> {
+        match root_id {
+            STATUS_ACTIONS_DROPDOWN_ROOT_ID => self.status_dropdown_host.as_mut(),
+            SYSTEM_ACTIONS_DROPDOWN_ROOT_ID => self.system_dropdown_host.as_mut(),
+            _ => None,
+        }
+    }
+
+    fn refresh_dropdown(&mut self, root_id: &str) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.dropdown_unavailable_error();
+        let Some(host) = self.dropdown_host_mut(root_id) else {
+            return Err(unavailable);
+        };
+        let snapshot = host.snapshot()?;
+        match root_id {
+            STATUS_ACTIONS_DROPDOWN_ROOT_ID => self.status_dropdown_snapshot = Some(snapshot),
+            SYSTEM_ACTIONS_DROPDOWN_ROOT_ID => self.system_dropdown_snapshot = Some(snapshot),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn dropdown_unavailable_error(&self) -> BridgeError {
+        BridgeError::Runtime {
+            detail: self
+                .dropdown_error
+                .clone()
+                .unwrap_or_else(|| "Proto UI Dropdown host is unavailable".to_owned()),
+        }
+    }
+
+    fn dispatch_dropdown(
+        &mut self,
+        root_id: &str,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) -> std::result::Result<DropdownDispatchOutcome, BridgeError> {
+        let unavailable = self.dropdown_unavailable_error();
+        let Some(host) = self.dropdown_host_mut(root_id) else {
+            return Err(unavailable);
+        };
+        let outcome = host.dispatch(id, kind, source, detail)?;
+        self.refresh_dropdown(root_id)?;
+        Ok(outcome)
+    }
+
+    fn set_dropdown_focus_ready(
+        &mut self,
+        root_id: &str,
+        trigger_id: &str,
+        ready: bool,
+    ) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.dropdown_unavailable_error();
+        let Some(host) = self.dropdown_host_mut(root_id) else {
+            return Err(unavailable);
+        };
+        host.set_focus_ready(trigger_id, ready)
+    }
+
+    fn focus_dropdown(
+        &mut self,
+        root_id: &str,
+        trigger_id: &str,
+        source: InputSource,
+    ) -> std::result::Result<FocusOperationResult, BridgeError> {
+        let unavailable = self.dropdown_unavailable_error();
+        let Some(host) = self.dropdown_host_mut(root_id) else {
+            return Err(unavailable);
+        };
+        let result = host.focus_with_source(trigger_id, source)?;
+        self.refresh_dropdown(root_id)?;
+        Ok(result)
+    }
+
+    fn blur_dropdown(
+        &mut self,
+        root_id: &str,
+        trigger_id: &str,
+    ) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.dropdown_unavailable_error();
+        let Some(host) = self.dropdown_host_mut(root_id) else {
+            return Err(unavailable);
+        };
+        host.blur(trigger_id, InputSource::Programmatic)?;
+        self.refresh_dropdown(root_id)
+    }
+
+    fn dispatch_dropdown_key(
+        &mut self,
+        root_id: &str,
+        key: &str,
+    ) -> std::result::Result<DropdownDispatchOutcome, BridgeError> {
+        let unavailable = self.dropdown_unavailable_error();
+        let Some(host) = self.dropdown_host_mut(root_id) else {
+            return Err(unavailable);
+        };
+        let outcome = host.dispatch_key(key)?;
+        self.refresh_dropdown(root_id)?;
+        Ok(outcome)
+    }
+
     fn dispatch(
         &mut self,
         id: &str,
@@ -872,6 +1142,12 @@ const THERMAL_SENSORS_COMMAND: &[&str] = &["perf", "temp"];
 const POWER_SCHEMES_COMMAND: &[&str] = &["power", "scheme", "list"];
 const DIAGNOSTICS_COMMAND: &[&str] = &["scan", "list"];
 const MAGICBAY_COMMAND: &[&str] = &["magicbay", "detect"];
+
+fn capability_available(capabilities: &CapabilitySet, feature: Option<&str>) -> bool {
+    feature
+        .and_then(|id| capabilities.get(id))
+        .is_none_or(|capability| capability.availability != Availability::Unavailable)
+}
 
 const SECTION_NAMES: [(&str, &str); 7] = [
     ("01", "OVERVIEW"),
@@ -1056,6 +1332,291 @@ fn unavailable_button(id: &'static str, label: &'static str) -> Stateful<Div> {
         .text_color(rgb(UNAVAILABLE))
         .child(label)
 }
+fn dropdown_specs(root_id: &str) -> &'static [DropdownActionSpec] {
+    match root_id {
+        STATUS_ACTIONS_DROPDOWN_ROOT_ID => &STATUS_ACTION_SPECS,
+        SYSTEM_ACTIONS_DROPDOWN_ROOT_ID => &SYSTEM_ACTION_SPECS,
+        _ => &[],
+    }
+}
+
+fn dropdown_item_ids(root_id: &str) -> &'static [&'static str] {
+    match root_id {
+        STATUS_ACTIONS_DROPDOWN_ROOT_ID => &STATUS_ACTIONS_DROPDOWN_ITEM_IDS,
+        SYSTEM_ACTIONS_DROPDOWN_ROOT_ID => &SYSTEM_ACTIONS_DROPDOWN_ITEM_IDS,
+        _ => &[],
+    }
+}
+
+fn dropdown_content_id(root_id: &str) -> Option<&'static str> {
+    match root_id {
+        STATUS_ACTIONS_DROPDOWN_ROOT_ID => Some(STATUS_ACTIONS_DROPDOWN_CONTENT_ID),
+        SYSTEM_ACTIONS_DROPDOWN_ROOT_ID => Some(SYSTEM_ACTIONS_DROPDOWN_CONTENT_ID),
+        _ => None,
+    }
+}
+
+fn dropdown_trigger_view(
+    dashboard: &Dashboard,
+    cx: &mut Context<Dashboard>,
+    root_id: &'static str,
+    trigger_id: &'static str,
+    label: &'static str,
+) -> Stateful<Div> {
+    let Some(snapshot) = dashboard
+        .proto
+        .dropdown_snapshot(root_id)
+        .and_then(|snapshot| snapshot.trigger.as_ref())
+    else {
+        return unavailable_button(trigger_id, label);
+    };
+    let Some(focus_handle) = dashboard.dropdown_focus_handles.get(trigger_id).cloned() else {
+        return unavailable_button(trigger_id, label);
+    };
+    let disabled = snapshot.disabled;
+    let dashboard_entity = cx.entity().downgrade();
+    let mouse_focus = focus_handle.clone();
+    proto_surface::dropdown_trigger_element(
+        trigger_id,
+        label,
+        snapshot,
+        Some(&focus_handle),
+        move |_, _, cx| {
+            dashboard_entity
+                .update(cx, |this, cx| {
+                    this.handle_dropdown_trigger(root_id, trigger_id, InputSource::Accessibility);
+                    cx.notify();
+                })
+                .ok();
+        },
+    )
+    .on_hover(cx.listener(move |this, hovered, _, cx| {
+        let kind = if *hovered {
+            InputKind::PointerEnter
+        } else {
+            InputKind::PointerLeave
+        };
+        if let Err(error) =
+            this.proto
+                .dispatch_dropdown(root_id, trigger_id, kind, InputSource::Mouse, None)
+        {
+            this.snapshot.status_message = format!("Proto UI Dropdown hover failed: {error}");
+        }
+        cx.notify();
+    }))
+    .on_mouse_down(
+        gpui::MouseButton::Left,
+        cx.listener(move |this, _, window, cx| {
+            if !disabled {
+                window.focus(&mouse_focus, cx);
+            }
+            if let Err(error) = this.proto.dispatch_dropdown(
+                root_id,
+                trigger_id,
+                InputKind::PointerDown,
+                InputSource::Mouse,
+                None,
+            ) {
+                this.snapshot.status_message =
+                    format!("Proto UI Dropdown trigger press failed: {error}");
+            }
+            cx.notify();
+        }),
+    )
+    .on_mouse_up(
+        gpui::MouseButton::Left,
+        cx.listener(move |this, _, _, cx| {
+            if let Err(error) = this.proto.dispatch_dropdown(
+                root_id,
+                trigger_id,
+                InputKind::PointerUp,
+                InputSource::Mouse,
+                None,
+            ) {
+                this.snapshot.status_message =
+                    format!("Proto UI Dropdown trigger release failed: {error}");
+            }
+            cx.notify();
+        }),
+    )
+    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+        if let Err(error) = this.proto.dispatch_dropdown(
+            root_id,
+            trigger_id,
+            InputKind::Focus,
+            InputSource::Keyboard,
+            None,
+        ) {
+            this.snapshot.status_message = format!("Proto UI Dropdown focus failed: {error}");
+        }
+        if let Err(error) = this.proto.dispatch_dropdown(
+            root_id,
+            trigger_id,
+            InputKind::KeyDown,
+            InputSource::Keyboard,
+            Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
+        ) {
+            this.snapshot.status_message = format!("Proto UI Dropdown key failed: {error}");
+        }
+        cx.notify();
+    }))
+    .on_click(cx.listener(move |this, event, _, cx| {
+        let source = match event {
+            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
+            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
+            gpui::ClickEvent::Touch(_) => InputSource::Touch,
+        };
+        this.handle_dropdown_trigger(root_id, trigger_id, source);
+        cx.notify();
+    }))
+}
+
+fn dropdown_item_view(
+    dashboard: &Dashboard,
+    cx: &mut Context<Dashboard>,
+    root_id: &'static str,
+    item_id: &'static str,
+    action: DashboardAction,
+) -> Stateful<Div> {
+    let Some(item) = dashboard
+        .proto
+        .dropdown_snapshot(root_id)
+        .and_then(|snapshot| snapshot.items.iter().find(|item| item.id == item_id))
+    else {
+        return unavailable_button(item_id, item_id);
+    };
+    let dashboard_entity = cx.entity().downgrade();
+    proto_surface::dropdown_item_element(item_id, item, move |_, _, cx| {
+        dashboard_entity
+            .update(cx, |this, cx| {
+                this.handle_dropdown_item(root_id, item_id, action, InputSource::Accessibility);
+                cx.notify();
+            })
+            .ok();
+    })
+    .on_hover(cx.listener(move |this, hovered, _, cx| {
+        let kind = if *hovered {
+            InputKind::PointerEnter
+        } else {
+            InputKind::PointerLeave
+        };
+        if let Err(error) =
+            this.proto
+                .dispatch_dropdown(root_id, item_id, kind, InputSource::Mouse, None)
+        {
+            this.snapshot.status_message = format!("Proto UI Dropdown item hover failed: {error}");
+        }
+        cx.notify();
+    }))
+    .on_mouse_down(
+        gpui::MouseButton::Left,
+        cx.listener(move |this, _, _, cx| {
+            if let Err(error) = this.proto.dispatch_dropdown(
+                root_id,
+                item_id,
+                InputKind::Focus,
+                InputSource::Mouse,
+                None,
+            ) {
+                this.snapshot.status_message =
+                    format!("Proto UI Dropdown item focus failed: {error}");
+            }
+            if let Err(error) = this.proto.dispatch_dropdown(
+                root_id,
+                item_id,
+                InputKind::PointerDown,
+                InputSource::Mouse,
+                None,
+            ) {
+                this.snapshot.status_message =
+                    format!("Proto UI Dropdown item press failed: {error}");
+            }
+            cx.notify();
+        }),
+    )
+    .on_mouse_up(
+        gpui::MouseButton::Left,
+        cx.listener(move |this, _, _, cx| {
+            if let Err(error) = this.proto.dispatch_dropdown(
+                root_id,
+                item_id,
+                InputKind::PointerUp,
+                InputSource::Mouse,
+                None,
+            ) {
+                this.snapshot.status_message =
+                    format!("Proto UI Dropdown item release failed: {error}");
+            }
+            cx.notify();
+        }),
+    )
+    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+        this.handle_dropdown_key(root_id, &event.keystroke.key);
+        cx.notify();
+    }))
+    .on_click(cx.listener(move |this, event, _, cx| {
+        let source = match event {
+            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
+            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
+            gpui::ClickEvent::Touch(_) => InputSource::Touch,
+        };
+        this.handle_dropdown_item(root_id, item_id, action, source);
+        cx.notify();
+    }))
+}
+
+fn dropdown_group_view(
+    dashboard: &Dashboard,
+    cx: &mut Context<Dashboard>,
+    root_id: &'static str,
+    trigger_id: &'static str,
+    trigger_label: &'static str,
+) -> Stateful<Div> {
+    let trigger = dropdown_trigger_view(dashboard, cx, root_id, trigger_id, trigger_label);
+    let Some(content_id) = dropdown_content_id(root_id) else {
+        return trigger;
+    };
+    let Some(content) = dashboard
+        .proto
+        .dropdown_snapshot(root_id)
+        .and_then(|snapshot| snapshot.content.as_ref())
+    else {
+        return trigger;
+    };
+    let ids = dropdown_item_ids(root_id);
+    let specs = dropdown_specs(root_id);
+    let mut items = Vec::new();
+    if let Some(snapshot) = dashboard.proto.dropdown_snapshot(root_id) {
+        for (index, item) in snapshot.items.iter().enumerate() {
+            let Some(item_id) = ids.get(index).copied() else {
+                continue;
+            };
+            let Some(spec) = specs.get(index) else {
+                continue;
+            };
+            if item.id != item_id {
+                continue;
+            }
+            items.push(dropdown_item_view(
+                dashboard,
+                cx,
+                root_id,
+                item_id,
+                spec.action,
+            ));
+        }
+    }
+    let mut content_element = proto_surface::dropdown_content_element(content_id, content);
+    content_element = content_element.children(items);
+    div()
+        .id(format!("{trigger_id}-group"))
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(trigger)
+        .child(content_element)
+}
+
 fn action_bar(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoElement {
     div().flex().flex_row().flex_wrap().gap_2().children([
         action_button(
@@ -1065,47 +1626,19 @@ fn action_bar(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoEl
             "REFRESH STATUS",
             DashboardAction::Refresh,
         ),
-        action_button(
+        dropdown_group_view(
             dashboard,
             cx,
-            "daemon-status",
-            "DAEMON STATUS",
-            DashboardAction::RunCommand(DAEMON_STATUS_COMMAND),
+            STATUS_ACTIONS_DROPDOWN_ROOT_ID,
+            STATUS_ACTIONS_DROPDOWN_TRIGGER_ID,
+            "STATUS ACTIONS",
         ),
-        action_button(
+        dropdown_group_view(
             dashboard,
             cx,
-            "battery-status",
-            "BATTERY STATUS",
-            DashboardAction::RunCommand(BATTERY_STATUS_COMMAND),
-        ),
-        action_button(
-            dashboard,
-            cx,
-            "thermal-sensors",
-            "THERMAL SENSORS",
-            DashboardAction::RunCommand(THERMAL_SENSORS_COMMAND),
-        ),
-        action_button(
-            dashboard,
-            cx,
-            "power-schemes",
-            "POWER SCHEMES",
-            DashboardAction::RunCommand(POWER_SCHEMES_COMMAND),
-        ),
-        action_button(
-            dashboard,
-            cx,
-            "diagnostics",
-            "DIAGNOSTICS",
-            DashboardAction::RunCommand(DIAGNOSTICS_COMMAND),
-        ),
-        action_button(
-            dashboard,
-            cx,
-            "magicbay-detect",
-            "MAGICBAY DETECT",
-            DashboardAction::RunCommand(MAGICBAY_COMMAND),
+            SYSTEM_ACTIONS_DROPDOWN_ROOT_ID,
+            SYSTEM_ACTIONS_DROPDOWN_TRIGGER_ID,
+            "SYSTEM ACTIONS",
         ),
         toggle_action(
             dashboard,
@@ -1339,6 +1872,8 @@ pub struct Dashboard {
     textarea_blur_subscription: Option<Subscription>,
     tab_focus_handles: BTreeMap<&'static str, FocusHandle>,
     tab_focus_subscriptions: Vec<Subscription>,
+    dropdown_focus_handles: BTreeMap<&'static str, FocusHandle>,
+    dropdown_focus_subscriptions: Vec<Subscription>,
 }
 
 impl Dashboard {
@@ -1351,7 +1886,7 @@ impl Dashboard {
     }
 
     fn with_controller(snapshot: DashboardSnapshot, controller: Arc<dyn GuiController>) -> Self {
-        let proto = ProtoUiState::new();
+        let proto = ProtoUiState::new(&snapshot.capabilities);
         let snapshot = match &proto.error {
             Some(error) => DashboardSnapshot {
                 status_message: format!("Proto UI host unavailable: {error}"),
@@ -1371,6 +1906,8 @@ impl Dashboard {
             textarea_blur_subscription: None,
             tab_focus_handles: BTreeMap::new(),
             tab_focus_subscriptions: Vec::new(),
+            dropdown_focus_handles: BTreeMap::new(),
+            dropdown_focus_subscriptions: Vec::new(),
         }
     }
 
@@ -1393,12 +1930,53 @@ impl Dashboard {
                 this.handle_tab_blur(id, cx);
                 cx.notify();
             });
+
             if let Err(error) = self.proto.set_tab_focus_ready(id, true) {
                 self.snapshot.status_message = format!("Proto UI tab focus unavailable: {error}");
             }
             self.tab_focus_handles.insert(id, handle);
             self.tab_focus_subscriptions.push(focus_subscription);
             self.tab_focus_subscriptions.push(blur_subscription);
+        }
+    }
+    fn ensure_dropdown_focus_handles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for (root_id, trigger_id) in [
+            (
+                STATUS_ACTIONS_DROPDOWN_ROOT_ID,
+                STATUS_ACTIONS_DROPDOWN_TRIGGER_ID,
+            ),
+            (
+                SYSTEM_ACTIONS_DROPDOWN_ROOT_ID,
+                SYSTEM_ACTIONS_DROPDOWN_TRIGGER_ID,
+            ),
+        ] {
+            if self.dropdown_focus_handles.contains_key(trigger_id) {
+                continue;
+            }
+            let handle = cx.focus_handle();
+            let focus_subscription = cx.on_focus(&handle, window, move |this, window, cx| {
+                let source = if window.last_input_was_keyboard() {
+                    InputSource::Keyboard
+                } else {
+                    InputSource::Mouse
+                };
+                this.handle_dropdown_focus(root_id, trigger_id, source);
+                cx.notify();
+            });
+            let blur_subscription = cx.on_blur(&handle, window, move |this, _, cx| {
+                this.handle_dropdown_blur(root_id, trigger_id);
+                cx.notify();
+            });
+            if let Err(error) = self
+                .proto
+                .set_dropdown_focus_ready(root_id, trigger_id, true)
+            {
+                self.snapshot.status_message =
+                    format!("Proto UI Dropdown focus unavailable: {error}");
+            }
+            self.dropdown_focus_handles.insert(trigger_id, handle);
+            self.dropdown_focus_subscriptions.push(focus_subscription);
+            self.dropdown_focus_subscriptions.push(blur_subscription);
         }
     }
 
@@ -1529,6 +2107,64 @@ impl Dashboard {
             Ok(false) => {}
             Err(error) => {
                 self.snapshot.status_message = format!("Proto UI tab activation failed: {error}");
+            }
+        }
+    }
+
+    fn handle_dropdown_focus(&mut self, root_id: &str, trigger_id: &str, source: InputSource) {
+        match self.proto.focus_dropdown(root_id, trigger_id, source) {
+            Ok(FocusOperationResult::Accepted) => {}
+            Ok(FocusOperationResult::NotReady) => {
+                self.snapshot.status_message =
+                    format!("Proto UI Dropdown focus is not ready: {trigger_id}");
+            }
+            Ok(FocusOperationResult::Rejected) => {
+                self.snapshot.status_message =
+                    format!("Proto UI Dropdown focus was rejected: {trigger_id}");
+            }
+            Err(error) => {
+                self.snapshot.status_message = format!("Proto UI Dropdown focus failed: {error}");
+            }
+        }
+    }
+
+    fn handle_dropdown_blur(&mut self, root_id: &str, trigger_id: &str) {
+        if let Err(error) = self.proto.blur_dropdown(root_id, trigger_id) {
+            self.snapshot.status_message = format!("Proto UI Dropdown blur failed: {error}");
+        }
+    }
+
+    fn handle_dropdown_key(&mut self, root_id: &str, key: &str) {
+        if let Err(error) = self.proto.dispatch_dropdown_key(root_id, key) {
+            self.snapshot.status_message = format!("Proto UI Dropdown navigation failed: {error}");
+        }
+    }
+
+    fn handle_dropdown_trigger(&mut self, root_id: &str, trigger_id: &str, source: InputSource) {
+        if let Err(error) =
+            self.proto
+                .dispatch_dropdown(root_id, trigger_id, InputKind::PressCommit, source, None)
+        {
+            self.snapshot.status_message = format!("Proto UI Dropdown trigger failed: {error}");
+        }
+    }
+
+    fn handle_dropdown_item(
+        &mut self,
+        root_id: &str,
+        item_id: &str,
+        action: DashboardAction,
+        source: InputSource,
+    ) {
+        match self
+            .proto
+            .dispatch_dropdown(root_id, item_id, InputKind::PressCommit, source, None)
+        {
+            Ok(outcome) if outcome.item_select_count == 1 => self.apply_action(action),
+            Ok(_) => {}
+            Err(error) => {
+                self.snapshot.status_message =
+                    format!("Proto UI Dropdown item activation failed: {error}");
             }
         }
     }
@@ -1842,6 +2478,7 @@ fn section_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Stateful
 impl Render for Dashboard {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_tab_focus_handles(window, cx);
+        self.ensure_dropdown_focus_handles(window, cx);
         if self.active_section == TUNING_SECTION_INDEX {
             self.ensure_textarea_input(window, cx);
         }
@@ -2372,6 +3009,91 @@ mod tests {
         assert_eq!(outcome.item_select_count, 0);
         assert_eq!(outcome.value_change_count, 0);
         assert_eq!(controller.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn dropdown_item_activation_routes_once_and_disabled_channels_stay_disabled() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Recorder {
+            calls: AtomicUsize,
+        }
+
+        impl GuiController for Recorder {
+            fn refresh(&self) -> Result<DashboardSnapshot> {
+                Ok(DashboardSnapshot::unavailable(Platform::Linux, "refreshed"))
+            }
+
+            fn execute(&self, args: &[&str]) -> Result<String> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Ok(format!("executed {}", args.join(" ")))
+            }
+        }
+
+        let mut snapshot = DashboardSnapshot::unavailable(Platform::Linux, "initial");
+        snapshot
+            .capabilities
+            .record("battery.status", Availability::Available, None)
+            .expect("battery capability");
+        snapshot
+            .capabilities
+            .record(
+                "perf.temp",
+                Availability::Unavailable,
+                Some("temperature channel is unavailable".into()),
+            )
+            .expect("temperature capability");
+        let controller = Arc::new(Recorder {
+            calls: AtomicUsize::new(0),
+        });
+        let mut dashboard = Dashboard::with_controller(snapshot, controller.clone());
+
+        let menu = dashboard
+            .proto
+            .dropdown_snapshot(STATUS_ACTIONS_DROPDOWN_ROOT_ID)
+            .expect("status menu");
+        assert!(
+            !menu
+                .items
+                .iter()
+                .find(|item| item.id == "battery-status")
+                .expect("battery item")
+                .disabled
+        );
+        assert!(
+            menu.items
+                .iter()
+                .find(|item| item.id == "thermal-sensors")
+                .expect("thermal item")
+                .disabled
+        );
+
+        dashboard.handle_dropdown_trigger(
+            STATUS_ACTIONS_DROPDOWN_ROOT_ID,
+            STATUS_ACTIONS_DROPDOWN_TRIGGER_ID,
+            InputSource::Accessibility,
+        );
+        dashboard.handle_dropdown_item(
+            STATUS_ACTIONS_DROPDOWN_ROOT_ID,
+            "battery-status",
+            DashboardAction::RunCommand(BATTERY_STATUS_COMMAND),
+            InputSource::Accessibility,
+        );
+        assert_eq!(controller.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(dashboard.snapshot.status_message, "executed battery status");
+
+        dashboard.handle_dropdown_trigger(
+            STATUS_ACTIONS_DROPDOWN_ROOT_ID,
+            STATUS_ACTIONS_DROPDOWN_TRIGGER_ID,
+            InputSource::Accessibility,
+        );
+        dashboard.handle_dropdown_item(
+            STATUS_ACTIONS_DROPDOWN_ROOT_ID,
+            "thermal-sensors",
+            DashboardAction::RunCommand(THERMAL_SENSORS_COMMAND),
+            InputSource::Accessibility,
+        );
+        assert_eq!(controller.calls.load(Ordering::SeqCst), 1);
     }
     #[test]
     fn dashboard_navigation_is_derived_from_proto_tabs_selection() {

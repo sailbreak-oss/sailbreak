@@ -1,5 +1,6 @@
 mod adapter;
 mod checkbox;
+mod dropdown;
 mod select;
 mod separator;
 mod switch;
@@ -20,6 +21,13 @@ pub use separator::{
 pub use switch::{
     ProtoSwitchHost, ProtoSwitchSnapshot, SwitchDispatchOutcome, SwitchProps, SwitchRootSnapshot,
     SwitchThumbSnapshot,
+};
+
+pub use dropdown::{
+    DropdownContentProps, DropdownContentSnapshot, DropdownDispatchOutcome, DropdownItemProps,
+    DropdownItemSnapshot, DropdownItemVariant, DropdownOpenEntry, DropdownRootProps,
+    DropdownRootSnapshot, DropdownSnapshot, DropdownTriggerIndicatorIcon, DropdownTriggerProps,
+    DropdownTriggerSnapshot, ProtoDropdownHost, ProtoDropdownSnapshot,
 };
 
 pub use select::{
