@@ -13259,6 +13259,333 @@
     }
   });
   var toggle_proto_default = toggle2;
+  // ../packages/prototypes/base/src/checkbox/shared.ts
+  var CHECKBOX_FAMILY = createAnatomyFamily("base-checkbox", {
+    roles: {
+      root: { cardinality: { min: 1, max: 1 } },
+      indicator: { cardinality: { min: 0, max: "*" } }
+    },
+    relations: [{ kind: "contains", parent: "root", child: "indicator" }]
+  });
+  var CHECKBOX_CONTEXT = createContextKey("base-checkbox");
+
+  // ../packages/prototypes/base/src/checkbox/root.proto.ts
+  function isEnterKeyboardCommit(ev) {
+    return ev?.key === "Enter";
+  }
+  function setupCheckboxRoot(def2) {
+    def2.anatomy.claim(CHECKBOX_FAMILY, { role: "root" });
+    asTrigger();
+    def2.props.define({
+      checked: { type: "boolean", empty: "fallback" },
+      defaultChecked: { type: "boolean", empty: "fallback" },
+      disabled: { type: "boolean", empty: "fallback" },
+      indeterminate: { type: "boolean", empty: "fallback" },
+      defaultIndeterminate: { type: "boolean", empty: "fallback" }
+    });
+    def2.props.setDefaults({
+      defaultChecked: false,
+      disabled: false,
+      defaultIndeterminate: false
+    });
+    const checked = def2.state.bool("checked", false);
+    const disabled = def2.state.bool("disabled", false);
+    const hovered = def2.state.bool("hovered", false);
+    const pressed = def2.state.bool("pressed", false);
+    const indeterminate = def2.state.bool("indeterminate", false);
+    const checkedA11y = def2.state.string("checkedA11y", "false", {
+      options: ["true", "false", "mixed"]
+    });
+    const focusable = asFocusable();
+    focusable.configure({ disabled: false });
+    const focused = focusable.focused;
+    const focusVisible = focusable.focusVisible;
+    def2.expose.state("checked", checked);
+    def2.expose.state("indeterminate", indeterminate);
+    def2.expose.state("disabled", disabled);
+    def2.expose.state("hovered", hovered);
+    def2.expose.state("focused", focused);
+    def2.expose.state("focusVisible", focusVisible);
+    def2.expose.state("pressed", pressed);
+    def2.expose.method("focusSelf", (options) => {
+      if (disabled.get())
+        return;
+      focusable.focusSelf(options);
+    });
+    def2.expose.event("checkedChange", { payload: "json" });
+    def2.expose.event("indeterminateChange", { payload: "json" });
+    def2.a11y.role("checkbox");
+    def2.a11y.nameFromContent();
+    def2.a11y.state("checked", checkedA11y);
+    def2.a11y.state("disabled", disabled);
+    def2.a11y.action("activate", { event: "checkedChange" });
+    let controlledChecked = false;
+    let controlledIndeterminate = false;
+    def2.context.provide(CHECKBOX_CONTEXT, {
+      checked: false,
+      indeterminate: false,
+      disabled: false
+    });
+    const publishContext = (run2) => {
+      checkedA11y.set(indeterminate.get() ? "mixed" : checked.get() ? "true" : "false", "reason: checkbox root sync a11y checked");
+      run2.context.update(CHECKBOX_CONTEXT, {
+        checked: !!checked.get(),
+        indeterminate: !!indeterminate.get(),
+        disabled: !!disabled.get()
+      });
+    };
+    const emitCheckedChange = (run2, detail) => {
+      run2.expose.emit("checkedChange", detail);
+    };
+    const clearTransientInteraction = (reason) => {
+      hovered.set(false, reason);
+      pressed.set(false, reason);
+    };
+    const syncDisabled = (run2, nextDisabled) => {
+      disabled.set(nextDisabled, "reason: checkbox root sync disabled");
+      focusable.setDisabled(nextDisabled);
+      if (nextDisabled) {
+        clearTransientInteraction("reason: checkbox root disabled => reset transient interaction");
+      }
+      publishContext(run2);
+    };
+    def2.lifecycle.onCreated((run2) => {
+      controlledChecked = run2.props.isProvided("checked");
+      controlledIndeterminate = run2.props.isProvided("indeterminate");
+      checked.set(controlledChecked ? !!run2.props.get().checked : !!run2.props.get().defaultChecked, "reason: checkbox root initialize checked");
+      indeterminate.set(controlledIndeterminate ? !!run2.props.get().indeterminate : !!run2.props.get().defaultIndeterminate, "reason: checkbox root initialize indeterminate");
+      syncDisabled(run2, !!run2.props.get().disabled);
+    });
+    def2.lifecycle.onMounted((run2) => {
+      publishContext(run2);
+    });
+    def2.props.watch(["checked"], (run2, next) => {
+      controlledChecked = run2.props.isProvided("checked");
+      if (!controlledChecked)
+        return;
+      checked.set(!!next.checked, "reason: checkbox root controlled checked sync");
+      publishContext(run2);
+    });
+    def2.props.watch(["indeterminate"], (run2, next) => {
+      controlledIndeterminate = run2.props.isProvided("indeterminate");
+      if (controlledIndeterminate) {
+        indeterminate.set(!!next.indeterminate, "reason: checkbox root controlled indeterminate sync");
+      }
+      publishContext(run2);
+    });
+    def2.props.watch(["disabled"], (run2, next) => {
+      syncDisabled(run2, !!next.disabled);
+    });
+    def2.event.onGlobal("key.down", (_run, ev) => {
+      const detail = ev;
+      if (disabled.get())
+        return;
+      if (!focused.get())
+        return;
+      if (detail?.key !== " ")
+        return;
+      ev.control.requestDefaultActionPrevention({
+        reason: "checkbox.space-activation",
+        source: "base-checkbox"
+      });
+    });
+    def2.event.on("pointer.enter", () => {
+      if (disabled.get())
+        return;
+      hovered.set(true, "reason: checkbox root pointer.enter => hovered");
+    });
+    def2.event.on("pointer.leave", () => {
+      hovered.set(false, "reason: checkbox root pointer.leave => hovered");
+      pressed.set(false, "reason: checkbox root pointer.leave => pressed");
+    });
+    def2.event.on("pointer.cancel", () => {
+      hovered.set(false, "reason: checkbox root pointer.cancel => hovered");
+      pressed.set(false, "reason: checkbox root pointer.cancel => pressed");
+    });
+    def2.event.on("pointer.down", () => {
+      if (disabled.get())
+        return;
+      pressed.set(true, "reason: checkbox root pointer.down => pressed");
+    });
+    def2.event.on("pointer.up", () => {
+      pressed.set(false, "reason: checkbox root pointer.up => pressed");
+    });
+    def2.event.on("press.commit", (run2, ev) => {
+      pressed.set(false, "reason: checkbox root press.commit => pressed");
+      if (disabled.get())
+        return;
+      if (isEnterKeyboardCommit(ev))
+        return;
+      const wasIndeterminate = indeterminate.get();
+      if (wasIndeterminate) {
+        if (!controlledIndeterminate) {
+          indeterminate.set(false, "reason: press.commit => clear indeterminate");
+        }
+        run2.expose.emit("indeterminateChange", { indeterminate: false });
+      }
+      const nextChecked = !checked.get();
+      const nextIndeterminate = wasIndeterminate ? false : indeterminate.get();
+      if (controlledChecked) {
+        emitCheckedChange(run2, { checked: nextChecked, indeterminate: nextIndeterminate });
+        publishContext(run2);
+        return;
+      }
+      checked.set(nextChecked, "reason: press.commit => toggle checked");
+      emitCheckedChange(run2, { checked: nextChecked, indeterminate: nextIndeterminate });
+      publishContext(run2);
+    });
+  }
+  var asCheckboxRoot = defineAsHook({
+    name: "as-checkbox-root",
+    setup: setupCheckboxRoot
+  });
+  var checkboxRoot = definePrototype({
+    name: "base-checkbox-root",
+    setup: setupCheckboxRoot
+  });
+  // ../packages/prototypes/base/src/checkbox/indicator.proto.ts
+  function setupCheckboxIndicator(def2) {
+    def2.anatomy.claim(CHECKBOX_FAMILY, { role: "indicator" });
+    const checked = def2.state.bool("checked", false);
+    const indeterminate = def2.state.bool("indeterminate", false);
+    const disabled = def2.state.bool("disabled", false);
+    const syncContext = (next) => {
+      checked.set(!!next.checked, "reason: checkbox indicator context checked sync");
+      indeterminate.set(!!next.indeterminate, "reason: checkbox indicator context indeterminate sync");
+      disabled.set(!!next.disabled, "reason: checkbox indicator context disabled sync");
+    };
+    def2.expose.state("checked", checked);
+    def2.expose.state("indeterminate", indeterminate);
+    def2.expose.method("isChecked", () => {
+      return checked.get();
+    });
+    def2.expose.method("isIndeterminate", () => {
+      return indeterminate.get();
+    });
+    def2.context.subscribe(CHECKBOX_CONTEXT, (_run, next) => {
+      syncContext(next);
+    });
+    def2.lifecycle.onMounted((run2) => {
+      syncContext(run2.context.read(CHECKBOX_CONTEXT));
+    });
+    def2.lifecycle.onUpdated((run2) => {
+      syncContext(run2.context.read(CHECKBOX_CONTEXT));
+    });
+  }
+  var asCheckboxIndicator = defineAsHook({
+    name: "as-checkbox-indicator",
+    setup: setupCheckboxIndicator
+  });
+  var checkboxIndicator = definePrototype({
+    name: "base-checkbox-indicator",
+    setup: setupCheckboxIndicator
+  });
+  // ../packages/prototypes/shadcn/src/checkbox/indicator.proto.ts
+  var INDICATOR_TOKENS = [
+    "flex",
+    "size-3.5",
+    "items-center",
+    "justify-center",
+    "transition-none"
+  ].join(" ");
+  function glyphPath(checked, indeterminate) {
+    if (indeterminate)
+      return "M5 12h14";
+    if (checked)
+      return "m20 6-11 11-5-5";
+    return null;
+  }
+  function renderGlyph(renderer, d) {
+    if (!d)
+      return null;
+    return renderer.svg.root({
+      viewBox: "0 0 24 24",
+      "aria-hidden": "true",
+      width: "100%",
+      height: "100%",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: 2,
+      strokeLinecap: "round",
+      strokeLinejoin: "round"
+    }, renderer.svg.path({ d }));
+  }
+  var checkboxIndicator2 = definePrototype({
+    name: "shadcn-checkbox-indicator",
+    setup(def2) {
+      const indicatorState = asCheckboxIndicator().stateHandles;
+      if (!indicatorState) {
+        throw new Error("[shadcn-checkbox-indicator] asCheckboxIndicator must project Checkbox indicator state handles.");
+      }
+      const { checked, indeterminate } = indicatorState;
+      def2.feedback.style.use(tw(INDICATOR_TOKENS));
+      let renderTask = null;
+      const requestGlyphUpdate = (run2, event2) => {
+        if (event2.type !== "next")
+          return;
+        renderTask?.cancel();
+        renderTask = delay(0, () => {
+          renderTask = null;
+          run2.update();
+        });
+      };
+      checked.watch(requestGlyphUpdate);
+      indeterminate.watch(requestGlyphUpdate);
+      def2.lifecycle.onUnmounted(() => {
+        renderTask?.cancel();
+        renderTask = null;
+      });
+      return (renderer) => [
+        renderer.r.slot(),
+        renderGlyph(renderer, glyphPath(checked.get(), indeterminate.get()))
+      ];
+    }
+  });
+  var indicator_proto_default2 = checkboxIndicator2;
+
+  // ../packages/prototypes/shadcn/src/checkbox/root.proto.ts
+  var ROOT_BASE_TOKENS = [
+    "size-4",
+    "shrink-0",
+    "rounded-[4px]",
+    "border",
+    "border-input",
+    "bg-transparent",
+    "shadow-xs",
+    "outline-none"
+  ].join(" ");
+  var checkboxRoot2 = definePrototype({
+    name: "shadcn-checkbox-root",
+    setup(def2) {
+      const checkboxState = asCheckboxRoot().stateHandles;
+      if (!checkboxState) {
+        throw new Error("[shadcn-checkbox-root] asCheckboxRoot must project Checkbox root state handles.");
+      }
+      const { checked, indeterminate, disabled, focusVisible } = checkboxState;
+      def2.feedback.style.use(tw(ROOT_BASE_TOKENS));
+      def2.rule({
+        when: (w) => w.state(checked).eq(true),
+        intent: (i) => i.feedback.style.use(tw("bg-primary text-primary-foreground border-primary"))
+      });
+      def2.rule({
+        when: (w) => w.state(indeterminate).eq(true),
+        intent: (i) => i.feedback.style.use(tw("bg-primary text-primary-foreground border-primary"))
+      });
+      def2.rule({
+        when: (w) => w.state(focusVisible).eq(true),
+        intent: (i) => i.feedback.style.use(tw("border-ring ring-ring/50 ring-3"))
+      });
+      def2.rule({
+        when: (w) => w.state(disabled).eq(true),
+        intent: (i) => i.feedback.style.use(tw("cursor-not-allowed opacity-50"))
+      });
+      def2.rule({
+        when: (w) => w.all(w.meta("colorScheme").eq("dark"), w.state(checked).eq(false), w.state(indeterminate).eq(false)),
+        intent: (i) => i.feedback.style.use(tw("bg-input/30"))
+      });
+    }
+  });
+  var root_proto_default2 = checkboxRoot2;
   // ../packages/prototypes/base/src/switch/shared.ts
   var SWITCH_FAMILY = createAnatomyFamily("base-switch", {
     roles: {
@@ -13435,7 +13762,7 @@
     setup: setupSwitchThumb
   });
   // ../packages/prototypes/shadcn/src/switch/root.proto.ts
-  var ROOT_BASE_TOKENS = [
+  var ROOT_BASE_TOKENS2 = [
     "peer",
     "inline-flex",
     "h-6",
@@ -13462,7 +13789,7 @@
         throw new Error("[shadcn-switch-root] asSwitchRoot must project Switch root state handles.");
       }
       const { checked, disabled, hovered, focusVisible, pressed } = switchState;
-      def2.feedback.style.use(tw(ROOT_BASE_TOKENS));
+      def2.feedback.style.use(tw(ROOT_BASE_TOKENS2));
       def2.rule({
         when: (w) => w.state(checked).eq(true),
         intent: (i) => i.feedback.style.use(tw("bg-primary text-primary-foreground"))
@@ -13497,7 +13824,7 @@
       });
     }
   });
-  var root_proto_default2 = switchRoot2;
+  var root_proto_default4 = switchRoot2;
 
   // ../packages/prototypes/shadcn/src/switch/thumb.proto.ts
   var THUMB_TOKENS = [
@@ -14101,7 +14428,7 @@
       def2.feedback.style.use(tw("flex flex-col gap-2"));
     }
   });
-  var root_proto_default4 = tabsRoot2;
+  var root_proto_default6 = tabsRoot2;
 
   // ../packages/prototypes/shadcn/src/tabs/trigger.proto.ts
   var BASE_TOKENS = [
@@ -14975,7 +15302,7 @@
       def2.feedback.style.use(tw("relative inline-flex items-start"));
     }
   });
-  var root_proto_default6 = hoverCardRoot2;
+  var root_proto_default8 = hoverCardRoot2;
 
   // ../packages/prototypes/shadcn/src/hover-card/trigger.proto.ts
   var TRIGGER_BASE_TOKENS = "inline-flex cursor-pointer items-center text-sm font-medium underline-offset-4 outline-none";
@@ -15812,7 +16139,7 @@
       asDropdownRoot();
     }
   });
-  var root_proto_default8 = dropdownRoot2;
+  var root_proto_default10 = dropdownRoot2;
 
   // ../packages/prototypes/shadcn/src/dropdown/trigger.proto.ts
   var TRIGGER_BASE_TOKENS2 = [
@@ -16766,7 +17093,7 @@
       asSelectRoot();
     }
   });
-  var root_proto_default10 = selectRoot2;
+  var root_proto_default12 = selectRoot2;
 
   // ../packages/prototypes/shadcn/src/select/trigger.proto.ts
   function renderChevron(renderer) {
@@ -17695,7 +18022,7 @@
       def2.feedback.style.use(tw("relative inline-flex items-start"));
     }
   });
-  var root_proto_default12 = dialogRoot2;
+  var root_proto_default14 = dialogRoot2;
 
   // ../packages/prototypes/shadcn/src/dialog/title.proto.ts
   var dialogTitle2 = definePrototype({
@@ -17771,25 +18098,27 @@
   var registry = {
     "shadcn-button": button_proto_default,
     "shadcn-toggle": toggle_proto_default,
-    "shadcn-switch-root": root_proto_default2,
+    "shadcn-checkbox-root": root_proto_default2,
+    "shadcn-checkbox-indicator": indicator_proto_default2,
+    "shadcn-switch-root": root_proto_default4,
     "shadcn-switch-thumb": thumb_proto_default2,
-    "shadcn-tabs-root": root_proto_default4,
+    "shadcn-tabs-root": root_proto_default6,
     "shadcn-tabs-list": list_proto_default2,
     "shadcn-tabs-trigger": trigger_proto_default2,
     "shadcn-tabs-content": content_proto_default2,
-    "shadcn-hover-card-root": root_proto_default6,
+    "shadcn-hover-card-root": root_proto_default8,
     "shadcn-hover-card-trigger": trigger_proto_default4,
     "shadcn-hover-card-content": content_proto_default4,
-    "shadcn-dropdown-root": root_proto_default8,
+    "shadcn-dropdown-root": root_proto_default10,
     "shadcn-dropdown-trigger": trigger_proto_default6,
     "shadcn-dropdown-content": content_proto_default6,
     "shadcn-dropdown-item": item_proto_default2,
-    "shadcn-select-root": root_proto_default10,
+    "shadcn-select-root": root_proto_default12,
     "shadcn-select-trigger": trigger_proto_default8,
     "shadcn-select-value": value_proto_default2,
     "shadcn-select-content": content_proto_default8,
     "shadcn-select-item": item_proto_default4,
-    "shadcn-dialog-root": root_proto_default12,
+    "shadcn-dialog-root": root_proto_default14,
     "shadcn-dialog-trigger": trigger_proto_default10,
     "shadcn-dialog-mask": overlay_proto_default2,
     "shadcn-dialog-content": content_proto_default10,
@@ -17997,6 +18326,30 @@
   function cancelDelayTasks(record) {
     for (const task of [...record.delay_tasks])
       task.cancel();
+  }
+  function scheduleTask(record, task) {
+    if (record.scheduled_tasks.length >= 256) {
+      bridgeFailed = true;
+      throw new Error(`scheduled task overflow for session ${record.session_id}`);
+    }
+    record.scheduled_tasks.push(task);
+  }
+  function flushScheduledTasks() {
+    let executed = 0;
+    while (true) {
+      const record = [...sessions.values()].find((candidate) => candidate.scheduled_tasks.length > 0);
+      if (!record)
+        return;
+      const task = record.scheduled_tasks.shift();
+      if (!task)
+        continue;
+      executed += 1;
+      if (executed > 1024) {
+        bridgeFailed = true;
+        throw new Error("scheduled task flush overflow");
+      }
+      task();
+    }
   }
   function advanceTime(record, milliseconds) {
     if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) {
@@ -18289,14 +18642,15 @@
       state_unsubs: [],
       disposed: false,
       virtual_time: 0,
-      delay_tasks: new Set
+      delay_tasks: new Set,
+      scheduled_tasks: []
     };
   }
   function runtimeHost(record) {
     return {
       prototypeName: record.prototype,
       getRawProps: () => record.props,
-      schedule: (task) => task(),
+      schedule: (task) => scheduleTask(record, task),
       scheduleDelay: (durationMs, task) => {
         if (!Number.isFinite(durationMs) || durationMs < 0) {
           emitDiagnostic(record, "delayed-task-dropped", "delay must be a finite non-negative number", false);
@@ -18305,9 +18659,15 @@
           } };
         }
         if (durationMs === 0) {
-          task();
+          let active2 = true;
+          scheduleTask(record, () => {
+            if (!active2)
+              return;
+            active2 = false;
+            task();
+          });
           return { cancel: () => {
-            return;
+            active2 = false;
           } };
         }
         if (record.delay_tasks.size >= 64 || record.virtual_time > Number.MAX_SAFE_INTEGER - durationMs) {
@@ -18507,6 +18867,7 @@
     const record = sessionFor(command);
     record.disposed = true;
     cancelDelayTasks(record);
+    record.scheduled_tasks.splice(0);
     for (const unsubscribe of record.state_unsubs.splice(0))
       unsubscribe();
     record.session?.dispose().catch((error5) => {
@@ -18559,6 +18920,7 @@
       default:
         throw new Error(`unknown bridge command: ${String(command.type)}`);
     }
+    flushScheduledTasks();
     const events = [...directEvents];
     for (const record of sessions.values()) {
       if (record.events.length === 0)

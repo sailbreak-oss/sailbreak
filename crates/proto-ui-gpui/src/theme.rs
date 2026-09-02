@@ -180,6 +180,7 @@ fn apply_token(style: &mut ButtonStyle, token: &str, theme: ShadcnTheme) -> bool
         | "min-w-8"
         | "min-w-9"
         | "inline-flex"
+        | "flex"
         | "shrink-0"
         | "items-center"
         | "justify-center"
@@ -188,12 +189,14 @@ fn apply_token(style: &mut ButtonStyle, token: &str, theme: ShadcnTheme) -> bool
         | "text-sm"
         | "font-medium"
         | "whitespace-nowrap"
+        | "transition-none"
         | "transition-all"
         | "transition-colors"
         | "outline-none"
         | "select-none"
         | "relative"
         | "cursor-default"
+        | "cursor-not-allowed"
         | "w-full"
         | "z-50"
         | "overflow-x-hidden"
@@ -208,8 +211,16 @@ fn apply_token(style: &mut ButtonStyle, token: &str, theme: ShadcnTheme) -> bool
             }
             true
         }
-        "rounded-sm" | "rounded-lg" | "rounded-md" | "rounded-[min(var(--radius-md),12px)]" => {
-            style.radius = if token == "rounded-sm" { 4.0 } else { 8.0 };
+        "rounded-sm"
+        | "rounded-lg"
+        | "rounded-md"
+        | "rounded-[min(var(--radius-md),12px)]"
+        | "rounded-[4px]" => {
+            style.radius = if token == "rounded-sm" || token == "rounded-[4px]" {
+                4.0
+            } else {
+                8.0
+            };
             true
         }
         "h-7" => {
@@ -219,6 +230,18 @@ fn apply_token(style: &mut ButtonStyle, token: &str, theme: ShadcnTheme) -> bool
         }
         "h-8" => {
             style.height = 32.0;
+            true
+        }
+        "size-3.5" => {
+            style.height = 14.0;
+            style.padding_x = 0.0;
+            style.gap = 0.0;
+            true
+        }
+        "size-4" => {
+            style.height = 16.0;
+            style.padding_x = 0.0;
+            style.gap = 0.0;
             true
         }
         "size-8" => {
@@ -276,6 +299,7 @@ fn apply_token(style: &mut ButtonStyle, token: &str, theme: ShadcnTheme) -> bool
         "bg-background" => set_color(&mut style.background, theme, "background", 1.0),
         "border-border" => set_color(&mut style.border, theme, "border", 1.0),
         "border-input" => set_color(&mut style.border, theme, "input", 1.0),
+        "border-primary" => set_color(&mut style.border, theme, "primary", 1.0),
         "border-ring" => set_color(&mut style.border, theme, "ring", 1.0),
         "border-destructive/40" => set_color(&mut style.border, theme, "destructive", 0.4),
         "bg-primary" => set_color(&mut style.background, theme, "primary", 1.0),

@@ -584,6 +584,8 @@ pub struct DispatchOutcome {
 pub enum PrototypeKey {
     ShadcnButton,
     ShadcnToggle,
+    ShadcnCheckboxRoot,
+    ShadcnCheckboxIndicator,
     ShadcnSwitchRoot,
     ShadcnSwitchThumb,
     ShadcnTabsRoot,
@@ -620,6 +622,8 @@ impl PrototypeKey {
         match self {
             Self::ShadcnButton => "shadcn-button",
             Self::ShadcnToggle => "shadcn-toggle",
+            Self::ShadcnCheckboxRoot => "shadcn-checkbox-root",
+            Self::ShadcnCheckboxIndicator => "shadcn-checkbox-indicator",
             Self::ShadcnSwitchRoot => "shadcn-switch-root",
             Self::ShadcnSwitchThumb => "shadcn-switch-thumb",
             Self::ShadcnTabsRoot => "shadcn-tabs-root",
@@ -655,6 +659,8 @@ impl PrototypeKey {
         match value {
             "shadcn-button" => Ok(Self::ShadcnButton),
             "shadcn-toggle" => Ok(Self::ShadcnToggle),
+            "shadcn-checkbox-root" => Ok(Self::ShadcnCheckboxRoot),
+            "shadcn-checkbox-indicator" => Ok(Self::ShadcnCheckboxIndicator),
             "shadcn-switch-root" => Ok(Self::ShadcnSwitchRoot),
             "shadcn-switch-thumb" => Ok(Self::ShadcnSwitchThumb),
             "shadcn-tabs-root" => Ok(Self::ShadcnTabsRoot),
@@ -694,6 +700,8 @@ impl PrototypeKey {
         &[
             Self::ShadcnButton,
             Self::ShadcnToggle,
+            Self::ShadcnCheckboxRoot,
+            Self::ShadcnCheckboxIndicator,
             Self::ShadcnSwitchRoot,
             Self::ShadcnSwitchThumb,
             Self::ShadcnTabsRoot,

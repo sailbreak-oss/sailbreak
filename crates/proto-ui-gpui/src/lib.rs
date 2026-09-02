@@ -11,10 +11,11 @@ mod theme;
 
 pub use button_host::{ProtoButtonHost, ProtoButtonState, ShadcnButtonSize, ShadcnButtonVariant};
 pub use components::{
-    AdapterDispatchOutcome, AdapterSnapshot, ProtoAdapter, ProtoSwitchHost, ProtoSwitchSnapshot,
-    ProtoToggleHost, ProtoToggleSnapshot, PrototypeProfile, SwitchDispatchOutcome, SwitchProps,
-    SwitchRootSnapshot, SwitchThumbSnapshot, ToggleDispatchOutcome, ToggleProps, ToggleSize,
-    ToggleVariant,
+    AdapterDispatchOutcome, AdapterSnapshot, CheckboxDispatchOutcome, CheckboxIndicatorSnapshot,
+    CheckboxProps, CheckboxRootSnapshot, ProtoAdapter, ProtoCheckboxHost, ProtoCheckboxSnapshot,
+    ProtoSwitchHost, ProtoSwitchSnapshot, ProtoToggleHost, ProtoToggleSnapshot, PrototypeProfile,
+    SwitchDispatchOutcome, SwitchProps, SwitchRootSnapshot, SwitchThumbSnapshot,
+    ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
 };
 pub use protocol::*;
 pub use quickjs::QuickJsBridge;

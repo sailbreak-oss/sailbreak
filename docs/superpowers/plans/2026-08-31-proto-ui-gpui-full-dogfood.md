@@ -483,6 +483,9 @@ cargo test --offline -p proto-ui-gpui --test checkbox_contract
 
 The Rust host renders the Indicator projection from the received Template/SVG snapshot; it does not draw its own check mark or toggle the state locally.
 
+- [x] **Ruling:** Checkbox is a Root/Indicator profile on `ProtoAdapter`; no Checkbox-specific Adapter runtime is permitted.
+- [x] **Deferred GUI migration:** capability matrix rows expose availability, not a typed checked/indeterminate value or write service. Rendering a mutable Checkbox there would invent state, so migration waits for typed readback in final composition.
+
 - [ ] **Step 4: Run GREEN and commit**
 
 ```bash

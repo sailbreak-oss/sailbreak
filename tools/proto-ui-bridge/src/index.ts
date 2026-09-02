@@ -221,6 +221,7 @@ type SessionRecord = {
   disposed: boolean;
   virtual_time: number;
   delay_tasks: Set<DelayTask>;
+  scheduled_tasks: Array<() => void>;
 };
 
 type Registry = Record<string, Prototype>;
@@ -228,6 +229,8 @@ type Registry = Record<string, Prototype>;
 const registry: Registry = {
   'shadcn-button': shadcn.shadcnButton,
   'shadcn-toggle': shadcn.shadcnToggle,
+  'shadcn-checkbox-root': shadcn.shadcnCheckboxRoot,
+  'shadcn-checkbox-indicator': shadcn.shadcnCheckboxIndicator,
   'shadcn-switch-root': shadcn.shadcnSwitchRoot,
   'shadcn-switch-thumb': shadcn.shadcnSwitchThumb,
   'shadcn-tabs-root': shadcn.shadcnTabsRoot,
@@ -455,6 +458,30 @@ function emitDiagnostic(record: SessionRecord, code: string, detail: string, fat
 
 function cancelDelayTasks(record: SessionRecord): void {
   for (const task of [...record.delay_tasks]) task.cancel();
+}
+
+function scheduleTask(record: SessionRecord, task: () => void): void {
+  if (record.scheduled_tasks.length >= 256) {
+    bridgeFailed = true;
+    throw new Error(`scheduled task overflow for session ${record.session_id}`);
+  }
+  record.scheduled_tasks.push(task);
+}
+
+function flushScheduledTasks(): void {
+  let executed = 0;
+  while (true) {
+    const record = [...sessions.values()].find((candidate) => candidate.scheduled_tasks.length > 0);
+    if (!record) return;
+    const task = record.scheduled_tasks.shift();
+    if (!task) continue;
+    executed += 1;
+    if (executed > 1024) {
+      bridgeFailed = true;
+      throw new Error('scheduled task flush overflow');
+    }
+    task();
+  }
 }
 
 function advanceTime(record: SessionRecord, milliseconds: number): void {
@@ -751,6 +778,7 @@ function createRecord(
     disposed: false,
     virtual_time: 0,
     delay_tasks: new Set<DelayTask>(),
+    scheduled_tasks: [],
   };
 }
 
@@ -758,15 +786,20 @@ function runtimeHost(record: SessionRecord) {
   return {
     prototypeName: record.prototype,
     getRawProps: () => record.props,
-    schedule: (task: () => void) => task(),
+    schedule: (task: () => void) => scheduleTask(record, task),
     scheduleDelay: (durationMs: number, task: () => void) => {
       if (!Number.isFinite(durationMs) || durationMs < 0) {
         emitDiagnostic(record, 'delayed-task-dropped', 'delay must be a finite non-negative number', false);
         return { cancel: () => undefined };
       }
       if (durationMs === 0) {
-        task();
-        return { cancel: () => undefined };
+        let active = true;
+        scheduleTask(record, () => {
+          if (!active) return;
+          active = false;
+          task();
+        });
+        return { cancel: () => { active = false; } };
       }
       if (
         record.delay_tasks.size >= 64 ||
@@ -976,6 +1009,7 @@ function dispose(command: Record<string, unknown>): void {
   const record = sessionFor(command);
   record.disposed = true;
   cancelDelayTasks(record);
+  record.scheduled_tasks.splice(0);
   for (const unsubscribe of record.state_unsubs.splice(0)) unsubscribe();
   void record.session?.dispose().catch((error: unknown) => {
     emitDiagnostic(record, 'runtime-dispose-failed', String(error), true);
@@ -1028,6 +1062,7 @@ function dispatch(serialized: string): string {
     default:
       throw new Error(`unknown bridge command: ${String(command.type)}`);
   }
+  flushScheduledTasks();
   const events: WireEvent[] = [...directEvents];
   for (const record of sessions.values()) {
     if (record.events.length === 0) continue;
