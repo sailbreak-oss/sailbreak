@@ -834,6 +834,17 @@ impl OverlayLease {
             .ok_or(BridgeError::StaleOverlayLease { lease_id: self.id })?;
         core.borrow_mut().close(self.id, self.revision, reason)
     }
+    pub fn close_with_revision(
+        &self,
+        revision: ConnectionRevision,
+        reason: CloseReason,
+    ) -> Result<()> {
+        let core = self
+            .core
+            .upgrade()
+            .ok_or(BridgeError::StaleOverlayLease { lease_id: self.id })?;
+        core.borrow_mut().close(self.id, revision, reason)
+    }
 
     pub fn dispose(&self) {
         if let Some(core) = self.core.upgrade() {

@@ -10,7 +10,9 @@ use gpui::{
     px, relative, rgb, rgba, size,
 };
 use proto_ui_gpui::{
-    A11ySnapshot, ButtonStyle, ColorValue, DropdownContentSnapshot, DropdownItemSnapshot,
+    A11ySnapshot, ButtonStyle, ColorValue, DialogCloseSnapshot, DialogContentSnapshot,
+    DialogDescriptionSnapshot, DialogFooterSnapshot, DialogHeaderSnapshot, DialogMaskSnapshot,
+    DialogTitleSnapshot, DialogTriggerSnapshot, DropdownContentSnapshot, DropdownItemSnapshot,
     DropdownTriggerSnapshot, PlacementSnapshot, ProtoButtonState, ProtoSeparatorSnapshot,
     ProtoTextareaSnapshot, ProtoToggleSnapshot, SelectContentSnapshot, SelectItemSnapshot,
     SelectTriggerSnapshot, SelectValueSnapshot, SeparatorOrientation, TabsContentSnapshot,
@@ -188,6 +190,141 @@ pub fn dropdown_item_element(
         None,
         on_a11y_click,
     )
+}
+/// Project a Dialog Trigger through the caller-owned native focus handle.
+pub fn dialog_trigger_element(
+    id: &'static str,
+    label: &'static str,
+    state: &DialogTriggerSnapshot,
+    focus_handle: Option<&FocusHandle>,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    action_element(
+        id,
+        label,
+        &state.resolved_style,
+        state.a11y.as_ref(),
+        focus_handle,
+        on_a11y_click,
+    )
+}
+
+/// Project the modal mask into the native GPUI overlay layer. The mask keeps
+/// its geometry host-owned and is intentionally independent of dialog content
+/// placement; Proto only supplies its resolved style and presence state.
+pub fn dialog_mask_element(id: &'static str, state: &DialogMaskSnapshot) -> Stateful<Div> {
+    let mut element = div()
+        .id(id)
+        .debug_selector(move || id.to_owned())
+        .absolute()
+        .left(px(0.))
+        .top(px(0.))
+        .w_full()
+        .h_full()
+        .bg(rgba(0x00000080));
+    if let Some(a11y) = state.a11y.as_ref() {
+        element = apply_a11y(element, a11y, |_, _, _| {});
+    }
+    if !state.present {
+        element = element.opacity(0.0);
+    }
+    element
+}
+
+/// Project centered dialog content from the last Rust-owned placement fact.
+/// No layout or paint callback calls JavaScript.
+pub fn dialog_content_element(
+    id: &'static str,
+    state: &DialogContentSnapshot,
+    focus_handle: Option<&FocusHandle>,
+) -> Stateful<Div> {
+    let mut element = state.placement.as_ref().map_or_else(
+        || div().id(id).debug_selector(move || id.to_owned()),
+        |placement| overlay_surface_element(id, placement),
+    );
+    if let Some(handle) = focus_handle {
+        element = element.track_focus(handle);
+    }
+    element = element
+        .rounded(px(state.resolved_style.radius))
+        .border_1()
+        .border_color(to_hsla(state.resolved_style.border))
+        .bg(to_hsla(state.resolved_style.background))
+        .p_6();
+    if let Some(a11y) = state.a11y.as_ref() {
+        element = apply_a11y(element, a11y, |_, _, _| {});
+    }
+    if !state.present {
+        element = element.opacity(0.0);
+    }
+    element
+}
+
+pub fn dialog_title_element(id: &'static str, state: &DialogTitleSnapshot) -> Stateful<Div> {
+    let mut element = div()
+        .id(id)
+        .debug_selector(move || id.to_owned())
+        .text_lg()
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .child(state.label.clone());
+    if let Some(a11y) = state.a11y.as_ref() {
+        element = apply_a11y(element, a11y, |_, _, _| {});
+    }
+    element
+}
+
+pub fn dialog_description_element(
+    id: &'static str,
+    state: &DialogDescriptionSnapshot,
+) -> Stateful<Div> {
+    let mut element = div()
+        .id(id)
+        .debug_selector(move || id.to_owned())
+        .text_sm()
+        .text_color(rgb(0x7f98a2))
+        .child(state.label.clone());
+    if let Some(a11y) = state.a11y.as_ref() {
+        element = apply_a11y(element, a11y, |_, _, _| {});
+    }
+    element
+}
+
+pub fn dialog_close_element(
+    id: &'static str,
+    state: &DialogCloseSnapshot,
+    focus_handle: Option<&FocusHandle>,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    action_element(
+        id,
+        state.label.clone(),
+        &state.resolved_style,
+        state.a11y.as_ref(),
+        focus_handle,
+        on_a11y_click,
+    )
+}
+
+pub fn dialog_header_element(id: &'static str, state: &DialogHeaderSnapshot) -> Stateful<Div> {
+    let element = div()
+        .id(id)
+        .debug_selector(move || id.to_owned())
+        .flex_col();
+    match state.a11y.as_ref() {
+        Some(a11y) => apply_a11y(element, a11y, |_, _, _| {}),
+        None => element,
+    }
+}
+
+pub fn dialog_footer_element(id: &'static str, state: &DialogFooterSnapshot) -> Stateful<Div> {
+    let element = div()
+        .id(id)
+        .debug_selector(move || id.to_owned())
+        .flex_row();
+    match state.a11y.as_ref() {
+        Some(a11y) => apply_a11y(element, a11y, |_, _, _| {}),
+        None => element,
+    }
 }
 
 pub fn tab_list_element(id: &'static str, state: &TabsListSnapshot) -> Stateful<Div> {
@@ -1406,6 +1543,8 @@ fn role_for(role: &str) -> Role {
         "tabpanel" => Role::TabPanel,
         "menu" => Role::Menu,
         "menuitem" => Role::MenuItem,
+        "dialog" => Role::Dialog,
+        "alertdialog" => Role::AlertDialog,
         _ => Role::Unknown,
     }
 }

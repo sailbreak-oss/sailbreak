@@ -13,21 +13,25 @@ use gpui::{
 use lctrl_core::{Availability, CapabilitySet, HardwareInfo, LctrlError, Platform, Result};
 use lctrl_hal::Hal;
 use proto_ui_gpui::{
-    BridgeError, DispatchOutcome, DropdownContentProps, DropdownDispatchOutcome, DropdownItemProps,
-    DropdownRootProps, DropdownSnapshot, DropdownTriggerProps, FocusOperationResult, InputKind,
-    InputSource, ProtoButtonHost, ProtoButtonState, ProtoDropdownHost, ProtoSelectHost,
-    ProtoSelectSnapshot, ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoTabsHost,
-    ProtoTextareaHost, ProtoTextareaSnapshot, ProtoToggleHost, ProtoToggleSnapshot,
-    SelectContentProps, SelectDispatchOutcome, SelectItemProps, SelectRootProps,
-    SelectTriggerProps, SelectValueProps, SeparatorProps, ShadcnButtonSize, ShadcnButtonVariant,
-    TabsActivationMode, TabsContentProps, TabsListProps, TabsOrientation, TabsRootProps,
-    TabsSnapshot, TabsTriggerProps, TextareaProps, ToggleDispatchOutcome, ToggleProps, ToggleSize,
-    ToggleVariant,
+    BridgeError, DialogCloseProps, DialogContentProps, DialogDescriptionProps,
+    DialogDispatchOutcome, DialogFooterProps, DialogHeaderProps, DialogMaskProps, DialogRootProps,
+    DialogSnapshot, DialogTitleProps, DialogTriggerProps, DispatchOutcome, DropdownContentProps,
+    DropdownDispatchOutcome, DropdownItemProps, DropdownRootProps, DropdownSnapshot,
+    DropdownTriggerProps, FocusOperationResult, InputKind, InputSource, ProtoButtonHost,
+    ProtoButtonState, ProtoDialogHost, ProtoDropdownHost, ProtoSelectHost, ProtoSelectSnapshot,
+    ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoTabsHost, ProtoTextareaHost,
+    ProtoTextareaSnapshot, ProtoToggleHost, ProtoToggleSnapshot, SelectContentProps,
+    SelectDispatchOutcome, SelectItemProps, SelectRootProps, SelectTriggerProps, SelectValueProps,
+    SeparatorProps, ShadcnButtonSize, ShadcnButtonVariant, TabsActivationMode, TabsContentProps,
+    TabsListProps, TabsOrientation, TabsRootProps, TabsSnapshot, TabsTriggerProps, TextareaProps,
+    ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
 };
 
 mod proto_surface;
 pub use proto_surface::{
-    AccessibleProjection, dropdown_content_element, dropdown_item_element,
+    AccessibleProjection, dialog_close_element, dialog_content_element, dialog_description_element,
+    dialog_footer_element, dialog_header_element, dialog_mask_element, dialog_title_element,
+    dialog_trigger_element, dropdown_content_element, dropdown_item_element,
     dropdown_trigger_element, overlay_surface_element, project_a11y, select_content_element,
     select_item_element, select_value_element,
 };
@@ -100,7 +104,22 @@ enum DashboardAction {
     Refresh,
     RunCommand(&'static [&'static str]),
     SaveProfile,
-    ApplyProfile,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BiosWriteRequest {
+    pub setting: String,
+    pub current_value: String,
+    pub requested_value: String,
+}
+
+impl BiosWriteRequest {
+    #[must_use]
+    pub fn recovery_command(&self) -> String {
+        format!(
+            "sailbreak bios set {} {} --save --yes",
+            self.setting, self.current_value
+        )
+    }
 }
 
 /// Platform composition root used by the interactive dashboard.
@@ -110,6 +129,14 @@ pub trait GuiController: Send + Sync {
     fn save_profile(&self, _source: &str) -> Result<String> {
         Err(LctrlError::Unsupported {
             feature: "gui.profile-persistence".into(),
+        })
+    }
+    /// Return one typed BIOS read/modify/write request when the platform can
+    /// prove the current value. Without typed readback the GUI leaves the BIOS
+    /// confirmation unavailable rather than inventing a setting.
+    fn bios_write_request(&self) -> Result<BiosWriteRequest> {
+        Err(LctrlError::Unsupported {
+            feature: "gui.bios.write-readback".into(),
         })
     }
 }
@@ -244,6 +271,27 @@ const SYSTEM_ACTIONS_DROPDOWN_CONTENT_ID: &str = "system-actions-content";
 const SYSTEM_ACTIONS_DROPDOWN_ITEM_IDS: [&str; 3] =
     ["power-schemes", "diagnostics", "magicbay-detect"];
 
+const BIOS_SECTION_INDEX: usize = 4;
+const BIOS_DIALOG_ROOT_ID: &str = "bios-write-dialog";
+const BIOS_DIALOG_TRIGGER_ID: &str = "bios-write-trigger";
+const BIOS_DIALOG_MASK_ID: &str = "bios-write-mask";
+const BIOS_DIALOG_CONTENT_ID: &str = "bios-write-content";
+const BIOS_DIALOG_TITLE_ID: &str = "bios-write-title";
+const BIOS_DIALOG_DESCRIPTION_ID: &str = "bios-write-description";
+const BIOS_DIALOG_CANCEL_ID: &str = "bios-write-cancel";
+const BIOS_DIALOG_CONFIRM_ID: &str = "bios-write-confirm";
+const BIOS_DIALOG_HEADER_ID: &str = "bios-write-header";
+const BIOS_DIALOG_FOOTER_ID: &str = "bios-write-footer";
+const PROFILE_DIALOG_ROOT_ID: &str = "profile-apply-dialog";
+const PROFILE_DIALOG_MASK_ID: &str = "profile-apply-mask";
+const PROFILE_DIALOG_CONTENT_ID: &str = "profile-apply-content";
+const PROFILE_DIALOG_TITLE_ID: &str = "profile-apply-title";
+const PROFILE_DIALOG_DESCRIPTION_ID: &str = "profile-apply-description";
+const PROFILE_DIALOG_CANCEL_ID: &str = "profile-apply-cancel";
+const PROFILE_DIALOG_CONFIRM_ID: &str = "profile-apply-confirm";
+const PROFILE_DIALOG_HEADER_ID: &str = "profile-apply-header";
+const PROFILE_DIALOG_FOOTER_ID: &str = "profile-apply-footer";
+
 #[derive(Clone, Copy)]
 struct DropdownActionSpec {
     id: &'static str,
@@ -347,6 +395,13 @@ struct ProtoUiState {
     status_dropdown_snapshot: Option<DropdownSnapshot>,
     system_dropdown_host: Option<ProtoDropdownHost>,
     system_dropdown_snapshot: Option<DropdownSnapshot>,
+    profile_dialog_host: Option<ProtoDialogHost>,
+    profile_dialog_snapshot: Option<DialogSnapshot>,
+    profile_dialog_error: Option<String>,
+    bios_dialog_host: Option<ProtoDialogHost>,
+    bios_dialog_snapshot: Option<DialogSnapshot>,
+    bios_dialog_error: Option<String>,
+    bios_write_request: Option<BiosWriteRequest>,
     select_error: Option<String>,
     dropdown_error: Option<String>,
     error: Option<String>,
@@ -376,6 +431,13 @@ impl ProtoUiState {
                     status_dropdown_snapshot: None,
                     system_dropdown_host: None,
                     system_dropdown_snapshot: None,
+                    profile_dialog_host: None,
+                    profile_dialog_snapshot: None,
+                    profile_dialog_error: None,
+                    bios_dialog_host: None,
+                    bios_dialog_snapshot: None,
+                    bios_dialog_error: None,
+                    bios_write_request: None,
                     select_error: None,
                     dropdown_error: None,
                     error: Some(error.to_string()),
@@ -414,6 +476,11 @@ impl ProtoUiState {
                 Err(error) => (None, None, Some(error.to_string())),
             };
         let dropdown_error = status_error.or(system_error);
+        let (profile_dialog_host, profile_dialog_snapshot, profile_dialog_error) =
+            match Self::build_profile_dialog() {
+                Ok((host, snapshot)) => (Some(host), Some(snapshot), None),
+                Err(error) => (None, None, Some(error.to_string())),
+            };
         Self {
             host: Some(host),
             toggle_host: Some(toggle_host),
@@ -434,10 +501,424 @@ impl ProtoUiState {
             status_dropdown_snapshot,
             system_dropdown_host,
             system_dropdown_snapshot,
+            profile_dialog_host,
+            profile_dialog_snapshot,
+            profile_dialog_error,
+            bios_dialog_host: None,
+            bios_dialog_snapshot: None,
+            bios_dialog_error: None,
+            bios_write_request: None,
             select_error: None,
             dropdown_error,
             error: None,
         }
+    }
+    fn build_profile_dialog() -> std::result::Result<(ProtoDialogHost, DialogSnapshot), BridgeError>
+    {
+        let mut host = ProtoDialogHost::new()?;
+        host.register_root(
+            PROFILE_DIALOG_ROOT_ID,
+            "Confirm tuning profile apply",
+            DialogRootProps {
+                alert: true,
+                a11y_label: "Confirm tuning profile apply".to_owned(),
+                ..DialogRootProps::default()
+            },
+        )?;
+        host.register_trigger(
+            TUNING_PROFILE_APPLY_ID,
+            PROFILE_DIALOG_ROOT_ID,
+            DialogTriggerProps::default(),
+        )?;
+        host.register_mask(
+            PROFILE_DIALOG_MASK_ID,
+            PROFILE_DIALOG_ROOT_ID,
+            DialogMaskProps::default(),
+        )?;
+        host.register_content(
+            PROFILE_DIALOG_CONTENT_ID,
+            PROFILE_DIALOG_ROOT_ID,
+            DialogContentProps,
+        )?;
+        host.register_title(
+            PROFILE_DIALOG_TITLE_ID,
+            "Apply tuning profile?",
+            PROFILE_DIALOG_CONTENT_ID,
+            DialogTitleProps,
+        )?;
+        host.register_description(
+            PROFILE_DIALOG_DESCRIPTION_ID,
+            "This writes the validated profile through the CLI safety gate. Recovery: sailbreak tune restore.",
+            PROFILE_DIALOG_CONTENT_ID,
+            DialogDescriptionProps,
+        )?;
+        host.register_close(
+            PROFILE_DIALOG_CANCEL_ID,
+            "CANCEL",
+            PROFILE_DIALOG_CONTENT_ID,
+            DialogCloseProps::default(),
+        )?;
+        host.register_close(
+            PROFILE_DIALOG_CONFIRM_ID,
+            "APPLY WITH --YES",
+            PROFILE_DIALOG_CONTENT_ID,
+            DialogCloseProps::default(),
+        )?;
+        host.register_header(
+            PROFILE_DIALOG_HEADER_ID,
+            PROFILE_DIALOG_CONTENT_ID,
+            DialogHeaderProps,
+        )?;
+        host.register_footer(
+            PROFILE_DIALOG_FOOTER_ID,
+            PROFILE_DIALOG_CONTENT_ID,
+            DialogFooterProps,
+        )?;
+        host.setup()?;
+        let snapshot = host.snapshot()?;
+        Ok((host, snapshot))
+    }
+    fn build_bios_dialog(
+        request: &BiosWriteRequest,
+    ) -> std::result::Result<(ProtoDialogHost, DialogSnapshot), BridgeError> {
+        if request.setting.trim().is_empty()
+            || request.current_value.trim().is_empty()
+            || request.requested_value.trim().is_empty()
+        {
+            return Err(BridgeError::InvalidIdentity {
+                kind: "BIOS dialog requires typed current and requested values".to_owned(),
+            });
+        }
+        let mut host = ProtoDialogHost::new()?;
+        host.register_root(
+            BIOS_DIALOG_ROOT_ID,
+            "Confirm BIOS write",
+            DialogRootProps {
+                alert: true,
+                a11y_label: "Confirm BIOS write".to_owned(),
+                ..DialogRootProps::default()
+            },
+        )?;
+        host.register_trigger(
+            BIOS_DIALOG_TRIGGER_ID,
+            BIOS_DIALOG_ROOT_ID,
+            DialogTriggerProps::default(),
+        )?;
+        host.register_mask(
+            BIOS_DIALOG_MASK_ID,
+            BIOS_DIALOG_ROOT_ID,
+            DialogMaskProps::default(),
+        )?;
+        host.register_content(
+            BIOS_DIALOG_CONTENT_ID,
+            BIOS_DIALOG_ROOT_ID,
+            DialogContentProps,
+        )?;
+        host.register_title(
+            BIOS_DIALOG_TITLE_ID,
+            "Write BIOS setting?",
+            BIOS_DIALOG_CONTENT_ID,
+            DialogTitleProps,
+        )?;
+        let description = format!(
+            "BIOS setting {} changes from {} to {}. The effect may require a reboot. Recovery: {}",
+            request.setting,
+            request.current_value,
+            request.requested_value,
+            request.recovery_command()
+        );
+        host.register_description(
+            BIOS_DIALOG_DESCRIPTION_ID,
+            description,
+            BIOS_DIALOG_CONTENT_ID,
+            DialogDescriptionProps,
+        )?;
+        host.register_close(
+            BIOS_DIALOG_CANCEL_ID,
+            "CANCEL",
+            BIOS_DIALOG_CONTENT_ID,
+            DialogCloseProps::default(),
+        )?;
+        host.register_close(
+            BIOS_DIALOG_CONFIRM_ID,
+            "WRITE WITH --YES",
+            BIOS_DIALOG_CONTENT_ID,
+            DialogCloseProps::default(),
+        )?;
+        host.register_header(
+            BIOS_DIALOG_HEADER_ID,
+            BIOS_DIALOG_CONTENT_ID,
+            DialogHeaderProps,
+        )?;
+        host.register_footer(
+            BIOS_DIALOG_FOOTER_ID,
+            BIOS_DIALOG_CONTENT_ID,
+            DialogFooterProps,
+        )?;
+        host.setup()?;
+        let snapshot = host.snapshot()?;
+        Ok((host, snapshot))
+    }
+
+    fn attach_bios_dialog(&mut self, controller: &dyn GuiController) {
+        match controller.bios_write_request() {
+            Ok(request) => match Self::build_bios_dialog(&request) {
+                Ok((host, snapshot)) => {
+                    self.bios_write_request = Some(request);
+                    self.bios_dialog_host = Some(host);
+                    self.bios_dialog_snapshot = Some(snapshot);
+                    self.bios_dialog_error = None;
+                }
+                Err(error) => {
+                    self.bios_dialog_error = Some(error.to_string());
+                }
+            },
+            Err(error) => {
+                self.bios_dialog_error = Some(error.to_string());
+            }
+        }
+    }
+
+    fn profile_dialog_snapshot(&self) -> Option<&DialogSnapshot> {
+        self.profile_dialog_snapshot.as_ref()
+    }
+
+    fn bios_dialog_snapshot(&self) -> Option<&DialogSnapshot> {
+        self.bios_dialog_snapshot.as_ref()
+    }
+
+    fn dialog_host_mut(&mut self, id: &str) -> Option<&mut ProtoDialogHost> {
+        if matches!(
+            id,
+            TUNING_PROFILE_APPLY_ID
+                | PROFILE_DIALOG_ROOT_ID
+                | PROFILE_DIALOG_MASK_ID
+                | PROFILE_DIALOG_CONTENT_ID
+                | PROFILE_DIALOG_TITLE_ID
+                | PROFILE_DIALOG_DESCRIPTION_ID
+                | PROFILE_DIALOG_CANCEL_ID
+                | PROFILE_DIALOG_CONFIRM_ID
+                | PROFILE_DIALOG_HEADER_ID
+                | PROFILE_DIALOG_FOOTER_ID
+        ) {
+            self.profile_dialog_host.as_mut()
+        } else if matches!(
+            id,
+            BIOS_DIALOG_TRIGGER_ID
+                | BIOS_DIALOG_ROOT_ID
+                | BIOS_DIALOG_MASK_ID
+                | BIOS_DIALOG_CONTENT_ID
+                | BIOS_DIALOG_TITLE_ID
+                | BIOS_DIALOG_DESCRIPTION_ID
+                | BIOS_DIALOG_CANCEL_ID
+                | BIOS_DIALOG_CONFIRM_ID
+                | BIOS_DIALOG_HEADER_ID
+                | BIOS_DIALOG_FOOTER_ID
+        ) {
+            self.bios_dialog_host.as_mut()
+        } else {
+            None
+        }
+    }
+
+    fn is_dialog_id(id: &str) -> bool {
+        matches!(
+            id,
+            TUNING_PROFILE_APPLY_ID
+                | PROFILE_DIALOG_ROOT_ID
+                | PROFILE_DIALOG_MASK_ID
+                | PROFILE_DIALOG_CONTENT_ID
+                | PROFILE_DIALOG_TITLE_ID
+                | PROFILE_DIALOG_DESCRIPTION_ID
+                | PROFILE_DIALOG_CANCEL_ID
+                | PROFILE_DIALOG_CONFIRM_ID
+                | PROFILE_DIALOG_HEADER_ID
+                | PROFILE_DIALOG_FOOTER_ID
+                | BIOS_DIALOG_TRIGGER_ID
+                | BIOS_DIALOG_ROOT_ID
+                | BIOS_DIALOG_MASK_ID
+                | BIOS_DIALOG_CONTENT_ID
+                | BIOS_DIALOG_TITLE_ID
+                | BIOS_DIALOG_DESCRIPTION_ID
+                | BIOS_DIALOG_CANCEL_ID
+                | BIOS_DIALOG_CONFIRM_ID
+                | BIOS_DIALOG_HEADER_ID
+                | BIOS_DIALOG_FOOTER_ID
+        )
+    }
+
+    fn refresh_profile_dialog(&mut self) -> std::result::Result<(), BridgeError> {
+        let Some(host) = self.profile_dialog_host.as_mut() else {
+            return Err(BridgeError::Runtime {
+                detail: self
+                    .profile_dialog_error
+                    .clone()
+                    .unwrap_or_else(|| "Proto UI profile Dialog is unavailable".to_owned()),
+            });
+        };
+        self.profile_dialog_snapshot = Some(host.snapshot()?);
+        Ok(())
+    }
+
+    fn refresh_bios_dialog(&mut self) -> std::result::Result<(), BridgeError> {
+        let Some(host) = self.bios_dialog_host.as_mut() else {
+            return Err(BridgeError::Runtime {
+                detail: self
+                    .bios_dialog_error
+                    .clone()
+                    .unwrap_or_else(|| "Proto UI BIOS Dialog is unavailable".to_owned()),
+            });
+        };
+        self.bios_dialog_snapshot = Some(host.snapshot()?);
+        Ok(())
+    }
+
+    fn dialog_modal_blocking(&mut self) -> bool {
+        self.profile_dialog_host
+            .as_mut()
+            .and_then(|host| host.modal_blocking().ok())
+            .unwrap_or(false)
+            || self
+                .bios_dialog_host
+                .as_mut()
+                .and_then(|host| host.modal_blocking().ok())
+                .unwrap_or(false)
+    }
+
+    fn set_dialog_focus_ready(
+        &mut self,
+        id: &str,
+        ready: bool,
+    ) -> std::result::Result<(), BridgeError> {
+        let Some(host) = self.dialog_host_mut(id) else {
+            return Err(BridgeError::Runtime {
+                detail: format!("Dialog focus target unavailable: {id}"),
+            });
+        };
+        host.set_focus_ready(id, ready)
+    }
+
+    fn focus_dialog(
+        &mut self,
+        id: &str,
+        source: InputSource,
+    ) -> std::result::Result<FocusOperationResult, BridgeError> {
+        let Some(host) = self.dialog_host_mut(id) else {
+            return Ok(FocusOperationResult::Rejected);
+        };
+        let result = host.focus_with_source(id, source)?;
+        if id.starts_with("bios-") {
+            self.refresh_bios_dialog()?;
+        } else {
+            self.refresh_profile_dialog()?;
+        }
+        Ok(result)
+    }
+
+    fn blur_dialog(&mut self, id: &str) -> std::result::Result<(), BridgeError> {
+        let Some(host) = self.dialog_host_mut(id) else {
+            return Ok(());
+        };
+        host.blur(id, InputSource::Programmatic)?;
+        if id.starts_with("bios-") {
+            self.refresh_bios_dialog()?;
+        } else {
+            self.refresh_profile_dialog()?;
+        }
+        Ok(())
+    }
+
+    fn dispatch_dialog_key(
+        &mut self,
+        id: &str,
+        key: &str,
+    ) -> std::result::Result<DialogDispatchOutcome, BridgeError> {
+        let Some(host) = self.dialog_host_mut(id) else {
+            return Err(BridgeError::Runtime {
+                detail: format!("Dialog keyboard target unavailable: {id}"),
+            });
+        };
+        let outcome = host.dispatch_key(key)?;
+        if id.starts_with("bios-") {
+            self.refresh_bios_dialog()?;
+        } else {
+            self.refresh_profile_dialog()?;
+        }
+        Ok(outcome)
+    }
+
+    fn press_profile_trigger(
+        &mut self,
+        source: InputSource,
+    ) -> std::result::Result<DialogDispatchOutcome, BridgeError> {
+        let host = self
+            .profile_dialog_host
+            .as_mut()
+            .ok_or_else(|| BridgeError::Runtime {
+                detail: self
+                    .profile_dialog_error
+                    .clone()
+                    .unwrap_or_else(|| "Proto UI profile Dialog is unavailable".to_owned()),
+            })?;
+        let outcome = host.press_trigger(TUNING_PROFILE_APPLY_ID, source)?;
+        self.refresh_profile_dialog()?;
+        Ok(outcome)
+    }
+
+    fn press_profile_close(
+        &mut self,
+        id: &str,
+        source: InputSource,
+    ) -> std::result::Result<DialogDispatchOutcome, BridgeError> {
+        let host = self
+            .profile_dialog_host
+            .as_mut()
+            .ok_or_else(|| BridgeError::Runtime {
+                detail: self
+                    .profile_dialog_error
+                    .clone()
+                    .unwrap_or_else(|| "Proto UI profile Dialog is unavailable".to_owned()),
+            })?;
+        let outcome = host.press_close(id, source)?;
+        self.refresh_profile_dialog()?;
+        Ok(outcome)
+    }
+
+    fn press_bios_trigger(
+        &mut self,
+        source: InputSource,
+    ) -> std::result::Result<DialogDispatchOutcome, BridgeError> {
+        let host = self
+            .bios_dialog_host
+            .as_mut()
+            .ok_or_else(|| BridgeError::Runtime {
+                detail: self
+                    .bios_dialog_error
+                    .clone()
+                    .unwrap_or_else(|| "Proto UI BIOS Dialog is unavailable".to_owned()),
+            })?;
+        let outcome = host.press_trigger(BIOS_DIALOG_TRIGGER_ID, source)?;
+        self.refresh_bios_dialog()?;
+        Ok(outcome)
+    }
+
+    fn press_bios_close(
+        &mut self,
+        id: &str,
+        source: InputSource,
+    ) -> std::result::Result<DialogDispatchOutcome, BridgeError> {
+        let host = self
+            .bios_dialog_host
+            .as_mut()
+            .ok_or_else(|| BridgeError::Runtime {
+                detail: self
+                    .bios_dialog_error
+                    .clone()
+                    .unwrap_or_else(|| "Proto UI BIOS Dialog is unavailable".to_owned()),
+            })?;
+        let outcome = host.press_close(id, source)?;
+        self.refresh_bios_dialog()?;
+        Ok(outcome)
     }
 
     fn build_core()
@@ -451,12 +932,6 @@ impl ProtoUiState {
             TUNING_PROFILE_SAVE_ID,
             "SAVE PROFILE",
             ShadcnButtonVariant::Default,
-            ShadcnButtonSize::Sm,
-        )?;
-        host.register_button(
-            TUNING_PROFILE_APPLY_ID,
-            "APPLY DRY-RUN",
-            ShadcnButtonVariant::Outline,
             ShadcnButtonSize::Sm,
         )?;
 
@@ -1726,6 +2201,292 @@ fn selectors_strip(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl I
     ])
 }
 
+fn profile_dialog_trigger_view(
+    dashboard: &Dashboard,
+    cx: &mut Context<Dashboard>,
+) -> Stateful<Div> {
+    let Some(snapshot) = dashboard.proto.profile_dialog_snapshot() else {
+        return unavailable_button(TUNING_PROFILE_APPLY_ID, "APPLY PROFILE UNAVAILABLE");
+    };
+    let Some(trigger) = snapshot.trigger.as_ref() else {
+        return unavailable_button(TUNING_PROFILE_APPLY_ID, "APPLY PROFILE UNAVAILABLE");
+    };
+    let Some(focus_handle) = dashboard
+        .dialog_focus_handles
+        .get(TUNING_PROFILE_APPLY_ID)
+        .cloned()
+    else {
+        return unavailable_button(TUNING_PROFILE_APPLY_ID, "APPLY PROFILE UNAVAILABLE");
+    };
+    let disabled = trigger.disabled;
+    let dashboard_entity = cx.entity().downgrade();
+    let mouse_focus = focus_handle.clone();
+    proto_surface::dialog_trigger_element(
+        TUNING_PROFILE_APPLY_ID,
+        "APPLY PROFILE",
+        trigger,
+        Some(&focus_handle),
+        move |_, _, cx| {
+            dashboard_entity
+                .update(cx, |this, cx| {
+                    this.open_profile_dialog(InputSource::Accessibility);
+                    cx.notify();
+                })
+                .ok();
+        },
+    )
+    .on_mouse_down(
+        gpui::MouseButton::Left,
+        cx.listener(move |_this, _, window, cx| {
+            if !disabled {
+                window.focus(&mouse_focus, cx);
+            }
+            cx.notify();
+        }),
+    )
+    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+        if event.keystroke.key.eq_ignore_ascii_case("escape") {
+            this.handle_dialog_key(PROFILE_DIALOG_CONTENT_ID, "Escape");
+            cx.notify();
+        }
+    }))
+    .on_click(cx.listener(move |this, event, _, cx| {
+        let source = match event {
+            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
+            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
+            gpui::ClickEvent::Touch(_) => InputSource::Touch,
+        };
+        this.open_profile_dialog(source);
+        cx.notify();
+    }))
+}
+
+fn bios_dialog_trigger_view(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Stateful<Div> {
+    let Some(snapshot) = dashboard.proto.bios_dialog_snapshot() else {
+        return unavailable_button(BIOS_DIALOG_TRIGGER_ID, "BIOS WRITE UNAVAILABLE");
+    };
+    let Some(trigger) = snapshot.trigger.as_ref() else {
+        return unavailable_button(BIOS_DIALOG_TRIGGER_ID, "BIOS WRITE UNAVAILABLE");
+    };
+    let Some(focus_handle) = dashboard
+        .dialog_focus_handles
+        .get(BIOS_DIALOG_TRIGGER_ID)
+        .cloned()
+    else {
+        return unavailable_button(BIOS_DIALOG_TRIGGER_ID, "BIOS WRITE UNAVAILABLE");
+    };
+    let disabled = trigger.disabled;
+    let dashboard_entity = cx.entity().downgrade();
+    let mouse_focus = focus_handle.clone();
+    proto_surface::dialog_trigger_element(
+        BIOS_DIALOG_TRIGGER_ID,
+        "WRITE BIOS SETTING",
+        trigger,
+        Some(&focus_handle),
+        move |_, _, cx| {
+            dashboard_entity
+                .update(cx, |this, cx| {
+                    this.open_bios_dialog(InputSource::Accessibility);
+                    cx.notify();
+                })
+                .ok();
+        },
+    )
+    .on_mouse_down(
+        gpui::MouseButton::Left,
+        cx.listener(move |_this, _, window, cx| {
+            if !disabled {
+                window.focus(&mouse_focus, cx);
+            }
+            cx.notify();
+        }),
+    )
+    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+        if event.keystroke.key.eq_ignore_ascii_case("escape") {
+            this.handle_dialog_key(BIOS_DIALOG_CONTENT_ID, "Escape");
+            cx.notify();
+        }
+    }))
+    .on_click(cx.listener(move |this, event, _, cx| {
+        let source = match event {
+            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
+            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
+            gpui::ClickEvent::Touch(_) => InputSource::Touch,
+        };
+        this.open_bios_dialog(source);
+        cx.notify();
+    }))
+}
+
+fn dialog_close_view(
+    dashboard: &Dashboard,
+    cx: &mut Context<Dashboard>,
+    snapshot: &DialogSnapshot,
+    id: &'static str,
+    bios: bool,
+    confirm: bool,
+) -> Stateful<Div> {
+    let Some(close) = snapshot.closes.iter().find(|close| close.id == id) else {
+        return unavailable_button(id, "UNAVAILABLE");
+    };
+    let focus_handle = dashboard.dialog_focus_handles.get(id).cloned();
+    let dashboard_entity = cx.entity().downgrade();
+    let a11y_entity = dashboard_entity.clone();
+    let element =
+        proto_surface::dialog_close_element(id, close, focus_handle.as_ref(), move |_, _, cx| {
+            a11y_entity
+                .update(cx, |this, cx| {
+                    if bios {
+                        if confirm {
+                            this.confirm_bios_dialog();
+                        } else {
+                            this.cancel_bios_dialog();
+                        }
+                    } else if confirm {
+                        this.confirm_profile_dialog();
+                    } else {
+                        this.cancel_profile_dialog();
+                    }
+                    cx.notify();
+                })
+                .ok();
+        });
+    element.on_click(cx.listener(move |this, event, _, cx| {
+        let _source = match event {
+            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
+            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
+            gpui::ClickEvent::Touch(_) => InputSource::Touch,
+        };
+        if bios {
+            if confirm {
+                this.confirm_bios_dialog();
+            } else {
+                this.cancel_bios_dialog();
+            }
+        } else if confirm {
+            this.confirm_profile_dialog();
+        } else {
+            this.cancel_profile_dialog();
+        }
+        cx.notify();
+    }))
+}
+
+fn dialog_surface_view(
+    dashboard: &Dashboard,
+    cx: &mut Context<Dashboard>,
+    snapshot: &DialogSnapshot,
+    bios: bool,
+) -> Stateful<Div> {
+    let (content_id, title_id, description_id, header_id, footer_id, cancel_id, confirm_id) =
+        if bios {
+            (
+                BIOS_DIALOG_CONTENT_ID,
+                BIOS_DIALOG_TITLE_ID,
+                BIOS_DIALOG_DESCRIPTION_ID,
+                BIOS_DIALOG_HEADER_ID,
+                BIOS_DIALOG_FOOTER_ID,
+                BIOS_DIALOG_CANCEL_ID,
+                BIOS_DIALOG_CONFIRM_ID,
+            )
+        } else {
+            (
+                PROFILE_DIALOG_CONTENT_ID,
+                PROFILE_DIALOG_TITLE_ID,
+                PROFILE_DIALOG_DESCRIPTION_ID,
+                PROFILE_DIALOG_HEADER_ID,
+                PROFILE_DIALOG_FOOTER_ID,
+                PROFILE_DIALOG_CANCEL_ID,
+                PROFILE_DIALOG_CONFIRM_ID,
+            )
+        };
+    let Some(content) = snapshot.content.as_ref() else {
+        return unavailable_button(content_id, "DIALOG CONTENT UNAVAILABLE");
+    };
+    let focus_handle = dashboard.dialog_focus_handles.get(content_id);
+    let mut content_element =
+        proto_surface::dialog_content_element(content_id, content, focus_handle);
+    let route_id = content_id;
+    content_element =
+        content_element.on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+            let key = if event.keystroke.key.eq_ignore_ascii_case("escape") {
+                "Escape"
+            } else {
+                event.keystroke.key.as_str()
+            };
+            this.handle_dialog_key(route_id, key);
+            cx.notify();
+        }));
+    if let Some(header) = snapshot.header.as_ref() {
+        let mut header_element = proto_surface::dialog_header_element(header_id, header);
+        if let Some(title) = snapshot.title.as_ref() {
+            header_element =
+                header_element.child(proto_surface::dialog_title_element(title_id, title));
+        }
+        if let Some(description) = snapshot.description.as_ref() {
+            header_element = header_element.child(proto_surface::dialog_description_element(
+                description_id,
+                description,
+            ));
+        }
+        content_element = content_element.child(header_element);
+    }
+    if let Some(footer) = snapshot.footer.as_ref() {
+        let mut footer_element = proto_surface::dialog_footer_element(footer_id, footer);
+        footer_element = footer_element
+            .child(dialog_close_view(
+                dashboard, cx, snapshot, cancel_id, bios, false,
+            ))
+            .child(dialog_close_view(
+                dashboard, cx, snapshot, confirm_id, bios, true,
+            ));
+        content_element = content_element.child(footer_element);
+    }
+    let mut root = div().id(if bios {
+        BIOS_DIALOG_ROOT_ID
+    } else {
+        PROFILE_DIALOG_ROOT_ID
+    });
+    if let Some(mask) = snapshot.mask.as_ref() {
+        let mask_id = if bios {
+            BIOS_DIALOG_MASK_ID
+        } else {
+            PROFILE_DIALOG_MASK_ID
+        };
+        root = root.child(proto_surface::dialog_mask_element(mask_id, mask));
+    }
+    root.child(content_element)
+}
+
+fn profile_dialog_view(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Stateful<Div> {
+    dashboard.proto.profile_dialog_snapshot().map_or_else(
+        || unavailable_button(PROFILE_DIALOG_ROOT_ID, "PROFILE CONFIRMATION UNAVAILABLE"),
+        |snapshot| dialog_surface_view(dashboard, cx, snapshot, false),
+    )
+}
+
+fn bios_dialog_view(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Stateful<Div> {
+    dashboard.proto.bios_dialog_snapshot().map_or_else(
+        || unavailable_button(BIOS_DIALOG_ROOT_ID, "BIOS CONFIRMATION UNAVAILABLE"),
+        |snapshot| dialog_surface_view(dashboard, cx, snapshot, true),
+    )
+}
+
+fn bios_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(bios_dialog_trigger_view(dashboard, cx))
+        .child(bios_dialog_view(dashboard, cx))
+        .child(
+            div()
+                .text_xs()
+                .text_color(rgb(MUTED))
+                .child("Writes remain guarded by the CLI --yes safety path and typed readback."),
+        )
+}
+
 fn tuning_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoElement {
     let Some(snapshot) = dashboard.proto.textarea_snapshot() else {
         let detail = dashboard.proto.textarea_error.as_deref().map_or_else(
@@ -1756,13 +2517,7 @@ fn tuning_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl Into
         "SAVE PROFILE",
         DashboardAction::SaveProfile,
     );
-    let apply = action_button(
-        dashboard,
-        cx,
-        TUNING_PROFILE_APPLY_ID,
-        "APPLY DRY-RUN",
-        DashboardAction::ApplyProfile,
-    );
+    let apply = profile_dialog_trigger_view(dashboard, cx);
     div()
         .flex()
         .flex_col()
@@ -1793,6 +2548,7 @@ fn tuning_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl Into
             snapshot,
         ))
         .child(div().flex().flex_row().gap_2().child(save).child(apply))
+        .child(profile_dialog_view(dashboard, cx))
 }
 
 /// Open the Sailbreak dashboard with a read-only snapshot.
@@ -1874,6 +2630,8 @@ pub struct Dashboard {
     tab_focus_subscriptions: Vec<Subscription>,
     dropdown_focus_handles: BTreeMap<&'static str, FocusHandle>,
     dropdown_focus_subscriptions: Vec<Subscription>,
+    dialog_focus_handles: BTreeMap<&'static str, FocusHandle>,
+    dialog_focus_subscriptions: Vec<Subscription>,
 }
 
 impl Dashboard {
@@ -1886,7 +2644,8 @@ impl Dashboard {
     }
 
     fn with_controller(snapshot: DashboardSnapshot, controller: Arc<dyn GuiController>) -> Self {
-        let proto = ProtoUiState::new(&snapshot.capabilities);
+        let mut proto = ProtoUiState::new(&snapshot.capabilities);
+        proto.attach_bios_dialog(controller.as_ref());
         let snapshot = match &proto.error {
             Some(error) => DashboardSnapshot {
                 status_message: format!("Proto UI host unavailable: {error}"),
@@ -1908,6 +2667,8 @@ impl Dashboard {
             tab_focus_subscriptions: Vec::new(),
             dropdown_focus_handles: BTreeMap::new(),
             dropdown_focus_subscriptions: Vec::new(),
+            dialog_focus_handles: BTreeMap::new(),
+            dialog_focus_subscriptions: Vec::new(),
         }
     }
 
@@ -1980,6 +2741,47 @@ impl Dashboard {
         }
     }
 
+    fn ensure_dialog_focus_handles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut ids = vec![
+            TUNING_PROFILE_APPLY_ID,
+            PROFILE_DIALOG_CANCEL_ID,
+            PROFILE_DIALOG_CONFIRM_ID,
+        ];
+        if self.proto.bios_dialog_snapshot().is_some() {
+            ids.extend([
+                BIOS_DIALOG_TRIGGER_ID,
+                BIOS_DIALOG_CANCEL_ID,
+                BIOS_DIALOG_CONFIRM_ID,
+            ]);
+        }
+        for id in ids {
+            if self.dialog_focus_handles.contains_key(id) {
+                continue;
+            }
+            let handle = cx.focus_handle();
+            let focus_subscription = cx.on_focus(&handle, window, move |this, window, cx| {
+                let source = if window.last_input_was_keyboard() {
+                    InputSource::Keyboard
+                } else {
+                    InputSource::Mouse
+                };
+                this.handle_dialog_focus(id, source);
+                cx.notify();
+            });
+            let blur_subscription = cx.on_blur(&handle, window, move |this, _, cx| {
+                this.handle_dialog_blur(id);
+                cx.notify();
+            });
+            if let Err(error) = self.proto.set_dialog_focus_ready(id, true) {
+                self.snapshot.status_message =
+                    format!("Proto UI Dialog focus unavailable: {error}");
+            }
+            self.dialog_focus_handles.insert(id, handle);
+            self.dialog_focus_subscriptions.push(focus_subscription);
+            self.dialog_focus_subscriptions.push(blur_subscription);
+        }
+    }
+
     fn ensure_textarea_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.textarea_input.is_some() {
             return;
@@ -2032,6 +2834,9 @@ impl Dashboard {
         event: &proto_surface::ProtoTextareaNativeEvent,
         cx: &mut Context<Self>,
     ) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
         if let Err(error) = self.proto.dispatch_textarea(event) {
             self.snapshot.status_message = format!("Profile editor input failed: {error}");
         }
@@ -2045,6 +2850,9 @@ impl Dashboard {
         source: InputSource,
         cx: &mut Context<Self>,
     ) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
         if let Err(error) = self.proto.dispatch_textarea_focus(id, focused, source) {
             self.snapshot.status_message = format!("Profile editor focus failed: {error}");
         }
@@ -2052,6 +2860,9 @@ impl Dashboard {
     }
 
     fn handle_textarea_blur(&mut self, id: &str, changed: bool, cx: &mut Context<Self>) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
         if changed && let Err(error) = self.proto.dispatch_textarea_change(id) {
             self.snapshot.status_message = format!("Profile editor change failed: {error}");
         }
@@ -2068,6 +2879,9 @@ impl Dashboard {
     }
 
     fn handle_tab_focus(&mut self, id: &str, source: InputSource, _cx: &mut Context<Self>) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
         match self.proto.focus_tab(id, source) {
             Ok(FocusOperationResult::Accepted) => self.sync_active_section_from_tabs(),
             Ok(FocusOperationResult::NotReady) => {
@@ -2089,6 +2903,9 @@ impl Dashboard {
     }
 
     fn handle_tab_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
         if let Err(error) = self.proto.dispatch_tab_key(key) {
             self.snapshot.status_message = format!("Proto UI tab navigation failed: {error}");
             return;
@@ -2102,6 +2919,9 @@ impl Dashboard {
     }
 
     fn handle_tab_press(&mut self, id: &str, source: InputSource) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
         match self.proto.press_tab(id, source) {
             Ok(true) => self.sync_active_section_from_tabs(),
             Ok(false) => {}
@@ -2110,8 +2930,10 @@ impl Dashboard {
             }
         }
     }
-
     fn handle_dropdown_focus(&mut self, root_id: &str, trigger_id: &str, source: InputSource) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
         match self.proto.focus_dropdown(root_id, trigger_id, source) {
             Ok(FocusOperationResult::Accepted) => {}
             Ok(FocusOperationResult::NotReady) => {
@@ -2135,12 +2957,18 @@ impl Dashboard {
     }
 
     fn handle_dropdown_key(&mut self, root_id: &str, key: &str) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
         if let Err(error) = self.proto.dispatch_dropdown_key(root_id, key) {
             self.snapshot.status_message = format!("Proto UI Dropdown navigation failed: {error}");
         }
     }
 
     fn handle_dropdown_trigger(&mut self, root_id: &str, trigger_id: &str, source: InputSource) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
         if let Err(error) =
             self.proto
                 .dispatch_dropdown(root_id, trigger_id, InputKind::PressCommit, source, None)
@@ -2156,6 +2984,9 @@ impl Dashboard {
         action: DashboardAction,
         source: InputSource,
     ) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
         match self
             .proto
             .dispatch_dropdown(root_id, item_id, InputKind::PressCommit, source, None)
@@ -2165,6 +2996,116 @@ impl Dashboard {
             Err(error) => {
                 self.snapshot.status_message =
                     format!("Proto UI Dropdown item activation failed: {error}");
+            }
+        }
+    }
+
+    fn handle_dialog_focus(&mut self, id: &str, source: InputSource) {
+        match self.proto.focus_dialog(id, source) {
+            Ok(FocusOperationResult::Accepted) => {}
+            Ok(FocusOperationResult::NotReady) => {
+                self.snapshot.status_message = format!("Proto UI Dialog focus is not ready: {id}");
+            }
+            Ok(FocusOperationResult::Rejected) => {
+                self.snapshot.status_message = format!("Proto UI Dialog focus was rejected: {id}");
+            }
+            Err(error) => {
+                self.snapshot.status_message = format!("Proto UI Dialog focus failed: {error}");
+            }
+        }
+    }
+
+    fn handle_dialog_key(&mut self, id: &str, key: &str) {
+        if let Err(error) = self.proto.dispatch_dialog_key(id, key) {
+            self.snapshot.status_message = format!("Proto UI Dialog key failed: {error}");
+        }
+    }
+
+    fn handle_dialog_blur(&mut self, id: &str) {
+        if let Err(error) = self.proto.blur_dialog(id) {
+            self.snapshot.status_message = format!("Proto UI Dialog blur failed: {error}");
+        }
+    }
+
+    fn open_profile_dialog(&mut self, source: InputSource) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
+        match self.proto.press_profile_trigger(source) {
+            Ok(outcome) if outcome.trigger_press_count == 1 => {
+                self.snapshot.status_message =
+                    "Profile apply requires explicit confirmation".to_owned();
+            }
+            Ok(_) => {}
+            Err(error) => {
+                self.snapshot.status_message = format!("Profile confirmation unavailable: {error}");
+            }
+        }
+    }
+
+    fn cancel_profile_dialog(&mut self) {
+        match self
+            .proto
+            .press_profile_close(PROFILE_DIALOG_CANCEL_ID, InputSource::Accessibility)
+        {
+            Ok(_) => {}
+            Err(error) => {
+                self.snapshot.status_message =
+                    format!("Profile confirmation close failed: {error}");
+            }
+        }
+    }
+
+    fn confirm_profile_dialog(&mut self) {
+        match self
+            .proto
+            .press_profile_close(PROFILE_DIALOG_CONFIRM_ID, InputSource::Accessibility)
+        {
+            Ok(outcome) if outcome.close_press_count == 1 => self.apply_profile_confirmed(),
+            Ok(_) => {}
+            Err(error) => {
+                self.snapshot.status_message = format!("Profile confirmation failed: {error}");
+            }
+        }
+    }
+
+    fn open_bios_dialog(&mut self, source: InputSource) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
+        match self.proto.press_bios_trigger(source) {
+            Ok(outcome) if outcome.trigger_press_count == 1 => {
+                self.snapshot.status_message =
+                    "BIOS write requires explicit confirmation".to_owned();
+            }
+            Ok(_) => {}
+            Err(error) => {
+                self.snapshot.status_message = format!("BIOS confirmation unavailable: {error}");
+            }
+        }
+    }
+
+    fn cancel_bios_dialog(&mut self) {
+        match self
+            .proto
+            .press_bios_close(BIOS_DIALOG_CANCEL_ID, InputSource::Accessibility)
+        {
+            Ok(_) => {}
+            Err(error) => {
+                self.snapshot.status_message = format!("BIOS confirmation close failed: {error}");
+            }
+        }
+    }
+
+    fn confirm_bios_dialog(&mut self) {
+        match self
+            .proto
+            .press_bios_close(BIOS_DIALOG_CONFIRM_ID, InputSource::Accessibility)
+        {
+            Ok(outcome) if outcome.close_press_count == 1 => self.apply_bios_write(),
+            Ok(_) => {}
+            Err(error) => {
+                self.snapshot.status_message = format!("BIOS confirmation failed: {error}");
             }
         }
     }
@@ -2201,7 +3142,7 @@ impl Dashboard {
         };
     }
 
-    fn apply_profile(&mut self) {
+    fn apply_profile_confirmed(&mut self) {
         let result = self.profile_source().and_then(|source| {
             let name = Self::validated_profile_name(&source)?;
             let saved_name = self.controller.save_profile(&source)?;
@@ -2210,16 +3151,46 @@ impl Dashboard {
                     detail: format!("profile saved as {saved_name}, expected {name}"),
                 });
             }
-            let args = ["--dry-run", "tune", "profile", "apply", name.as_str()];
+            let args = ["--yes", "tune", "profile", "apply", name.as_str()];
             self.controller.execute(&args)
         });
         self.snapshot.status_message = match result {
             Ok(message) => message.trim().to_owned(),
-            Err(error) => format!("Profile apply failed: {error}"),
+            Err(error) => {
+                format!("Profile apply failed: {error}; recovery: sailbreak tune restore")
+            }
+        };
+    }
+
+    fn apply_bios_write(&mut self) {
+        let Some(request) = self.proto.bios_write_request.clone() else {
+            self.snapshot.status_message =
+                "BIOS write unavailable: typed readback is not attached".to_owned();
+            return;
+        };
+        let args = [
+            "--yes",
+            "bios",
+            "set",
+            request.setting.as_str(),
+            request.requested_value.as_str(),
+            "--save",
+        ];
+        self.snapshot.status_message = match self.controller.execute(&args) {
+            Ok(message) => message.trim().to_owned(),
+            Err(error) => {
+                format!(
+                    "BIOS write failed: {error}; recovery: {}",
+                    request.recovery_command()
+                )
+            }
         };
     }
 
     fn apply_action(&mut self, action: DashboardAction) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
         match action {
             DashboardAction::Refresh => match self.controller.refresh() {
                 Ok(mut snapshot) => {
@@ -2231,7 +3202,6 @@ impl Dashboard {
                 }
             },
             DashboardAction::SaveProfile => self.save_profile(),
-            DashboardAction::ApplyProfile => self.apply_profile(),
             DashboardAction::RunCommand(args) => match self.controller.execute(args) {
                 Ok(message) => {
                     self.snapshot.status_message = message.trim().to_owned();
@@ -2254,6 +3224,9 @@ impl Dashboard {
         source: InputSource,
         detail: Option<serde_json::Value>,
     ) -> bool {
+        if self.proto.dialog_modal_blocking() && !ProtoUiState::is_dialog_id(id) {
+            return false;
+        }
         match self.proto.dispatch(id, kind, source, detail) {
             Ok(outcome) => {
                 if let Some(diagnostic) = outcome.diagnostics.last() {
@@ -2275,6 +3248,9 @@ impl Dashboard {
         source: InputSource,
         detail: Option<serde_json::Value>,
     ) -> bool {
+        if self.proto.dialog_modal_blocking() {
+            return false;
+        }
         match self.proto.dispatch_toggle(id, kind, source, detail) {
             Ok(outcome) => {
                 if let Some(diagnostic) = outcome.diagnostics.last() {
@@ -2467,6 +3443,8 @@ fn section_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Stateful
         .child(separator_view(dashboard, CAPABILITY_SEPARATOR_ID));
     if index == TUNING_SECTION_INDEX {
         panel = panel.child(tuning_panel(dashboard, cx));
+    } else if index == BIOS_SECTION_INDEX {
+        panel = panel.child(bios_panel(dashboard, cx));
     } else {
         panel = panel
             .child(capability_matrix(&dashboard.snapshot.capabilities))
@@ -2479,6 +3457,7 @@ impl Render for Dashboard {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_tab_focus_handles(window, cx);
         self.ensure_dropdown_focus_handles(window, cx);
+        self.ensure_dialog_focus_handles(window, cx);
         if self.active_section == TUNING_SECTION_INDEX {
             self.ensure_textarea_input(window, cx);
         }
@@ -3326,7 +4305,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_profile_uses_the_exact_dry_run_gateway_once() {
+    fn profile_confirmation_is_modal_and_commits_through_controller_once() {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         struct Recorder {
@@ -3360,13 +4339,41 @@ mod tests {
             controller.clone(),
         );
 
-        dashboard.apply_profile();
+        dashboard.open_profile_dialog(InputSource::Accessibility);
+        assert!(dashboard.proto.dialog_modal_blocking());
+        dashboard.handle_dialog_key(PROFILE_DIALOG_CONTENT_ID, "Escape");
+        assert!(!dashboard.proto.dialog_modal_blocking());
+        assert_eq!(controller.calls.load(Ordering::SeqCst), 0);
+        dashboard.open_profile_dialog(InputSource::Keyboard);
+        assert!(dashboard.proto.dialog_modal_blocking());
+        dashboard.handle_accessible_proto_click(
+            "battery-status",
+            DashboardAction::RunCommand(BATTERY_STATUS_COMMAND),
+        );
+        assert_eq!(controller.calls.load(Ordering::SeqCst), 0);
 
+        dashboard.confirm_profile_dialog();
         assert_eq!(controller.calls.load(Ordering::SeqCst), 1);
         assert_eq!(controller.saves.load(Ordering::SeqCst), 1);
         assert_eq!(
             dashboard.snapshot.status_message,
-            "executed --dry-run tune profile apply sailbreak-gui"
+            "executed --yes tune profile apply sailbreak-gui"
+        );
+
+        dashboard.confirm_profile_dialog();
+        assert_eq!(controller.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn bios_confirmation_stays_unavailable_without_typed_readback() {
+        let dashboard = Dashboard::new(DashboardSnapshot::unavailable(Platform::Linux, "initial"));
+        assert!(dashboard.proto.bios_dialog_snapshot().is_none());
+        assert!(
+            dashboard
+                .proto
+                .bios_dialog_error
+                .as_deref()
+                .is_some_and(|error| error.contains("readback") || error.contains("unsupported"))
         );
     }
 }

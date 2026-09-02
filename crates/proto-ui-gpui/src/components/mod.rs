@@ -1,5 +1,6 @@
 mod adapter;
 mod checkbox;
+mod dialog;
 mod dropdown;
 mod select;
 mod separator;
@@ -23,6 +24,14 @@ pub use switch::{
     SwitchThumbSnapshot,
 };
 
+pub use dialog::{
+    DialogCloseProps, DialogCloseSnapshot, DialogContentProps, DialogContentSnapshot,
+    DialogDescriptionProps, DialogDescriptionSnapshot, DialogDispatchOutcome, DialogFooterProps,
+    DialogFooterSnapshot, DialogHeaderProps, DialogHeaderSnapshot, DialogMaskProps,
+    DialogMaskSnapshot, DialogRootProps, DialogRootSnapshot, DialogSnapshot, DialogTitleProps,
+    DialogTitleSnapshot, DialogTriggerProps, DialogTriggerSnapshot, ProtoDialogHost,
+    ProtoDialogSnapshot,
+};
 pub use dropdown::{
     DropdownContentProps, DropdownContentSnapshot, DropdownDispatchOutcome, DropdownItemProps,
     DropdownItemSnapshot, DropdownItemVariant, DropdownOpenEntry, DropdownRootProps,
