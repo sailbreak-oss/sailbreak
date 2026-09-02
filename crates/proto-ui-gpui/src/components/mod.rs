@@ -2,6 +2,7 @@ mod adapter;
 mod checkbox;
 mod separator;
 mod switch;
+mod textarea;
 mod toggle;
 
 pub use adapter::{AdapterDispatchOutcome, AdapterSnapshot, ProtoAdapter, PrototypeProfile};
@@ -19,6 +20,9 @@ pub use switch::{
     SwitchThumbSnapshot,
 };
 
+pub use textarea::{
+    ProtoTextareaHost, ProtoTextareaSnapshot, TextareaDispatchOutcome, TextareaProps, TextareaWrap,
+};
 pub use toggle::{
     ProtoToggleHost, ProtoToggleSnapshot, ToggleDispatchOutcome, ToggleProps, ToggleSize,
     ToggleVariant,

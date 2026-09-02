@@ -7,16 +7,16 @@
 use std::{cell::RefCell, env, rc::Rc, sync::Arc};
 
 use gpui::{
-    App, Bounds, Context, Div, IntoElement, Render, Stateful, Window, WindowBounds, WindowOptions,
-    div, prelude::*, px, rgb, size,
+    App, Bounds, Context, Div, Entity, IntoElement, Render, Stateful, Subscription, Window,
+    WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
 };
 use lctrl_core::{Availability, CapabilitySet, HardwareInfo, LctrlError, Platform, Result};
 use lctrl_hal::Hal;
 use proto_ui_gpui::{
     BridgeError, DispatchOutcome, InputKind, InputSource, ProtoButtonHost, ProtoButtonState,
-    ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoToggleHost, ProtoToggleSnapshot,
-    SeparatorProps, ShadcnButtonSize, ShadcnButtonVariant, ToggleDispatchOutcome, ToggleProps,
-    ToggleSize, ToggleVariant,
+    ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoTextareaHost, ProtoTextareaSnapshot,
+    ProtoToggleHost, ProtoToggleSnapshot, SeparatorProps, ShadcnButtonSize, ShadcnButtonVariant,
+    TextareaProps, ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
 };
 
 mod proto_surface;
@@ -90,12 +90,19 @@ enum DashboardAction {
     SelectSection(usize),
     Refresh,
     RunCommand(&'static [&'static str]),
+    SaveProfile,
+    ApplyProfile,
 }
 
 /// Platform composition root used by the interactive dashboard.
 pub trait GuiController: Send + Sync {
     fn refresh(&self) -> Result<DashboardSnapshot>;
     fn execute(&self, args: &[&str]) -> Result<String>;
+    fn save_profile(&self, _source: &str) -> Result<String> {
+        Err(LctrlError::Unsupported {
+            feature: "gui.profile-persistence".into(),
+        })
+    }
 }
 
 struct StaticController {
@@ -169,6 +176,18 @@ const ACTION_BUTTONS: [(&str, &str, ShadcnButtonVariant, ShadcnButtonSize); 7] =
     ),
 ];
 const PERFORMANCE_PREVIEW_TOGGLE_ID: &str = "performance-preview";
+const TUNING_SECTION_INDEX: usize = 5;
+const TUNING_PROFILE_EDITOR_ID: &str = "tuning-profile-editor";
+const TUNING_PROFILE_SAVE_ID: &str = "tuning-profile-save";
+const TUNING_PROFILE_APPLY_ID: &str = "tuning-profile-apply";
+const TUNING_PROFILE_DRAFT: &str = r#"schema = 1
+
+[profile]
+name = "sailbreak-gui"
+description = "Sailbreak tuning profile draft"
+
+[goal]
+"#;
 const MAIN_HEADER_SEPARATOR_ID: &str = "main-header-separator";
 const ACTION_SEPARATOR_ID: &str = "action-separator";
 const CAPABILITY_SEPARATOR_ID: &str = "capability-separator";
@@ -187,28 +206,44 @@ struct ProtoUiState {
     host: Option<ProtoButtonHost>,
     toggle_host: Option<ProtoToggleHost>,
     separator_host: Option<ProtoSeparatorHost>,
+    textarea_host: Option<ProtoTextareaHost>,
+    textarea_snapshot: Option<ProtoTextareaSnapshot>,
+    textarea_error: Option<String>,
     error: Option<String>,
 }
 
 impl ProtoUiState {
     fn new() -> Self {
-        match Self::build() {
-            Ok((host, toggle_host, separator_host)) => Self {
-                host: Some(host),
-                toggle_host: Some(toggle_host),
-                separator_host: Some(separator_host),
-                error: None,
-            },
-            Err(error) => Self {
-                host: None,
-                toggle_host: None,
-                separator_host: None,
-                error: Some(error.to_string()),
-            },
+        let (host, toggle_host, separator_host) = match Self::build_core() {
+            Ok(hosts) => hosts,
+            Err(error) => {
+                return Self {
+                    host: None,
+                    toggle_host: None,
+                    separator_host: None,
+                    textarea_host: None,
+                    textarea_snapshot: None,
+                    textarea_error: None,
+                    error: Some(error.to_string()),
+                };
+            }
+        };
+        let (textarea_host, textarea_snapshot, textarea_error) = match Self::build_textarea() {
+            Ok((host, snapshot)) => (Some(host), Some(snapshot), None),
+            Err(error) => (None, None, Some(error.to_string())),
+        };
+        Self {
+            host: Some(host),
+            toggle_host: Some(toggle_host),
+            separator_host: Some(separator_host),
+            textarea_host,
+            textarea_snapshot,
+            textarea_error,
+            error: None,
         }
     }
 
-    fn build()
+    fn build_core()
     -> std::result::Result<(ProtoButtonHost, ProtoToggleHost, ProtoSeparatorHost), BridgeError>
     {
         let mut host = ProtoButtonHost::new()?;
@@ -228,6 +263,18 @@ impl ProtoUiState {
         for (id, label, variant, size) in ACTION_BUTTONS {
             host.register_button(id, label, variant, size)?;
         }
+        host.register_button(
+            TUNING_PROFILE_SAVE_ID,
+            "SAVE PROFILE",
+            ShadcnButtonVariant::Default,
+            ShadcnButtonSize::Sm,
+        )?;
+        host.register_button(
+            TUNING_PROFILE_APPLY_ID,
+            "APPLY DRY-RUN",
+            ShadcnButtonVariant::Outline,
+            ShadcnButtonSize::Sm,
+        )?;
 
         let mut toggle_host = ProtoToggleHost::new()?;
         toggle_host.register(
@@ -246,12 +293,39 @@ impl ProtoUiState {
         Ok((host, toggle_host, separator_host))
     }
 
+    fn build_textarea()
+    -> std::result::Result<(ProtoTextareaHost, ProtoTextareaSnapshot), BridgeError> {
+        let mut textarea_host = ProtoTextareaHost::new()?;
+        textarea_host.register(
+            TUNING_PROFILE_EDITOR_ID,
+            "Tuning profile DSL",
+            TextareaProps {
+                default_value: TUNING_PROFILE_DRAFT.to_owned(),
+                placeholder: "schema-v1 profile TOML".to_owned(),
+                rows: 12,
+                name: "tuning-profile".to_owned(),
+                ..TextareaProps::default()
+            },
+        )?;
+        let textarea_snapshot = textarea_host.snapshot(TUNING_PROFILE_EDITOR_ID)?;
+        Ok((textarea_host, textarea_snapshot))
+    }
+
     fn unavailable_error(&self) -> BridgeError {
         BridgeError::Runtime {
             detail: self
                 .error
                 .clone()
                 .unwrap_or_else(|| "Proto UI host is unavailable".to_owned()),
+        }
+    }
+
+    fn textarea_unavailable_error(&self) -> BridgeError {
+        BridgeError::Runtime {
+            detail: self
+                .textarea_error
+                .clone()
+                .unwrap_or_else(|| "Proto UI textarea host is unavailable".to_owned()),
         }
     }
 
@@ -271,6 +345,10 @@ impl ProtoUiState {
             .as_ref()
             .ok_or_else(|| self.unavailable_error())?
             .snapshot(id)
+    }
+
+    fn textarea_snapshot(&self) -> Option<&ProtoTextareaSnapshot> {
+        self.textarea_snapshot.as_ref()
     }
 
     fn dispatch(
@@ -324,6 +402,51 @@ impl ProtoUiState {
             .as_mut()
             .ok_or(unavailable)?
             .set_variant(id, variant)
+    }
+
+    fn dispatch_textarea(
+        &mut self,
+        event: &proto_surface::ProtoTextareaNativeEvent,
+    ) -> std::result::Result<(), BridgeError> {
+        let (id, epoch, text, selection) = match event {
+            proto_surface::ProtoTextareaNativeEvent::Text {
+                id,
+                epoch,
+                event,
+                selection,
+            } => (id.as_str(), *epoch, event.clone(), *selection),
+        };
+        let unavailable = self.textarea_unavailable_error();
+        let host = self.textarea_host.as_mut().ok_or(unavailable)?;
+        host.dispatch_text_with_selection_at_epoch(id, epoch, text, selection)?;
+        self.textarea_snapshot = Some(host.snapshot(id)?);
+        Ok(())
+    }
+
+    fn dispatch_textarea_change(&mut self, id: &str) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.textarea_unavailable_error();
+        let host = self.textarea_host.as_mut().ok_or(unavailable)?;
+        host.change(id)?;
+        self.textarea_snapshot = Some(host.snapshot(id)?);
+        Ok(())
+    }
+
+    fn dispatch_textarea_focus(
+        &mut self,
+        id: &str,
+        focused: bool,
+        source: InputSource,
+    ) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.textarea_unavailable_error();
+        let host = self.textarea_host.as_mut().ok_or(unavailable)?;
+        let kind = if focused {
+            InputKind::Focus
+        } else {
+            InputKind::Blur
+        };
+        host.dispatch(id, kind, source, None)?;
+        self.textarea_snapshot = Some(host.snapshot(id)?);
+        Ok(())
     }
 }
 
@@ -579,6 +702,75 @@ fn action_bar(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoEl
     ])
 }
 
+fn tuning_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoElement {
+    let Some(snapshot) = dashboard.proto.textarea_snapshot() else {
+        let detail = dashboard.proto.textarea_error.as_deref().map_or_else(
+            || "Tuning profile editor unavailable".to_owned(),
+            |error| format!("Tuning profile editor unavailable: {error}"),
+        );
+        return div()
+            .border_1()
+            .border_color(rgb(UNAVAILABLE))
+            .p_4()
+            .text_sm()
+            .text_color(rgb(UNAVAILABLE))
+            .child(detail);
+    };
+    let Some(input) = dashboard.textarea_input.clone() else {
+        return div()
+            .border_1()
+            .border_color(rgb(UNAVAILABLE))
+            .p_4()
+            .text_sm()
+            .text_color(rgb(UNAVAILABLE))
+            .child("Tuning profile editor is not mounted");
+    };
+    let save = action_button(
+        dashboard,
+        cx,
+        TUNING_PROFILE_SAVE_ID,
+        "SAVE PROFILE",
+        DashboardAction::SaveProfile,
+    );
+    let apply = action_button(
+        dashboard,
+        cx,
+        TUNING_PROFILE_APPLY_ID,
+        "APPLY DRY-RUN",
+        DashboardAction::ApplyProfile,
+    );
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .min_h_0()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .justify_between()
+                .items_center()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(SIGNAL))
+                        .child("TUNING / SCHEMA-V1 PROFILE DSL"),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(MUTED))
+                        .child(format!("{} UTF-8 bytes", snapshot.native_value.len())),
+                ),
+        )
+        .child(proto_surface::textarea_element(
+            TUNING_PROFILE_EDITOR_ID,
+            input,
+            snapshot,
+        ))
+        .child(div().flex().flex_row().gap_2().child(save).child(apply))
+}
+
 /// Open the Sailbreak dashboard with a read-only snapshot.
 ///
 /// A real Wayland or X11 session is required on Linux. Calling this from SSH
@@ -610,6 +802,7 @@ pub fn run_with_controller(
     let failure = Rc::new(RefCell::new(None::<String>));
     let reported_failure = Rc::clone(&failure);
     gpui_platform::application().run(move |cx: &mut App| {
+        proto_surface::bind_textarea_keys(cx);
         let bounds = Bounds::centered(None, size(px(WINDOW_WIDTH), px(WINDOW_HEIGHT)), cx);
         if let Err(error) = cx.open_window(
             WindowOptions {
@@ -649,6 +842,10 @@ pub struct Dashboard {
     controller: Arc<dyn GuiController>,
     active_section: usize,
     proto: ProtoUiState,
+    textarea_input: Option<Entity<proto_surface::ProtoTextareaInput>>,
+    textarea_subscription: Option<Subscription>,
+    textarea_focus_subscription: Option<Subscription>,
+    textarea_blur_subscription: Option<Subscription>,
 }
 
 impl Dashboard {
@@ -674,7 +871,139 @@ impl Dashboard {
             controller,
             active_section: 0,
             proto,
+            textarea_input: None,
+            textarea_subscription: None,
+            textarea_focus_subscription: None,
+            textarea_blur_subscription: None,
         }
+    }
+
+    fn ensure_textarea_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.textarea_input.is_some() {
+            return;
+        }
+        let Some(snapshot) = self.proto.textarea_snapshot().cloned() else {
+            return;
+        };
+        let input = cx.new(|cx| proto_surface::ProtoTextareaInput::from_snapshot(&snapshot, cx));
+        let textarea_subscription = cx.subscribe(
+            &input,
+            |this, _, event: &proto_surface::ProtoTextareaNativeEvent, cx| {
+                this.handle_textarea_native_event(event, cx);
+                cx.notify();
+            },
+        );
+        let focus_handle = input.read(cx).focus_handle();
+        let textarea_focus_subscription = cx.on_focus(&focus_handle, window, |this, window, cx| {
+            let source = if window.last_input_was_keyboard() {
+                InputSource::Keyboard
+            } else {
+                InputSource::Mouse
+            };
+            this.handle_textarea_focus(TUNING_PROFILE_EDITOR_ID, true, source, cx);
+            cx.notify();
+        });
+        let blur_input = input.clone();
+        let textarea_blur_subscription = cx.on_blur(&focus_handle, window, move |this, _, cx| {
+            let changed = blur_input.update(cx, |input, _| input.take_dirty());
+            this.handle_textarea_blur(TUNING_PROFILE_EDITOR_ID, changed, cx);
+            cx.notify();
+        });
+        self.textarea_input = Some(input);
+        self.textarea_subscription = Some(textarea_subscription);
+        self.textarea_focus_subscription = Some(textarea_focus_subscription);
+        self.textarea_blur_subscription = Some(textarea_blur_subscription);
+    }
+
+    fn sync_textarea_input(&mut self, cx: &mut Context<Self>) {
+        let Some(snapshot) = self.proto.textarea_snapshot().cloned() else {
+            return;
+        };
+        let Some(input) = self.textarea_input.as_ref() else {
+            return;
+        };
+        input.update(cx, |input, _| input.sync_snapshot(&snapshot));
+    }
+
+    fn handle_textarea_native_event(
+        &mut self,
+        event: &proto_surface::ProtoTextareaNativeEvent,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = self.proto.dispatch_textarea(event) {
+            self.snapshot.status_message = format!("Profile editor input failed: {error}");
+        }
+        self.sync_textarea_input(cx);
+    }
+
+    fn handle_textarea_focus(
+        &mut self,
+        id: &str,
+        focused: bool,
+        source: InputSource,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = self.proto.dispatch_textarea_focus(id, focused, source) {
+            self.snapshot.status_message = format!("Profile editor focus failed: {error}");
+        }
+        self.sync_textarea_input(cx);
+    }
+
+    fn handle_textarea_blur(&mut self, id: &str, changed: bool, cx: &mut Context<Self>) {
+        if changed && let Err(error) = self.proto.dispatch_textarea_change(id) {
+            self.snapshot.status_message = format!("Profile editor change failed: {error}");
+        }
+        self.handle_textarea_focus(id, false, InputSource::Programmatic, cx);
+    }
+
+    fn profile_source(&self) -> Result<String> {
+        self.proto
+            .textarea_snapshot()
+            .map(|snapshot| snapshot.native_value.clone())
+            .ok_or_else(|| LctrlError::Unsupported {
+                feature: "gui.tuning-profile-editor".into(),
+            })
+    }
+
+    fn validated_profile_name(source: &str) -> Result<String> {
+        lctrl_tune::parse_profile_toml(source, lctrl_tune::ProfileOrigin::User)
+            .map(|document| document.profile.name.as_str().to_owned())
+    }
+
+    fn save_profile(&mut self) {
+        let result = self.profile_source().and_then(|source| {
+            let name = Self::validated_profile_name(&source)?;
+            self.controller
+                .save_profile(&source)
+                .map(|saved_name| (name, saved_name))
+        });
+        self.snapshot.status_message = match result {
+            Ok((name, saved_name)) if name == saved_name => {
+                format!("Tuning profile {name} saved")
+            }
+            Ok((name, saved_name)) => {
+                format!("Tuning profile {name} saved as {saved_name}")
+            }
+            Err(error) => format!("Profile save failed: {error}"),
+        };
+    }
+
+    fn apply_profile(&mut self) {
+        let result = self.profile_source().and_then(|source| {
+            let name = Self::validated_profile_name(&source)?;
+            let saved_name = self.controller.save_profile(&source)?;
+            if saved_name != name {
+                return Err(LctrlError::InvalidArgument {
+                    detail: format!("profile saved as {saved_name}, expected {name}"),
+                });
+            }
+            let args = ["--dry-run", "tune", "profile", "apply", name.as_str()];
+            self.controller.execute(&args)
+        });
+        self.snapshot.status_message = match result {
+            Ok(message) => message.trim().to_owned(),
+            Err(error) => format!("Profile apply failed: {error}"),
+        };
     }
 
     fn apply_action(&mut self, action: DashboardAction) {
@@ -712,6 +1041,8 @@ impl Dashboard {
                     self.snapshot.status_message = format!("Refresh failed: {error}");
                 }
             },
+            DashboardAction::SaveProfile => self.save_profile(),
+            DashboardAction::ApplyProfile => self.apply_profile(),
             DashboardAction::RunCommand(args) => match self.controller.execute(args) {
                 Ok(message) => {
                     self.snapshot.status_message = message.trim().to_owned();
@@ -822,7 +1153,10 @@ impl Dashboard {
 }
 
 impl Render for Dashboard {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.active_section == TUNING_SECTION_INDEX {
+            self.ensure_textarea_input(window, cx);
+        }
         let snapshot = &self.snapshot;
         div()
             .size_full()
@@ -847,7 +1181,10 @@ impl Render for Dashboard {
                     .child(action_bar(self, cx))
                     .child(separator_view(self, CAPABILITY_SEPARATOR_ID))
                     .child(capability_matrix(&snapshot.capabilities))
-                    .child(telemetry_panel(snapshot)),
+                    .child(telemetry_panel(snapshot))
+                    .when(self.active_section == TUNING_SECTION_INDEX, |this| {
+                        this.child(tuning_panel(self, cx))
+                    }),
             )
     }
 }
@@ -1437,6 +1774,129 @@ mod tests {
                 .toggle(PERFORMANCE_PREVIEW_TOGGLE_ID)
                 .unwrap()
                 .active
+        );
+    }
+
+    #[test]
+    fn tuning_editor_registers_lazily_for_the_tuning_section() {
+        let dashboard = Dashboard::new(DashboardSnapshot::unavailable(Platform::Linux, "initial"));
+
+        let snapshot = dashboard
+            .proto
+            .textarea_snapshot()
+            .expect("tuning editor is registered");
+        assert_eq!(snapshot.id, TUNING_PROFILE_EDITOR_ID);
+        assert_eq!(SECTION_NAMES[TUNING_SECTION_INDEX].1, "TUNING");
+        assert!(snapshot.value.starts_with("schema = 1"));
+        // The native entity is composed lazily, only when the Tuning section
+        // is rendered, so other sections never host a text input.
+        assert!(dashboard.textarea_input.is_none());
+    }
+
+    #[test]
+    fn save_validation_rejects_non_schema_v1_drafts() {
+        let dashboard = Dashboard::new(DashboardSnapshot::unavailable(Platform::Linux, "initial"));
+        let snapshot = dashboard
+            .proto
+            .textarea_snapshot()
+            .cloned()
+            .expect("tuning editor is registered");
+        assert_eq!(
+            Dashboard::validated_profile_name(&snapshot.native_value)
+                .expect("draft is a valid schema-v1 profile"),
+            "sailbreak-gui"
+        );
+
+        let unsupported_schema = "schema = 2\n[profile]\nname = \"x\"\n";
+        assert!(Dashboard::validated_profile_name(unsupported_schema).is_err());
+        let missing_name = "[profile]\ndescription = \"no name\"\n";
+        assert!(Dashboard::validated_profile_name(missing_name).is_err());
+    }
+
+    #[test]
+    fn save_profile_routes_through_the_controller_gateway() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct SaveRecorder {
+            saved: AtomicUsize,
+        }
+
+        impl GuiController for SaveRecorder {
+            fn refresh(&self) -> Result<DashboardSnapshot> {
+                Ok(DashboardSnapshot::unavailable(Platform::Linux, "refreshed"))
+            }
+
+            fn execute(&self, _args: &[&str]) -> Result<String> {
+                panic!("save must not run a command")
+            }
+
+            fn save_profile(&self, source: &str) -> Result<String> {
+                let document =
+                    lctrl_tune::parse_profile_toml(source, lctrl_tune::ProfileOrigin::User)?;
+                self.saved.fetch_add(1, Ordering::SeqCst);
+                Ok(document.profile.name.as_str().to_owned())
+            }
+        }
+
+        let controller = Arc::new(SaveRecorder {
+            saved: AtomicUsize::new(0),
+        });
+        let mut dashboard = Dashboard::with_controller(
+            DashboardSnapshot::unavailable(Platform::Linux, "initial"),
+            controller.clone(),
+        );
+
+        dashboard.save_profile();
+
+        assert_eq!(controller.saved.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            dashboard.snapshot.status_message,
+            "Tuning profile sailbreak-gui saved"
+        );
+    }
+
+    #[test]
+    fn apply_profile_uses_the_exact_dry_run_gateway_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Recorder {
+            calls: AtomicUsize,
+            saves: AtomicUsize,
+        }
+
+        impl GuiController for Recorder {
+            fn refresh(&self) -> Result<DashboardSnapshot> {
+                Ok(DashboardSnapshot::unavailable(Platform::Linux, "refreshed"))
+            }
+
+            fn execute(&self, args: &[&str]) -> Result<String> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Ok(format!("executed {}", args.join(" ")))
+            }
+
+            fn save_profile(&self, source: &str) -> Result<String> {
+                let name = Dashboard::validated_profile_name(source)?;
+                self.saves.fetch_add(1, Ordering::SeqCst);
+                Ok(name)
+            }
+        }
+
+        let controller = Arc::new(Recorder {
+            calls: AtomicUsize::new(0),
+            saves: AtomicUsize::new(0),
+        });
+        let mut dashboard = Dashboard::with_controller(
+            DashboardSnapshot::unavailable(Platform::Linux, "initial"),
+            controller.clone(),
+        );
+
+        dashboard.apply_profile();
+
+        assert_eq!(controller.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(controller.saves.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            dashboard.snapshot.status_message,
+            "executed --dry-run tune profile apply sailbreak-gui"
         );
     }
 }

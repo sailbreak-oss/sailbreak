@@ -82,6 +82,13 @@
       [MODULE_DECLARATION_TOKEN_BRAND]: true
     });
   }
+  function declareModule(token, config) {
+    if (token?.[MODULE_DECLARATION_TOKEN_BRAND] !== true) {
+      throw new Error(`[Prototype] declareModule() expects a ModuleDeclarationToken.`);
+    }
+    const frozenConfig = config !== null && typeof config === "object" ? Object.freeze(config) : config;
+    return Object.freeze({ id: token.id, token, config: frozenConfig });
+  }
   function normalizeAsHookRender(value) {
     if (typeof value !== "undefined" && typeof value !== "function") {
       throw new Error(`[AsHook] setup() must return render function or void, got: ${typeof value}.`);
@@ -11048,6 +11055,9 @@
 
   // ../packages/modules/text-control/src/declaration.ts
   var TEXT_CONTROL_DECLARATION = moduleDeclaration("@proto.ui/text-control/declaration");
+  function declareTextControl(config) {
+    return declareModule(TEXT_CONTROL_DECLARATION, config);
+  }
 
   // ../packages/modules/text-control/src/impl.ts
   var EMPTY_PATCH = Object.freeze({});
@@ -12689,6 +12699,9 @@
     }
   });
   // ../packages/hooks/src/as-text-control.ts
+  function asTextControl() {
+    return getTextControl();
+  }
   var getTextControl = definePrivilegedAsHook({
     name: "asTextControl",
     setup: ({ facades }) => {
@@ -12839,6 +12852,171 @@
       }
       facade.apply();
     }
+  });
+  // ../packages/prototypes/base/src/textarea/root.proto.ts
+  function setupTextareaRoot(def2) {
+    def2.props.define({
+      value: { type: "string", empty: "fallback" },
+      defaultValue: { type: "string", empty: "fallback" },
+      disabled: { type: "boolean", empty: "fallback" },
+      readOnly: { type: "boolean", empty: "fallback" },
+      placeholder: { type: "string", empty: "fallback" },
+      rows: { type: "number", empty: "fallback" },
+      required: { type: "boolean", empty: "fallback" },
+      name: { type: "string", empty: "fallback" },
+      autoComplete: { type: "string", empty: "fallback" },
+      minLength: { type: "number", empty: "fallback" },
+      maxLength: { type: "number", empty: "fallback" },
+      wrap: { type: "enum", empty: "fallback", options: ["soft", "hard"] },
+      ariaLabel: { type: "string", empty: "fallback" },
+      labelledBy: { type: "string", empty: "fallback" },
+      describedBy: { type: "string", empty: "fallback" }
+    });
+    def2.props.setDefaults({
+      defaultValue: "",
+      disabled: false,
+      readOnly: false,
+      placeholder: "",
+      rows: 2,
+      required: false,
+      name: "",
+      autoComplete: "",
+      minLength: -1,
+      maxLength: -1,
+      wrap: "soft",
+      ariaLabel: "",
+      labelledBy: "",
+      describedBy: ""
+    });
+    const control = asTextControl();
+    const focusable = asFocusable();
+    focusable.configure({ disabled: false });
+    const value = def2.state.string("value", "");
+    const disabled = def2.state.bool("disabled", false);
+    const readOnly = def2.state.bool("readOnly", false);
+    const composing = def2.state.bool("composing", false);
+    const ariaLabel = def2.state.string("textareaAriaLabel", "");
+    const labelledBy = def2.state.string("textareaLabelledBy", "");
+    const describedBy = def2.state.string("textareaDescribedBy", "");
+    const focused = focusable.focused;
+    const focusVisible = focusable.focusVisible;
+    def2.expose.state("value", value);
+    def2.expose.state("disabled", disabled);
+    def2.expose.state("readOnly", readOnly);
+    def2.expose.state("focused", focused);
+    def2.expose.state("focusVisible", focusVisible);
+    def2.expose.state("composing", composing);
+    def2.expose.method("focusSelf", (options) => {
+      if (!disabled.get())
+        focusable.focusSelf(options);
+    });
+    def2.expose.method("blurSelf", () => focusable.blur());
+    def2.expose.event("valueChange", { payload: "json" });
+    def2.expose.event("change", { payload: "json" });
+    def2.expose.event("compositionStart", { payload: "json" });
+    def2.expose.event("compositionUpdate", { payload: "json" });
+    def2.expose.event("compositionEnd", { payload: "json" });
+    def2.a11y.role("textbox");
+    def2.a11y.name(ariaLabel);
+    def2.a11y.state("disabled", disabled);
+    def2.a11y.state("readOnly", readOnly);
+    def2.a11y.relation("labelledBy", { target: labelledBy });
+    def2.a11y.relation("describedBy", { target: describedBy });
+    const sync = (props) => {
+      const isControlled = typeof props.value === "string";
+      const nextDisabled = props.disabled ?? false;
+      disabled.set(nextDisabled, "reason: textarea sync disabled");
+      readOnly.set(props.readOnly ?? false, "reason: textarea sync readonly");
+      ariaLabel.set(props.ariaLabel ?? "", "reason: textarea sync aria label");
+      labelledBy.set(props.labelledBy ?? "", "reason: textarea sync labelledby");
+      describedBy.set(props.describedBy ?? "", "reason: textarea sync describedby");
+      focusable.setDisabled(nextDisabled);
+      control.sync({
+        valueMode: isControlled ? "controlled" : "uncontrolled",
+        value: isControlled ? props.value : undefined,
+        defaultValue: props.defaultValue ?? "",
+        disabled: nextDisabled,
+        readOnly: props.readOnly ?? false,
+        placeholder: props.placeholder ?? "",
+        rows: props.rows ?? 2,
+        required: props.required ?? false,
+        name: props.name ?? "",
+        autoComplete: props.autoComplete ?? "",
+        minLength: props.minLength ?? -1,
+        maxLength: props.maxLength ?? -1,
+        wrap: props.wrap ?? "soft"
+      });
+      value.set(control.snapshot()?.value ?? "", "reason: textarea sync value");
+    };
+    def2.lifecycle.onCreated((run2) => sync(run2.props.get()));
+    def2.props.watch([
+      "value",
+      "defaultValue",
+      "disabled",
+      "readOnly",
+      "placeholder",
+      "rows",
+      "required",
+      "name",
+      "autoComplete",
+      "minLength",
+      "maxLength",
+      "wrap",
+      "ariaLabel",
+      "labelledBy",
+      "describedBy"
+    ], (_run, next) => sync(next));
+    control.on("input", (run2, event2) => {
+      value.set(control.snapshot()?.value ?? event2.value, "reason: textarea input value");
+      composing.set(event2.composing, "reason: textarea input composing");
+      const detail = Object.freeze({
+        value: event2.value,
+        composing: event2.composing,
+        data: event2.data,
+        inputType: event2.inputType
+      });
+      run2.expose.emit("valueChange", detail);
+    });
+    control.on("change", (run2, event2) => {
+      value.set(control.snapshot()?.value ?? event2.value, "reason: textarea change value");
+      run2.expose.emit("change", Object.freeze({ value: event2.value }));
+    });
+    const emitComposition = (run2, eventName, event2) => {
+      const detail = Object.freeze({
+        value: event2.value,
+        data: event2.data
+      });
+      run2.expose.emit(eventName, detail);
+    };
+    control.on("compositionstart", (run2, event2) => {
+      composing.set(true, "reason: textarea composition start");
+      emitComposition(run2, "compositionStart", event2);
+    });
+    control.on("compositionupdate", (run2, event2) => {
+      emitComposition(run2, "compositionUpdate", event2);
+    });
+    control.on("compositionend", (run2, event2) => {
+      composing.set(false, "reason: textarea composition end");
+      value.set(control.snapshot()?.value ?? event2.value, "reason: textarea composition end value");
+      emitComposition(run2, "compositionEnd", event2);
+    });
+    return () => null;
+  }
+  var asTextareaRoot = defineAsHook({
+    name: "as-textarea-root",
+    modules: [
+      declareTextControl({
+        content: "plain-text",
+        lineMode: "multiline",
+        engine: "host"
+      })
+    ],
+    setup: setupTextareaRoot
+  });
+  var textareaRoot = definePrototype({
+    name: "base-textarea-root",
+    modules: asTextareaRoot.modules,
+    setup: setupTextareaRoot
   });
   // ../packages/prototypes/base/src/button/button.proto.ts
   function setupButton(def2) {
@@ -13585,7 +13763,7 @@
       });
     }
   });
-  var root_proto_default2 = checkboxRoot2;
+  var root_proto_default3 = checkboxRoot2;
   // ../packages/prototypes/base/src/switch/shared.ts
   var SWITCH_FAMILY = createAnatomyFamily("base-switch", {
     roles: {
@@ -13824,7 +14002,7 @@
       });
     }
   });
-  var root_proto_default4 = switchRoot2;
+  var root_proto_default5 = switchRoot2;
 
   // ../packages/prototypes/shadcn/src/switch/thumb.proto.ts
   var THUMB_TOKENS = [
@@ -14428,7 +14606,7 @@
       def2.feedback.style.use(tw("flex flex-col gap-2"));
     }
   });
-  var root_proto_default6 = tabsRoot2;
+  var root_proto_default7 = tabsRoot2;
 
   // ../packages/prototypes/shadcn/src/tabs/trigger.proto.ts
   var BASE_TOKENS = [
@@ -15302,7 +15480,7 @@
       def2.feedback.style.use(tw("relative inline-flex items-start"));
     }
   });
-  var root_proto_default8 = hoverCardRoot2;
+  var root_proto_default9 = hoverCardRoot2;
 
   // ../packages/prototypes/shadcn/src/hover-card/trigger.proto.ts
   var TRIGGER_BASE_TOKENS = "inline-flex cursor-pointer items-center text-sm font-medium underline-offset-4 outline-none";
@@ -16139,7 +16317,7 @@
       asDropdownRoot();
     }
   });
-  var root_proto_default10 = dropdownRoot2;
+  var root_proto_default11 = dropdownRoot2;
 
   // ../packages/prototypes/shadcn/src/dropdown/trigger.proto.ts
   var TRIGGER_BASE_TOKENS2 = [
@@ -17093,7 +17271,7 @@
       asSelectRoot();
     }
   });
-  var root_proto_default12 = selectRoot2;
+  var root_proto_default13 = selectRoot2;
 
   // ../packages/prototypes/shadcn/src/select/trigger.proto.ts
   function renderChevron(renderer) {
@@ -17319,7 +17497,7 @@
       return () => null;
     }
   });
-  var root_proto_default13 = separatorRoot2;
+  var root_proto_default14 = separatorRoot2;
   // ../packages/prototypes/base/src/dialog/shared.ts
   var nextDialogRootId = 0;
   function createDialogRootId() {
@@ -18080,7 +18258,7 @@
       def2.feedback.style.use(tw("relative inline-flex items-start"));
     }
   });
-  var root_proto_default15 = dialogRoot2;
+  var root_proto_default16 = dialogRoot2;
 
   // ../packages/prototypes/shadcn/src/dialog/title.proto.ts
   var dialogTitle2 = definePrototype({
@@ -18123,7 +18301,7 @@
   });
   var footer_proto_default = dialogFooter;
   // index.ts
-  globalThis.__sailbreak_proto_ui_metadata = { proto_ui_version: "0.3.0-alpha.0", proto_ui_commit: "18b9c78f73135c36fb949f97acc0c2124cbf9ecc" };
+  globalThis.__sailbreak_proto_ui_metadata = { proto_ui_version: "0.3.0-alpha.0", proto_ui_commit: "8d2b5cc14c13ace472f61d9c77aad7e9929e7f0f" };
   var BUILD_METADATA = globalThis.__sailbreak_proto_ui_metadata;
   var PROTO_UI_VERSION = typeof BUILD_METADATA?.proto_ui_version === "string" ? BUILD_METADATA.proto_ui_version : "main-snapshot";
   var PROTO_UI_COMMIT = typeof BUILD_METADATA?.proto_ui_commit === "string" ? BUILD_METADATA.proto_ui_commit : "unrecorded";
@@ -18134,6 +18312,15 @@
   var HOST_PLATFORM = "embedded-quickjs";
   var REGISTRY_DIGEST = `proto-ui-main@${PROTO_UI_COMMIT}`;
   var MAX_BRIDGE_MESSAGE_BYTES = 256 * 1024;
+  var bridgeMicrotasks = [];
+  var microtaskGlobal = globalThis;
+  if (typeof microtaskGlobal.queueMicrotask !== "function") {
+    microtaskGlobal.queueMicrotask = (callback) => {
+      if (bridgeMicrotasks.length >= 256)
+        throw new Error("microtask queue overflow");
+      bridgeMicrotasks.push(callback);
+    };
+  }
 
   class LogicalBus {
     listeners = new Map;
@@ -18153,31 +18340,57 @@
         listener(event2);
     }
   }
+  var TEXTAREA_BASE_TOKENS = "flex min-h-16 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-colors";
+  var shadcnTextareaRoot = definePrototype({
+    name: "shadcn-textarea-root",
+    modules: asTextareaRoot.modules,
+    setup(def2) {
+      const base = asTextareaRoot();
+      const state2 = base.stateHandles;
+      if (!state2)
+        throw new Error("[shadcn-textarea-root] asTextareaRoot must project state handles.");
+      const { disabled, focusVisible } = state2;
+      def2.feedback.style.use(tw(TEXTAREA_BASE_TOKENS));
+      def2.rule({
+        when: (w) => w.state(focusVisible).eq(true),
+        intent: (i) => i.feedback.style.use(tw("border-ring ring-3 ring-ring/50"))
+      });
+      def2.rule({
+        when: (w) => w.state(disabled).eq(true),
+        intent: (i) => i.feedback.style.use(tw("cursor-not-allowed opacity-50"))
+      });
+      def2.rule({
+        when: (w) => w.all(w.meta("colorScheme").eq("dark"), w.state(disabled).eq(false)),
+        intent: (i) => i.feedback.style.use(tw("bg-input/30"))
+      });
+    }
+  });
   var registry = {
     "shadcn-button": button_proto_default,
     "shadcn-toggle": toggle_proto_default,
-    "shadcn-checkbox-root": root_proto_default2,
+    "shadcn-checkbox-root": root_proto_default3,
     "shadcn-checkbox-indicator": indicator_proto_default2,
-    "shadcn-separator-root": root_proto_default13,
-    "shadcn-switch-root": root_proto_default4,
+    "shadcn-separator-root": root_proto_default14,
+    "shadcn-switch-root": root_proto_default5,
     "shadcn-switch-thumb": thumb_proto_default2,
-    "shadcn-tabs-root": root_proto_default6,
+    "shadcn-tabs-root": root_proto_default7,
+    "shadcn-textarea-root": shadcnTextareaRoot,
     "shadcn-tabs-list": list_proto_default2,
     "shadcn-tabs-trigger": trigger_proto_default2,
     "shadcn-tabs-content": content_proto_default2,
-    "shadcn-hover-card-root": root_proto_default8,
+    "shadcn-hover-card-root": root_proto_default9,
     "shadcn-hover-card-trigger": trigger_proto_default4,
     "shadcn-hover-card-content": content_proto_default4,
-    "shadcn-dropdown-root": root_proto_default10,
+    "shadcn-dropdown-root": root_proto_default11,
     "shadcn-dropdown-trigger": trigger_proto_default6,
     "shadcn-dropdown-content": content_proto_default6,
     "shadcn-dropdown-item": item_proto_default2,
-    "shadcn-select-root": root_proto_default12,
+    "shadcn-select-root": root_proto_default13,
     "shadcn-select-trigger": trigger_proto_default8,
     "shadcn-select-value": value_proto_default2,
     "shadcn-select-content": content_proto_default8,
     "shadcn-select-item": item_proto_default4,
-    "shadcn-dialog-root": root_proto_default15,
+    "shadcn-dialog-root": root_proto_default16,
     "shadcn-dialog-trigger": trigger_proto_default10,
     "shadcn-dialog-mask": overlay_proto_default2,
     "shadcn-dialog-content": content_proto_default10,
@@ -18400,12 +18613,13 @@
   function flushScheduledTasks() {
     let executed = 0;
     while (true) {
-      const record = [...sessions.values()].find((candidate) => candidate.scheduled_tasks.length > 0);
-      if (!record)
-        return;
-      const task = record.scheduled_tasks.shift();
+      let task = bridgeMicrotasks.shift();
+      if (!task) {
+        const record = [...sessions.values()].find((candidate) => candidate.scheduled_tasks.length > 0);
+        task = record?.scheduled_tasks.shift();
+      }
       if (!task)
-        continue;
+        return;
       executed += 1;
       if (executed > 1024) {
         bridgeFailed = true;
@@ -18551,6 +18765,108 @@
       throw new Error(`parent session is not mounted: ${parent.session_id}`);
     }
   }
+  function textControlPatchValue(state2, patch) {
+    if (typeof patch.value === "string")
+      return patch.value;
+    if (!state2.initialized && patch.valueMode === "uncontrolled" && typeof patch.defaultValue === "string") {
+      return patch.defaultValue;
+    }
+    return null;
+  }
+  function replaceTextControlValue(state2, value) {
+    state2.value = value;
+    state2.selection = {
+      ...state2.selection,
+      start: Math.min(state2.selection.start, value.length),
+      end: Math.min(state2.selection.end, value.length)
+    };
+  }
+  function applyTextControlPatch(state2, patch, allowValueProjection) {
+    state2.patch = { ...state2.patch, ...patch };
+    if (typeof patch.defaultValue === "string")
+      state2.defaultValue = patch.defaultValue;
+    const value = textControlPatchValue(state2, patch);
+    state2.initialized = true;
+    if (value === null || value === state2.value)
+      return;
+    if (allowValueProjection) {
+      replaceTextControlValue(state2, value);
+      state2.deferredValue = null;
+    } else {
+      state2.deferredValue = value;
+    }
+  }
+  function createTextControlHost(record) {
+    return {
+      attach(connection) {
+        if (!connection || typeof connection !== "object" || typeof connection.onEvent !== "function") {
+          throw new Error("[TextControl] host connection is invalid.");
+        }
+        if (record.text_control) {
+          record.text_control.disposed = true;
+          record.text_control.connection = null;
+        }
+        const initialPatch = { ...connection.patch };
+        const state2 = {
+          patch: initialPatch,
+          connection,
+          value: "",
+          defaultValue: typeof initialPatch.defaultValue === "string" ? initialPatch.defaultValue : "",
+          composing: false,
+          selection: { start: 0, end: 0, direction: "none" },
+          deferredValue: null,
+          initialized: false,
+          disposed: false
+        };
+        record.text_control = state2;
+        applyTextControlPatch(state2, initialPatch, true);
+        return {
+          update(next) {
+            if (state2.disposed)
+              return;
+            applyTextControlPatch(state2, next, !state2.composing);
+          },
+          snapshot() {
+            return Object.freeze({
+              value: state2.value,
+              composing: state2.composing,
+              selection: { ...state2.selection }
+            });
+          },
+          dispose() {
+            if (state2.disposed)
+              return;
+            state2.disposed = true;
+            state2.connection = null;
+            if (record.text_control === state2)
+              record.text_control = null;
+          }
+        };
+      }
+    };
+  }
+  function textControlExposeEvent(record, key, payload) {
+    const typeByKey = {
+      valueChange: "input",
+      change: "change",
+      compositionStart: "compositionstart",
+      compositionUpdate: "compositionupdate",
+      compositionEnd: "compositionend"
+    };
+    const type = typeByKey[key];
+    if (!type || !record.text_control || record.text_control.disposed)
+      return null;
+    const object = recordOf(payload);
+    if (!object || typeof object.value !== "string")
+      return null;
+    return Object.freeze({
+      type,
+      value: object.value,
+      composing: typeof object.composing === "boolean" ? object.composing : type === "compositionstart" || type === "compositionupdate",
+      data: typeof object.data === "string" ? object.data : null,
+      inputType: typeof object.inputType === "string" ? object.inputType : null
+    });
+  }
   function attachCapabilities(record, wiring) {
     const parentGetter = (instance3) => parentTokenFor(instance3);
     wiring.attach("rule-meta", [
@@ -18595,7 +18911,20 @@
       }]
     ]);
     wiring.attach("expose-event", [
-      [EXPOSE_EVENT_SINK_CAP, (key) => {
+      [EXPOSE_EVENT_SINK_CAP, (key, payload) => {
+        const textEvent = textControlExposeEvent(record, key, payload);
+        if (textEvent) {
+          record.events.push({
+            type: "text_control",
+            session_id: record.session_id,
+            instance_id: record.instance_id,
+            view_epoch: record.session?.mountEpoch ?? 1,
+            sequence: nextOutputSequence(record),
+            control_ref: record.text_control_ref,
+            event: textEvent
+          });
+          return;
+        }
         record.events.push({
           type: "signal",
           session_id: record.session_id,
@@ -18604,6 +18933,16 @@
           sequence: nextOutputSequence(record),
           key
         });
+      }]
+    ]);
+    wiring.attach("text-control", [
+      [TEXT_CONTROL_HOST_CAP, createTextControlHost(record)],
+      [TEXT_CONTROL_RUN_IN_CALLBACK_CAP, (callback) => {
+        const session2 = record.session;
+        if (session2?.invokeInCallbackScope)
+          session2.invokeInCallbackScope(callback);
+        else
+          callback();
       }]
     ]);
     wiring.attach("focus", [
@@ -18699,6 +19038,8 @@
       commit_id: 0,
       output_sequence: 0,
       style_tokens: [],
+      text_control_ref: `${sessionId}:text-control`,
+      text_control: null,
       a11y: null,
       state_values: {},
       exposed_handles: {},
@@ -18893,6 +19234,82 @@
       record.root_bus.dispatch(eventType, event2);
     }
   }
+  function textControl(command) {
+    const operation = recordOf(command.command);
+    if (!operation)
+      throw new Error("text-control command must be a JSON object");
+    const request = { ...command, ...operation };
+    const record = sessionFor(request);
+    const epoch = getRequiredNumber(request, "view_epoch");
+    const currentEpoch = record.session?.mountEpoch ?? 0;
+    if (currentEpoch !== epoch) {
+      throw new Error(`stale text-control view epoch: expected ${currentEpoch}/${epoch}`);
+    }
+    if (operation.kind !== "event") {
+      throw new Error(`unsupported text-control operation: ${String(operation.kind)}`);
+    }
+    const controlRef = getRequiredString(request, "control_ref");
+    if (controlRef !== record.text_control_ref) {
+      throw new Error(`text-control reference mismatch: expected ${record.text_control_ref}/${controlRef}`);
+    }
+    const state2 = record.text_control;
+    if (!state2 || state2.disposed || !state2.connection) {
+      throw new Error("text-control host lease is unavailable");
+    }
+    const eventObject = recordOf(request.event);
+    if (!eventObject)
+      throw new Error("text-control event must be a JSON object");
+    const eventType = getRequiredString(eventObject, "type");
+    if (!["input", "change", "compositionstart", "compositionupdate", "compositionend"].includes(eventType)) {
+      throw new Error(`unsupported text-control event: ${eventType}`);
+    }
+    const value = stringValue(eventObject.value);
+    if (value === null)
+      throw new Error("text-control event value must be a string");
+    const disabled = state2.patch.disabled === true;
+    const readOnly = state2.patch.readOnly === true;
+    if (disabled || readOnly && eventType !== "change")
+      return;
+    const composing = typeof eventObject.composing === "boolean" ? eventObject.composing : eventType === "compositionstart" || eventType === "compositionupdate";
+    if (eventType === "compositionstart" || eventType === "compositionupdate")
+      state2.composing = true;
+    if (eventType === "compositionend")
+      state2.composing = false;
+    state2.value = value.replace(/\r\n/g, `
+`).replace(/\r/g, `
+`);
+    const selectionObject = recordOf(request.selection);
+    if (selectionObject) {
+      const start = numberValue(selectionObject.start);
+      const end = numberValue(selectionObject.end);
+      if (start === null || end === null || start < 0 || end < 0) {
+        throw new Error("text-control selection must contain non-negative safe integers");
+      }
+      const direction = selectionObject.direction;
+      state2.selection = {
+        start: Math.min(start, state2.value.length),
+        end: Math.min(end, state2.value.length),
+        direction: direction === "forward" || direction === "backward" ? direction : "none"
+      };
+    } else {
+      state2.selection = {
+        ...state2.selection,
+        start: Math.min(state2.selection.start, state2.value.length),
+        end: Math.min(state2.selection.end, state2.value.length)
+      };
+    }
+    state2.connection.onEvent(Object.freeze({
+      type: eventType,
+      value: state2.value,
+      composing,
+      data: typeof eventObject.data === "string" ? eventObject.data : null,
+      inputType: typeof eventObject.inputType === "string" ? eventObject.inputType : null
+    }));
+    if (eventType === "compositionend" && state2.deferredValue !== null) {
+      replaceTextControlValue(state2, state2.deferredValue);
+      state2.deferredValue = null;
+    }
+  }
   function setProps(command) {
     const record = sessionFor(command);
     record.props = jsonObject(command.props ?? {});
@@ -18964,6 +19381,9 @@
         break;
       case "input":
         input(command);
+        break;
+      case "text_control":
+        textControl(command);
         break;
       case "advance_time":
         advanceSessionTime(command);

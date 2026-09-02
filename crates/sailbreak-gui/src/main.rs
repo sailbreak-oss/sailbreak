@@ -100,6 +100,10 @@ impl GuiController for LinuxController {
     fn execute(&self, args: &[&str]) -> Result<String> {
         execute_command(args, self.services())
     }
+
+    fn save_profile(&self, source: &str) -> Result<String> {
+        sailbreak_cli::save_user_profile(source)
+    }
 }
 
 #[cfg(windows)]
@@ -165,6 +169,10 @@ impl GuiController for WindowsController {
 
     fn execute(&self, args: &[&str]) -> Result<String> {
         execute_command(args, self.services())
+    }
+
+    fn save_profile(&self, source: &str) -> Result<String> {
+        sailbreak_cli::save_user_profile(source)
     }
 }
 

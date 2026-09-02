@@ -4805,6 +4805,7 @@ dependencies = [
  "lctrl-hal",
  "lctrl-hal-linux",
  "lctrl-hal-win",
+ "lctrl-tune",
  "proto-ui-gpui",
  "sailbreak-cli",
  "sailbreak-daemon",

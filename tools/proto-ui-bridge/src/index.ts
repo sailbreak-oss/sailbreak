@@ -1,3 +1,4 @@
+import { definePrototype, tw } from '@proto.ui/core';
 import type { CapEntries, Prototype, TemplateChildren } from '@proto.ui/core';
 import { createRuntimeSession, type RuntimeSession } from '@proto.ui/runtime';
 import {
@@ -36,6 +37,11 @@ import {
   ANATOMY_ORDER_OBSERVER_CAP,
 } from '@proto.ui/module-anatomy';
 import { RULE_META_GET_CAP } from '@proto.ui/module-rule-meta';
+import { asTextareaRoot } from '@proto.ui/prototypes-base/textarea';
+import {
+  TEXT_CONTROL_HOST_CAP,
+  TEXT_CONTROL_RUN_IN_CALLBACK_CAP,
+} from '@proto.ui/module-text-control';
 
 import * as shadcn from '@proto.ui/prototypes-shadcn';
 
@@ -60,6 +66,16 @@ const GPUI_VERSION = '0.2.2';
 const HOST_PLATFORM = 'embedded-quickjs';
 const REGISTRY_DIGEST = `proto-ui-main@${PROTO_UI_COMMIT}`;
 const MAX_BRIDGE_MESSAGE_BYTES = 256 * 1024;
+const bridgeMicrotasks: Array<() => void> = [];
+const microtaskGlobal = globalThis as unknown as {
+  queueMicrotask?: (callback: () => void) => void;
+};
+if (typeof microtaskGlobal.queueMicrotask !== 'function') {
+  microtaskGlobal.queueMicrotask = (callback) => {
+    if (bridgeMicrotasks.length >= 256) throw new Error('microtask queue overflow');
+    bridgeMicrotasks.push(callback);
+  };
+}
 
 type JsonPrimitive = null | boolean | number | string;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -69,6 +85,7 @@ type RuntimeSessionLike = Pick<RuntimeSession, 'mount' | 'unmount' | 'dispose' |
   readonly instancePhase: string;
   readonly mountEpoch: number;
   readonly mountPhase: string;
+  invokeInCallbackScope?(callback: () => void): void;
 };
 type ModuleWiringLike = {
   attach(moduleName: string, entries: CapEntries): boolean;
@@ -90,6 +107,45 @@ type WireA11y = {
   selected?: boolean;
   toggled?: boolean;
   actions?: string[];
+};
+type TextControlEventType =
+  | 'input'
+  | 'change'
+  | 'compositionstart'
+  | 'compositionupdate'
+  | 'compositionend';
+type TextControlEvent = {
+  type: TextControlEventType;
+  value: string;
+  composing: boolean;
+  data: string | null;
+  inputType: string | null;
+};
+type TextControlSelection = {
+  start: number;
+  end: number;
+  direction: 'none' | 'forward' | 'backward';
+};
+type TextControlPatch = Record<string, unknown>;
+type TextControlConnection = {
+  patch: TextControlPatch;
+  onEvent(event: TextControlEvent): void;
+};
+type TextControlHostState = {
+  patch: TextControlPatch;
+  connection: TextControlConnection | null;
+  value: string;
+  defaultValue: string;
+  composing: boolean;
+  selection: TextControlSelection;
+  deferredValue: string | null;
+  initialized: boolean;
+  disposed: boolean;
+};
+type TextControlHostLease = {
+  update(patch: TextControlPatch): void;
+  snapshot(): { value: string; composing: boolean; selection: TextControlSelection };
+  dispose(): void;
 };
 type WireParent = {
   session_id: string;
@@ -150,6 +206,15 @@ type WireEvent =
       view_epoch: number;
       sequence: number;
       key: string;
+    }
+  | {
+      type: 'text_control';
+      session_id: string;
+      instance_id: string;
+      view_epoch: number;
+      sequence: number;
+      control_ref: string;
+      event: TextControlEvent;
     }
   | {
       type: 'diagnostic';
@@ -216,6 +281,8 @@ type SessionRecord = {
   commit_id: number;
   output_sequence: number;
   style_tokens: string[];
+  text_control_ref: string;
+  text_control: TextControlHostState | null;
   a11y: WireA11y | null;
   state_values: JsonObject;
   exposed_handles: Record<string, unknown>;
@@ -225,6 +292,33 @@ type SessionRecord = {
   delay_tasks: Set<DelayTask>;
   scheduled_tasks: Array<() => void>;
 };
+
+const TEXTAREA_BASE_TOKENS =
+  'flex min-h-16 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-colors';
+
+const shadcnTextareaRoot = definePrototype({
+  name: 'shadcn-textarea-root',
+  modules: asTextareaRoot.modules,
+  setup(def) {
+    const base = asTextareaRoot();
+    const state = base.stateHandles;
+    if (!state) throw new Error('[shadcn-textarea-root] asTextareaRoot must project state handles.');
+    const { disabled, focusVisible } = state;
+    def.feedback.style.use(tw(TEXTAREA_BASE_TOKENS));
+    def.rule({
+      when: (w) => w.state(focusVisible).eq(true),
+      intent: (i) => i.feedback.style.use(tw('border-ring ring-3 ring-ring/50')),
+    });
+    def.rule({
+      when: (w) => w.state(disabled).eq(true),
+      intent: (i) => i.feedback.style.use(tw('cursor-not-allowed opacity-50')),
+    });
+    def.rule({
+      when: (w) => w.all(w.meta('colorScheme').eq('dark'), w.state(disabled).eq(false)),
+      intent: (i) => i.feedback.style.use(tw('bg-input/30')),
+    });
+  },
+});
 
 type Registry = Record<string, Prototype>;
 
@@ -237,6 +331,7 @@ const registry: Registry = {
   'shadcn-switch-root': shadcn.shadcnSwitchRoot,
   'shadcn-switch-thumb': shadcn.shadcnSwitchThumb,
   'shadcn-tabs-root': shadcn.shadcnTabsRoot,
+  'shadcn-textarea-root': shadcnTextareaRoot,
   'shadcn-tabs-list': shadcn.shadcnTabsList,
   'shadcn-tabs-trigger': shadcn.shadcnTabsTrigger,
   'shadcn-tabs-content': shadcn.shadcnTabsContent,
@@ -478,10 +573,14 @@ function scheduleTask(record: SessionRecord, task: () => void): void {
 function flushScheduledTasks(): void {
   let executed = 0;
   while (true) {
-    const record = [...sessions.values()].find((candidate) => candidate.scheduled_tasks.length > 0);
-    if (!record) return;
-    const task = record.scheduled_tasks.shift();
-    if (!task) continue;
+    let task = bridgeMicrotasks.shift();
+    if (!task) {
+      const record = [...sessions.values()].find(
+        (candidate) => candidate.scheduled_tasks.length > 0,
+      );
+      task = record?.scheduled_tasks.shift();
+    }
+    if (!task) return;
     executed += 1;
     if (executed > 1024) {
       bridgeFailed = true;
@@ -622,6 +721,118 @@ function validateParent(parent: WireParent): void {
   }
 }
 
+function textControlPatchValue(
+  state: TextControlHostState,
+  patch: TextControlPatch,
+): string | null {
+  if (typeof patch.value === 'string') return patch.value;
+  if (!state.initialized && patch.valueMode === 'uncontrolled' && typeof patch.defaultValue === 'string') {
+    return patch.defaultValue;
+  }
+  return null;
+}
+
+function replaceTextControlValue(state: TextControlHostState, value: string): void {
+  state.value = value;
+  state.selection = {
+    ...state.selection,
+    start: Math.min(state.selection.start, value.length),
+    end: Math.min(state.selection.end, value.length),
+  };
+}
+
+function applyTextControlPatch(
+  state: TextControlHostState,
+  patch: TextControlPatch,
+  allowValueProjection: boolean,
+): void {
+  state.patch = { ...state.patch, ...patch };
+  if (typeof patch.defaultValue === 'string') state.defaultValue = patch.defaultValue;
+  const value = textControlPatchValue(state, patch);
+  state.initialized = true;
+  if (value === null || value === state.value) return;
+  if (allowValueProjection) {
+    replaceTextControlValue(state, value);
+    state.deferredValue = null;
+  } else {
+    state.deferredValue = value;
+  }
+}
+
+function createTextControlHost(record: SessionRecord): { attach(connection: TextControlConnection): TextControlHostLease } {
+  return {
+    attach(connection) {
+      if (!connection || typeof connection !== 'object' || typeof connection.onEvent !== 'function') {
+        throw new Error('[TextControl] host connection is invalid.');
+      }
+      if (record.text_control) {
+        record.text_control.disposed = true;
+        record.text_control.connection = null;
+      }
+      const initialPatch = { ...connection.patch };
+      const state: TextControlHostState = {
+        patch: initialPatch,
+        connection,
+        value: '',
+        defaultValue: typeof initialPatch.defaultValue === 'string' ? initialPatch.defaultValue : '',
+        composing: false,
+        selection: { start: 0, end: 0, direction: 'none' },
+        deferredValue: null,
+        initialized: false,
+        disposed: false,
+      };
+      record.text_control = state;
+      applyTextControlPatch(state, initialPatch, true);
+      return {
+        update(next) {
+          if (state.disposed) return;
+          applyTextControlPatch(state, next, !state.composing);
+        },
+        snapshot() {
+          return Object.freeze({
+            value: state.value,
+            composing: state.composing,
+            selection: { ...state.selection },
+          });
+        },
+        dispose() {
+          if (state.disposed) return;
+          state.disposed = true;
+          state.connection = null;
+          if (record.text_control === state) record.text_control = null;
+        },
+      };
+    },
+  };
+}
+
+function textControlExposeEvent(
+  record: SessionRecord,
+  key: string,
+  payload: unknown,
+): TextControlEvent | null {
+  const typeByKey: Record<string, TextControlEventType> = {
+    valueChange: 'input',
+    change: 'change',
+    compositionStart: 'compositionstart',
+    compositionUpdate: 'compositionupdate',
+    compositionEnd: 'compositionend',
+  };
+  const type = typeByKey[key];
+  if (!type || !record.text_control || record.text_control.disposed) return null;
+  const object = recordOf(payload);
+  if (!object || typeof object.value !== 'string') return null;
+  return Object.freeze({
+    type,
+    value: object.value,
+    composing: typeof object.composing === 'boolean'
+      ? object.composing
+      : type === 'compositionstart' || type === 'compositionupdate',
+    data: typeof object.data === 'string' ? object.data : null,
+    inputType: typeof object.inputType === 'string' ? object.inputType : null,
+  });
+}
+
 function attachCapabilities(record: SessionRecord, wiring: ModuleWiringLike): void {
   const parentGetter = (instance: unknown): unknown | null => parentTokenFor(instance);
   wiring.attach('rule-meta', [
@@ -665,7 +876,20 @@ function attachCapabilities(record: SessionRecord, wiring: ModuleWiringLike): vo
     }],
   ]);
   wiring.attach('expose-event', [
-    [EXPOSE_EVENT_SINK_CAP, (key: string) => {
+    [EXPOSE_EVENT_SINK_CAP, (key: string, payload: unknown) => {
+      const textEvent = textControlExposeEvent(record, key, payload);
+      if (textEvent) {
+        record.events.push({
+          type: 'text_control',
+          session_id: record.session_id,
+          instance_id: record.instance_id,
+          view_epoch: record.session?.mountEpoch ?? 1,
+          sequence: nextOutputSequence(record),
+          control_ref: record.text_control_ref,
+          event: textEvent,
+        });
+        return;
+      }
       record.events.push({
         type: 'signal',
         session_id: record.session_id,
@@ -674,6 +898,14 @@ function attachCapabilities(record: SessionRecord, wiring: ModuleWiringLike): vo
         sequence: nextOutputSequence(record),
         key,
       });
+    }],
+  ]);
+  wiring.attach('text-control', [
+    [TEXT_CONTROL_HOST_CAP, createTextControlHost(record)],
+    [TEXT_CONTROL_RUN_IN_CALLBACK_CAP, (callback: () => void) => {
+      const session = record.session;
+      if (session?.invokeInCallbackScope) session.invokeInCallbackScope(callback);
+      else callback();
     }],
   ]);
   wiring.attach('focus', [
@@ -778,6 +1010,8 @@ function createRecord(
     commit_id: 0,
     output_sequence: 0,
     style_tokens: [],
+    text_control_ref: `${sessionId}:text-control`,
+    text_control: null,
     a11y: null,
     state_values: {},
     exposed_handles: {},
@@ -976,6 +1210,77 @@ function input(command: Record<string, unknown>): void {
   }
 }
 
+function textControl(command: Record<string, unknown>): void {
+  const operation = recordOf(command.command);
+  if (!operation) throw new Error('text-control command must be a JSON object');
+  const request = { ...command, ...operation };
+  const record = sessionFor(request);
+  const epoch = getRequiredNumber(request, 'view_epoch');
+  const currentEpoch = record.session?.mountEpoch ?? 0;
+  if (currentEpoch !== epoch) {
+    throw new Error(`stale text-control view epoch: expected ${currentEpoch}/${epoch}`);
+  }
+  if (operation.kind !== 'event') {
+    throw new Error(`unsupported text-control operation: ${String(operation.kind)}`);
+  }
+  const controlRef = getRequiredString(request, 'control_ref');
+  if (controlRef !== record.text_control_ref) {
+    throw new Error(`text-control reference mismatch: expected ${record.text_control_ref}/${controlRef}`);
+  }
+  const state = record.text_control;
+  if (!state || state.disposed || !state.connection) {
+    throw new Error('text-control host lease is unavailable');
+  }
+  const eventObject = recordOf(request.event);
+  if (!eventObject) throw new Error('text-control event must be a JSON object');
+  const eventType = getRequiredString(eventObject, 'type');
+  if (!['input', 'change', 'compositionstart', 'compositionupdate', 'compositionend'].includes(eventType)) {
+    throw new Error(`unsupported text-control event: ${eventType}`);
+  }
+  const value = stringValue(eventObject.value);
+  if (value === null) throw new Error('text-control event value must be a string');
+  const disabled = state.patch.disabled === true;
+  const readOnly = state.patch.readOnly === true;
+  if (disabled || (readOnly && eventType !== 'change')) return;
+  const composing = typeof eventObject.composing === 'boolean'
+    ? eventObject.composing
+    : eventType === 'compositionstart' || eventType === 'compositionupdate';
+  if (eventType === 'compositionstart' || eventType === 'compositionupdate') state.composing = true;
+  if (eventType === 'compositionend') state.composing = false;
+  state.value = value.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const selectionObject = recordOf(request.selection);
+  if (selectionObject) {
+    const start = numberValue(selectionObject.start);
+    const end = numberValue(selectionObject.end);
+    if (start === null || end === null || start < 0 || end < 0) {
+      throw new Error('text-control selection must contain non-negative safe integers');
+    }
+    const direction = selectionObject.direction;
+    state.selection = {
+      start: Math.min(start, state.value.length),
+      end: Math.min(end, state.value.length),
+      direction: direction === 'forward' || direction === 'backward' ? direction : 'none',
+    };
+  } else {
+    state.selection = {
+      ...state.selection,
+      start: Math.min(state.selection.start, state.value.length),
+      end: Math.min(state.selection.end, state.value.length),
+    };
+  }
+  state.connection.onEvent(Object.freeze({
+    type: eventType as TextControlEventType,
+    value: state.value,
+    composing,
+    data: typeof eventObject.data === 'string' ? eventObject.data : null,
+    inputType: typeof eventObject.inputType === 'string' ? eventObject.inputType : null,
+  }));
+  if (eventType === 'compositionend' && state.deferredValue !== null) {
+    replaceTextControlValue(state, state.deferredValue);
+    state.deferredValue = null;
+  }
+}
+
 function setProps(command: Record<string, unknown>): void {
   const record = sessionFor(command);
   record.props = jsonObject(command.props ?? {});
@@ -1050,6 +1355,9 @@ function dispatch(serialized: string): string {
       break;
     case 'input':
       input(command);
+      break;
+    case 'text_control':
+      textControl(command);
       break;
     case 'advance_time':
       advanceSessionTime(command);

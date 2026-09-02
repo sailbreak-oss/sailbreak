@@ -251,7 +251,8 @@ fn event_session_id(event: &BridgeEvent) -> Option<&str> {
         BridgeEvent::Style { session_id, .. }
         | BridgeEvent::A11y { session_id, .. }
         | BridgeEvent::State { session_id, .. }
-        | BridgeEvent::Signal { session_id, .. } => Some(session_id.as_str()),
+        | BridgeEvent::Signal { session_id, .. }
+        | BridgeEvent::TextControl { session_id, .. } => Some(session_id.as_str()),
         BridgeEvent::Registry { .. }
         | BridgeEvent::Ready { .. }
         | BridgeEvent::Diagnostic { .. } => None,

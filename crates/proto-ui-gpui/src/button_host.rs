@@ -133,7 +133,8 @@ impl ProtoButtonState {
             }
             BridgeEvent::Registry { .. }
             | BridgeEvent::Ready { .. }
-            | BridgeEvent::Signal { .. } => false,
+            | BridgeEvent::Signal { .. }
+            | BridgeEvent::TextControl { .. } => false,
         }
     }
 }
@@ -463,6 +464,11 @@ fn event_belongs_to(button: &ProtoButtonState, event: &BridgeEvent) -> bool {
             ..
         }
         | BridgeEvent::Signal {
+            session_id,
+            instance_id,
+            ..
+        }
+        | BridgeEvent::TextControl {
             session_id,
             instance_id,
             ..

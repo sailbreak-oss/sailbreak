@@ -1835,6 +1835,68 @@ fn default_user_profile_dir() -> Option<PathBuf> {
     }
 }
 
+/// Validate and atomically persist a schema-v1 profile in the user profile layer.
+///
+/// This is the shared configuration gateway used by non-CLI consumers such as
+/// the GPUI dashboard. Parsing happens before any directory or file mutation,
+/// and the profile name is restricted to a portable filename component so a
+/// profile document cannot escape `profiles.d`.
+pub fn save_user_profile(source: &str) -> lctrl_core::Result<String> {
+    let directory = env::var_os("SAILBREAK_USER_PROFILE_DIR")
+        .map(PathBuf::from)
+        .or_else(default_user_profile_dir)
+        .ok_or_else(|| LctrlError::ChannelUnavailable {
+            channel: "user profile configuration directory".into(),
+        })?;
+    save_user_profile_to(&directory, source)
+}
+
+fn save_user_profile_to(directory: &Path, source: &str) -> lctrl_core::Result<String> {
+    let document = lctrl_tune::parse_profile_toml(source, lctrl_tune::ProfileOrigin::User)
+        .map_err(|error| LctrlError::InvalidArgument {
+            detail: format!("invalid tuning profile: {error}"),
+        })?;
+    let name = document.profile.name.as_str();
+    validate_profile_filename(name)?;
+    fs::create_dir_all(directory).map_err(LctrlError::Io)?;
+    let destination = directory.join(format!("{name}.toml"));
+    if destination.parent() != Some(directory) {
+        return Err(LctrlError::InvalidArgument {
+            detail: "profile name resolved outside the user profile directory".into(),
+        });
+    }
+    let temporary = directory.join(format!(".{name}.toml.tmp-{}", std::process::id()));
+    let persist_result = (|| -> lctrl_core::Result<()> {
+        fs::write(&temporary, source).map_err(LctrlError::Io)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))
+                .map_err(LctrlError::Io)?;
+        }
+        replace_file_atomic(&temporary, &destination)
+    })();
+    if let Err(error) = persist_result {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
+    }
+    Ok(name.to_owned())
+}
+
+fn validate_profile_filename(name: &str) -> lctrl_core::Result<()> {
+    if name == "."
+        || name == ".."
+        || name.is_empty()
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(LctrlError::InvalidArgument {
+            detail: format!("profile name {name:?} is not a safe filename"),
+        });
+    }
+    Ok(())
+}
 fn load_profile_layer(
     directory: &Path,
     origin: lctrl_tune::ProfileOrigin,
@@ -4290,5 +4352,61 @@ impl DaemonCommand {
             Self::Status => "status",
             Self::Install => "install",
         }
+    }
+}
+
+#[cfg(test)]
+mod profile_persistence_tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::*;
+
+    static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    fn scratch_directory() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "sailbreak-profile-save-{}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    #[test]
+    fn profile_save_validates_then_atomically_persists_by_safe_name() {
+        let directory = scratch_directory();
+        let source = "schema = 1\n[profile]\nname = \"dashboard-test\"\n[goal]\n";
+
+        assert_eq!(
+            save_user_profile_to(&directory, source).expect("valid profile saves"),
+            "dashboard-test"
+        );
+        assert_eq!(
+            fs::read_to_string(directory.join("dashboard-test.toml"))
+                .expect("saved profile is readable"),
+            source
+        );
+        assert!(
+            fs::read_dir(&directory)
+                .expect("profile directory exists")
+                .all(|entry| !entry
+                    .expect("valid directory entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".tmp-"))
+        );
+
+        fs::remove_dir_all(directory).expect("scratch directory cleanup");
+    }
+
+    #[test]
+    fn invalid_profile_or_unsafe_name_never_creates_the_profile_directory() {
+        let invalid_directory = scratch_directory();
+        assert!(save_user_profile_to(&invalid_directory, "schema = 2").is_err());
+        assert!(!invalid_directory.exists());
+
+        let unsafe_directory = scratch_directory();
+        let unsafe_source = "schema = 1\n[profile]\nname = \"../escape\"\n[goal]\n";
+        assert!(save_user_profile_to(&unsafe_directory, unsafe_source).is_err());
+        assert!(!unsafe_directory.exists());
     }
 }

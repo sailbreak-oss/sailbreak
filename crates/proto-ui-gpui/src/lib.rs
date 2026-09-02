@@ -14,8 +14,9 @@ pub use components::{
     AdapterDispatchOutcome, AdapterSnapshot, CheckboxDispatchOutcome, CheckboxIndicatorSnapshot,
     CheckboxProps, CheckboxRootSnapshot, ProtoAdapter, ProtoCheckboxHost, ProtoCheckboxSnapshot,
     ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoSwitchHost, ProtoSwitchSnapshot,
-    ProtoToggleHost, ProtoToggleSnapshot, PrototypeProfile, SeparatorOrientation, SeparatorProps,
-    SwitchDispatchOutcome, SwitchProps, SwitchRootSnapshot, SwitchThumbSnapshot,
+    ProtoTextareaHost, ProtoTextareaSnapshot, ProtoToggleHost, ProtoToggleSnapshot,
+    PrototypeProfile, SeparatorOrientation, SeparatorProps, SwitchDispatchOutcome, SwitchProps,
+    SwitchRootSnapshot, SwitchThumbSnapshot, TextareaDispatchOutcome, TextareaProps, TextareaWrap,
     ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
 };
 pub use protocol::*;

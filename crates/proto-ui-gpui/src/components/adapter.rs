@@ -7,7 +7,8 @@ use crate::{
     BridgeDiagnostic, BridgeError, BridgeEvent, CommitDisposition, InputEnvelope, InputKind,
     InputPayload, InputRequest, InputSource, LogicalParentRef, NativeStyle, ProjectionAck,
     PropsRequest, ProtoSessionHost, PrototypeKey, Result, SessionSnapshot, ShadcnTheme,
-    StartRequest, ViewEpoch, translate_projection,
+    StartRequest, TextControlCommand, TextControlEvent, TextControlEventEnvelope, TextControlRef,
+    TextControlSelection, ViewEpoch, translate_projection,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,6 +37,7 @@ impl AdapterSnapshot {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AdapterDispatchOutcome {
     pub signal_counts: BTreeMap<String, usize>,
+    pub text_events: Vec<TextControlEventEnvelope>,
     pub events: Vec<BridgeEvent>,
     pub diagnostics: Vec<BridgeDiagnostic>,
 }
@@ -45,6 +47,13 @@ impl AdapterDispatchOutcome {
     pub fn signal_count(&self, key: &str) -> usize {
         self.signal_counts.get(key).copied().unwrap_or(0)
     }
+    #[must_use]
+    pub fn text_event_count(&self, event_type: crate::TextControlEventType) -> usize {
+        self.text_events
+            .iter()
+            .filter(|event| event.event.event_type == event_type)
+            .count()
+    }
 }
 
 struct ManagedSession {
@@ -53,6 +62,7 @@ struct ManagedSession {
     profile: PrototypeProfile,
     host: ProtoSessionHost,
     next_sequence: u64,
+    next_text_sequence: u64,
 }
 
 pub struct ProtoAdapter {
@@ -119,6 +129,7 @@ impl ProtoAdapter {
                 profile,
                 host,
                 next_sequence: 0,
+                next_text_sequence: 0,
             },
         );
         Ok(())
@@ -162,6 +173,69 @@ impl ProtoAdapter {
         }
         Ok(AdapterDispatchOutcome {
             signal_counts,
+            text_events: outcome.text_events,
+            events: outcome.events,
+            diagnostics: outcome.diagnostics,
+        })
+    }
+    pub fn dispatch_text(
+        &mut self,
+        id: &str,
+        event: TextControlEvent,
+        selection: Option<TextControlSelection>,
+    ) -> Result<AdapterDispatchOutcome> {
+        let epoch = {
+            let session = self.session_mut(id)?;
+            prepare_session(&mut session.host)?;
+            session.host.snapshot()?.projection.view_epoch
+        };
+        self.dispatch_text_at_epoch(id, epoch, event, selection)
+    }
+    pub fn dispatch_text_event(
+        &mut self,
+        id: &str,
+        event: TextControlEvent,
+    ) -> Result<AdapterDispatchOutcome> {
+        self.dispatch_text(id, event, None)
+    }
+
+    pub fn dispatch_text_at_epoch(
+        &mut self,
+        id: &str,
+        epoch: ViewEpoch,
+        event: TextControlEvent,
+        selection: Option<TextControlSelection>,
+    ) -> Result<AdapterDispatchOutcome> {
+        let session = self.session_mut(id)?;
+        prepare_session(&mut session.host)?;
+        session.next_text_sequence =
+            session
+                .next_text_sequence
+                .checked_add(1)
+                .ok_or_else(|| BridgeError::Runtime {
+                    detail: format!("adapter text input sequence overflow: {id}"),
+                })?;
+        let snapshot = session.host.snapshot()?;
+        let control_ref = TextControlRef::new(format!("{}:text-control", snapshot.session_id))?;
+        let command = TextControlCommand::Event {
+            session_id: snapshot.session_id,
+            instance_id: snapshot.instance_id,
+            view_epoch: epoch,
+            sequence: session.next_text_sequence,
+            control_ref,
+            event,
+            selection,
+        };
+        let outcome = session.host.text_control(command)?;
+        let mut signal_counts = BTreeMap::new();
+        for event in &outcome.events {
+            if let BridgeEvent::Signal { key, .. } = event {
+                *signal_counts.entry(key.clone()).or_insert(0) += 1;
+            }
+        }
+        Ok(AdapterDispatchOutcome {
+            signal_counts,
+            text_events: outcome.text_events,
             events: outcome.events,
             diagnostics: outcome.diagnostics,
         })

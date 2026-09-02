@@ -6,7 +6,7 @@ use crate::protocol::{
     A11ySnapshot, AckDisposition, BridgeCommand, BridgeDiagnostic, BridgeError, BridgeEvent,
     BridgeState, DispatchOutcome, InstanceId, LogicalParentRef, ProjectionAck,
     ProjectionTransaction, PrototypeKey, Result, SessionId, SlotProjection, StyleProjection,
-    ViewEpoch,
+    TextControlCommand, ViewEpoch,
 };
 use crate::quickjs::SharedQuickJsBridge;
 
@@ -144,6 +144,7 @@ struct SessionRecord {
     pending_commit: Option<u64>,
     route_ref: Option<String>,
     last_output_sequence: u64,
+    last_text_sequence: u64,
     mounted: bool,
 }
 
@@ -222,15 +223,16 @@ impl ProtoSessionHost {
             BridgeState::new(request.session_id.clone(), request.instance_id.clone());
         protocol.install_view(projection.view_epoch)?;
         let mut record = SessionRecord {
+            protocol,
             route_ref: request.route_ref.clone(),
             request,
-            protocol,
             style: projection.style.clone(),
             a11y: projection.a11y.clone(),
             state_values: BTreeMap::new(),
             diagnostics: Vec::new(),
             pending_commit: Some(projection.commit_id),
             last_output_sequence: 0,
+            last_text_sequence: 0,
             mounted: true,
             projection,
         };
@@ -312,6 +314,51 @@ impl ProtoSessionHost {
         }
         absorb_events(record, &events)
     }
+    pub fn text_control(&mut self, command: TextControlCommand) -> Result<DispatchOutcome> {
+        self.ensure_alive()?;
+        let (session_id, instance_id, view_epoch, sequence) = match &command {
+            TextControlCommand::Event {
+                session_id,
+                instance_id,
+                view_epoch,
+                sequence,
+                ..
+            } => (session_id, instance_id, *view_epoch, *sequence),
+            _ => {
+                return Err(BridgeError::Runtime {
+                    detail: "text-control host lifecycle commands are runtime-owned".to_owned(),
+                });
+            }
+        };
+        let next_protocol = {
+            let record = self.record()?;
+            if !record.mounted {
+                return Err(BridgeError::Unmounted);
+            }
+            check_identity(
+                &record.request.session_id,
+                &record.request.instance_id,
+                session_id,
+                instance_id,
+            )?;
+            check_epoch(record, view_epoch)?;
+            if let Some(commit_id) = record.pending_commit {
+                return Err(BridgeError::ProjectionPending { commit_id });
+            }
+            if sequence == 0 || sequence <= record.last_text_sequence {
+                return Err(BridgeError::NonMonotonicSequence {
+                    last: record.last_text_sequence,
+                    received: sequence,
+                });
+            }
+            record.protocol.clone()
+        };
+        let events = self.dispatch(&BridgeCommand::TextControl { command })?;
+        let record = self.record_mut()?;
+        record.protocol = next_protocol;
+        record.last_text_sequence = sequence;
+        absorb_events(record, &events)
+    }
 
     pub fn set_props(&mut self, request: PropsRequest) -> Result<CommitDisposition> {
         self.ensure_alive()?;
@@ -383,6 +430,7 @@ impl ProtoSessionHost {
         let record = self.record_mut()?;
         record.pending_commit = None;
         record.route_ref = None;
+        record.last_text_sequence = 0;
         absorb_events(record, &events)?;
         let epoch = record.projection.view_epoch;
         if epoch <= previous_epoch {
@@ -511,6 +559,18 @@ fn command_session_id(command: &BridgeCommand) -> Option<String> {
         | BridgeCommand::Dispose { session_id, .. } => Some(session_id.as_str().to_owned()),
         BridgeCommand::ProjectionAck { ack } => Some(ack.session_id.as_str().to_owned()),
         BridgeCommand::Input { input, .. } => Some(input.session_id.as_str().to_owned()),
+        BridgeCommand::TextControl { command } => {
+            Some(text_command_session_id(command).as_str().to_owned())
+        }
+    }
+}
+fn text_command_session_id(command: &TextControlCommand) -> &SessionId {
+    match command {
+        TextControlCommand::Attach { session_id, .. }
+        | TextControlCommand::Update { session_id, .. }
+        | TextControlCommand::Event { session_id, .. }
+        | TextControlCommand::Snapshot { session_id, .. }
+        | TextControlCommand::Dispose { session_id, .. } => session_id,
     }
 }
 
@@ -722,6 +782,37 @@ fn absorb_event(
                 outcome.click_emitted = true;
             }
         }
+        BridgeEvent::TextControl {
+            session_id,
+            instance_id,
+            view_epoch,
+            sequence,
+            control_ref,
+            event,
+        } => {
+            check_identity(
+                &record.request.session_id,
+                &record.request.instance_id,
+                session_id,
+                instance_id,
+            )?;
+            check_epoch(record, *view_epoch)?;
+            if *sequence <= record.last_output_sequence {
+                return Err(BridgeError::NonMonotonicSequence {
+                    last: record.last_output_sequence,
+                    received: *sequence,
+                });
+            }
+            record.last_output_sequence = *sequence;
+            outcome.text_events.push(crate::TextControlEventEnvelope {
+                session_id: session_id.clone(),
+                instance_id: instance_id.clone(),
+                view_epoch: *view_epoch,
+                sequence: *sequence,
+                control_ref: control_ref.clone(),
+                event: event.clone(),
+            });
+        }
         BridgeEvent::Diagnostic { diagnostic } => {
             if diagnostic.fatal {
                 return Err(BridgeError::Runtime {
@@ -742,7 +833,8 @@ fn event_epoch(event: &BridgeEvent) -> Option<ViewEpoch> {
         BridgeEvent::Style { view_epoch, .. }
         | BridgeEvent::A11y { view_epoch, .. }
         | BridgeEvent::State { view_epoch, .. }
-        | BridgeEvent::Signal { view_epoch, .. } => Some(*view_epoch),
+        | BridgeEvent::Signal { view_epoch, .. }
+        | BridgeEvent::TextControl { view_epoch, .. } => Some(*view_epoch),
         BridgeEvent::Registry { .. }
         | BridgeEvent::Ready { .. }
         | BridgeEvent::Diagnostic { .. } => None,

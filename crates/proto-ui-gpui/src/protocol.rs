@@ -510,6 +510,356 @@ impl InputEnvelope {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextControlValueMode {
+    Controlled,
+    Uncontrolled,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextControlWrap {
+    #[default]
+    Soft,
+    Hard,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TextControlRef(String);
+
+impl TextControlRef {
+    pub fn new(value: impl Into<String>) -> Result<Self> {
+        let value = value.into();
+        if value.trim().is_empty() {
+            return Err(BridgeError::InvalidIdentity {
+                kind: "text control".to_owned(),
+            });
+        }
+        Ok(Self(value))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for TextControlRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextControlSelectionDirection {
+    #[default]
+    None,
+    Forward,
+    Backward,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct TextControlSelection {
+    pub start: usize,
+    pub end: usize,
+    #[serde(default)]
+    pub direction: TextControlSelectionDirection,
+}
+
+impl TextControlSelection {
+    #[must_use]
+    pub const fn caret(position: usize) -> Self {
+        Self {
+            start: position,
+            end: position,
+            direction: TextControlSelectionDirection::None,
+        }
+    }
+
+    #[must_use]
+    pub const fn range(start: usize, end: usize) -> Self {
+        Self {
+            start,
+            end,
+            direction: TextControlSelectionDirection::None,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_direction(mut self, direction: TextControlSelectionDirection) -> Self {
+        self.direction = direction;
+        self
+    }
+
+    #[must_use]
+    pub fn clamp(self, length: usize) -> Self {
+        Self {
+            start: self.start.min(length),
+            end: self.end.min(length),
+            direction: self.direction,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextControlPatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_mode: Option<TextControlValueMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_only: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_complete: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wrap: Option<TextControlWrap>,
+}
+impl TextControlPatch {
+    #[must_use]
+    pub fn controlled(value: impl Into<String>) -> Self {
+        Self {
+            value_mode: Some(TextControlValueMode::Controlled),
+            value: Some(value.into()),
+            ..Self::default()
+        }
+    }
+
+    #[must_use]
+    pub fn uncontrolled(default_value: impl Into<String>) -> Self {
+        Self {
+            value_mode: Some(TextControlValueMode::Uncontrolled),
+            default_value: Some(default_value.into()),
+            ..Self::default()
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextControlEventType {
+    Input,
+    Change,
+    #[serde(rename = "compositionstart")]
+    CompositionStart,
+    #[serde(rename = "compositionupdate")]
+    CompositionUpdate,
+    #[serde(rename = "compositionend")]
+    CompositionEnd,
+}
+
+impl TextControlEventType {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Input => "input",
+            Self::Change => "change",
+            Self::CompositionStart => "compositionstart",
+            Self::CompositionUpdate => "compositionupdate",
+            Self::CompositionEnd => "compositionend",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "input" => Ok(Self::Input),
+            "change" => Ok(Self::Change),
+            "compositionstart" => Ok(Self::CompositionStart),
+            "compositionupdate" => Ok(Self::CompositionUpdate),
+            "compositionend" => Ok(Self::CompositionEnd),
+            _ => Err(BridgeError::InvalidIdentity {
+                kind: format!("text-control event: {value}"),
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextControlEvent {
+    #[serde(rename = "type")]
+    pub event_type: TextControlEventType,
+    pub value: String,
+    pub composing: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_type: Option<String>,
+}
+
+impl TextControlEvent {
+    #[must_use]
+    pub fn new(event_type: TextControlEventType, value: impl Into<String>) -> Self {
+        Self {
+            event_type,
+            value: value.into(),
+            composing: false,
+            data: None,
+            input_type: None,
+        }
+    }
+
+    #[must_use]
+    pub fn input(value: impl Into<String>) -> Self {
+        Self::new(TextControlEventType::Input, value)
+    }
+
+    #[must_use]
+    pub fn change(value: impl Into<String>) -> Self {
+        Self::new(TextControlEventType::Change, value)
+    }
+
+    pub fn composition_start(value: impl Into<String>, data: Option<String>) -> Self {
+        Self {
+            event_type: TextControlEventType::CompositionStart,
+            value: value.into(),
+            composing: true,
+            data,
+            input_type: None,
+        }
+    }
+
+    #[must_use]
+    pub fn composition_update(value: impl Into<String>, data: Option<String>) -> Self {
+        Self {
+            event_type: TextControlEventType::CompositionUpdate,
+            value: value.into(),
+            composing: true,
+            data,
+            input_type: None,
+        }
+    }
+
+    #[must_use]
+    pub fn composition_end(value: impl Into<String>, data: Option<String>) -> Self {
+        Self {
+            event_type: TextControlEventType::CompositionEnd,
+            value: value.into(),
+            composing: false,
+            data,
+            input_type: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_composing(mut self, composing: bool) -> Self {
+        self.composing = composing;
+        self
+    }
+
+    #[must_use]
+    pub fn with_input_type(mut self, input_type: impl Into<String>) -> Self {
+        self.input_type = Some(input_type.into());
+        self
+    }
+}
+impl Default for TextControlEvent {
+    fn default() -> Self {
+        Self::input(String::new())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TextControlCommand {
+    Attach {
+        session_id: SessionId,
+        instance_id: InstanceId,
+        view_epoch: ViewEpoch,
+        control_ref: TextControlRef,
+        patch: TextControlPatch,
+    },
+    Update {
+        session_id: SessionId,
+        instance_id: InstanceId,
+        view_epoch: ViewEpoch,
+        control_ref: TextControlRef,
+        patch: TextControlPatch,
+    },
+    Event {
+        session_id: SessionId,
+        instance_id: InstanceId,
+        view_epoch: ViewEpoch,
+        sequence: u64,
+        control_ref: TextControlRef,
+        event: TextControlEvent,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selection: Option<TextControlSelection>,
+    },
+    Snapshot {
+        session_id: SessionId,
+        instance_id: InstanceId,
+        view_epoch: ViewEpoch,
+        control_ref: TextControlRef,
+    },
+    Dispose {
+        session_id: SessionId,
+        instance_id: InstanceId,
+        view_epoch: ViewEpoch,
+        control_ref: TextControlRef,
+    },
+}
+
+impl TextControlCommand {
+    #[must_use]
+    pub fn event(
+        session_id: SessionId,
+        instance_id: InstanceId,
+        view_epoch: ViewEpoch,
+        sequence: u64,
+        control_ref: TextControlRef,
+        event: TextControlEvent,
+        selection: Option<TextControlSelection>,
+    ) -> Self {
+        Self::Event {
+            session_id,
+            instance_id,
+            view_epoch,
+            sequence,
+            control_ref,
+            event,
+            selection,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TextControlSnapshot {
+    pub value: String,
+    pub composing: bool,
+    #[serde(default)]
+    pub selection: TextControlSelection,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextControlEventEnvelope {
+    pub session_id: SessionId,
+    pub instance_id: InstanceId,
+    pub view_epoch: ViewEpoch,
+    pub sequence: u64,
+    pub control_ref: TextControlRef,
+    pub event: TextControlEvent,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AckDisposition {
     Applied,
@@ -582,6 +932,7 @@ pub type Result<T, E = BridgeError> = std::result::Result<T, E>;
 pub struct DispatchOutcome {
     pub events: Vec<BridgeEvent>,
     pub click_emitted: bool,
+    pub text_events: Vec<TextControlEventEnvelope>,
     pub diagnostics: Vec<BridgeDiagnostic>,
 }
 
@@ -595,6 +946,7 @@ pub enum PrototypeKey {
     ShadcnSeparatorRoot,
     ShadcnSwitchRoot,
     ShadcnSwitchThumb,
+    ShadcnTextareaRoot,
     ShadcnTabsRoot,
     ShadcnTabsList,
     ShadcnTabsTrigger,
@@ -634,6 +986,7 @@ impl PrototypeKey {
             Self::ShadcnSeparatorRoot => "shadcn-separator-root",
             Self::ShadcnSwitchRoot => "shadcn-switch-root",
             Self::ShadcnSwitchThumb => "shadcn-switch-thumb",
+            Self::ShadcnTextareaRoot => "shadcn-textarea-root",
             Self::ShadcnTabsRoot => "shadcn-tabs-root",
             Self::ShadcnTabsList => "shadcn-tabs-list",
             Self::ShadcnTabsTrigger => "shadcn-tabs-trigger",
@@ -672,6 +1025,7 @@ impl PrototypeKey {
             "shadcn-separator-root" => Ok(Self::ShadcnSeparatorRoot),
             "shadcn-switch-root" => Ok(Self::ShadcnSwitchRoot),
             "shadcn-switch-thumb" => Ok(Self::ShadcnSwitchThumb),
+            "shadcn-textarea-root" => Ok(Self::ShadcnTextareaRoot),
             "shadcn-tabs-root" => Ok(Self::ShadcnTabsRoot),
             "shadcn-tabs-list" => Ok(Self::ShadcnTabsList),
             "shadcn-tabs-trigger" => Ok(Self::ShadcnTabsTrigger),
@@ -714,6 +1068,7 @@ impl PrototypeKey {
             Self::ShadcnSeparatorRoot,
             Self::ShadcnSwitchRoot,
             Self::ShadcnSwitchThumb,
+            Self::ShadcnTextareaRoot,
             Self::ShadcnTabsRoot,
             Self::ShadcnTabsList,
             Self::ShadcnTabsTrigger,
@@ -775,6 +1130,9 @@ pub enum BridgeCommand {
         input: InputEnvelope,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         detail: Option<serde_json::Value>,
+    },
+    TextControl {
+        command: TextControlCommand,
     },
     SetProps {
         session_id: SessionId,
@@ -838,6 +1196,14 @@ pub enum BridgeEvent {
         view_epoch: ViewEpoch,
         sequence: u64,
         key: String,
+    },
+    TextControl {
+        session_id: SessionId,
+        instance_id: InstanceId,
+        view_epoch: ViewEpoch,
+        sequence: u64,
+        control_ref: TextControlRef,
+        event: TextControlEvent,
     },
     Diagnostic {
         diagnostic: BridgeDiagnostic,
