@@ -10,10 +10,10 @@ use gpui::{
     px, relative, rgb, rgba, size,
 };
 use proto_ui_gpui::{
-    A11ySnapshot, ButtonStyle, ColorValue, ProtoButtonState, ProtoSeparatorSnapshot,
-    ProtoTextareaSnapshot, ProtoToggleSnapshot, SeparatorOrientation, TabsContentSnapshot,
-    TabsListSnapshot, TabsTriggerSnapshot, TextControlEvent, TextControlEventType,
-    TextControlSelection, TextControlSelectionDirection, ViewEpoch,
+    A11ySnapshot, ButtonStyle, ColorValue, PlacementSnapshot, ProtoButtonState,
+    ProtoSeparatorSnapshot, ProtoTextareaSnapshot, ProtoToggleSnapshot, SeparatorOrientation,
+    TabsContentSnapshot, TabsListSnapshot, TabsTriggerSnapshot, TextControlEvent,
+    TextControlEventType, TextControlSelection, TextControlSelectionDirection, ViewEpoch,
 };
 
 /// Project a Proto UI Button snapshot into the native GPUI surface.
@@ -103,6 +103,21 @@ pub fn separator_element(id: &'static str, state: &ProtoSeparatorSnapshot) -> St
         element = apply_a11y(element, a11y, |_, _, _| {});
     }
     element
+}
+
+/// Materialize a precomputed Rust overlay placement in GPUI's absolute layer.
+/// Callers order siblings by `OverlayHost::layer_order_of`; no JavaScript runs
+/// during layout, prepaint, or paint.
+pub fn overlay_surface_element(id: &'static str, placement: &PlacementSnapshot) -> Stateful<Div> {
+    let rect = placement.floating_rect;
+    div()
+        .id(id)
+        .debug_selector(move || id.to_owned())
+        .absolute()
+        .left(px(rect.x))
+        .top(px(rect.y))
+        .w(px(rect.width))
+        .h(px(rect.height))
 }
 
 fn action_element(

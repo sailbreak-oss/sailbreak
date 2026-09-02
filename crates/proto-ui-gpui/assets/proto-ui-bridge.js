@@ -18301,7 +18301,7 @@
   });
   var footer_proto_default = dialogFooter;
   // index.ts
-  globalThis.__sailbreak_proto_ui_metadata = { proto_ui_version: "0.3.0-alpha.0", proto_ui_commit: "837677e857edb5e457ca9fa6915e066782d7eef6" };
+  globalThis.__sailbreak_proto_ui_metadata = { proto_ui_version: "0.3.0-alpha.0", proto_ui_commit: "02666e149e146094c439b538c9406cbba7d87341" };
   var BUILD_METADATA = globalThis.__sailbreak_proto_ui_metadata;
   var PROTO_UI_VERSION = typeof BUILD_METADATA?.proto_ui_version === "string" ? BUILD_METADATA.proto_ui_version : "main-snapshot";
   var PROTO_UI_COMMIT = typeof BUILD_METADATA?.proto_ui_commit === "string" ? BUILD_METADATA.proto_ui_commit : "unrecorded";

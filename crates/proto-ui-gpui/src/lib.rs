@@ -3,6 +3,7 @@
 mod button_host;
 mod components;
 mod focus;
+mod overlay;
 mod protocol;
 mod quickjs;
 mod runtime;
@@ -24,6 +25,7 @@ pub use components::{
     ToggleSize, ToggleVariant,
 };
 pub use focus::{FocusOperationResult, FocusRegistry, FocusTarget};
+pub use overlay::*;
 pub use protocol::*;
 pub use quickjs::QuickJsBridge;
 pub use runtime::{

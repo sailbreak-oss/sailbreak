@@ -886,6 +886,18 @@ pub enum BridgeError {
     Serialization { detail: String },
     #[error("bridge message decoding failed: {detail}")]
     Decode { detail: String },
+    #[error("invalid overlay anchor reference: {value:?}")]
+    InvalidAnchorRef { value: String },
+    #[error("invalid overlay surface reference: {value:?}")]
+    InvalidSurfaceRef { value: String },
+    #[error("overlay connection revision must be greater than zero")]
+    InvalidRevision,
+    #[error("stale overlay lease: {lease_id}")]
+    StaleOverlayLease { lease_id: u64 },
+    #[error("overlay event queue exceeded capacity {capacity}")]
+    OverlayQueueOverflow { capacity: usize },
+    #[error("invalid overlay geometry: {detail}")]
+    InvalidOverlayGeometry { detail: String },
     #[error("bridge is disposed")]
     Disposed,
     #[error("session mismatch: expected {expected}, received {received}")]

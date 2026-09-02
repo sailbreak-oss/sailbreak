@@ -22,7 +22,7 @@ use proto_ui_gpui::{
 };
 
 mod proto_surface;
-pub use proto_surface::{AccessibleProjection, project_a11y};
+pub use proto_surface::{AccessibleProjection, overlay_surface_element, project_a11y};
 
 // Palette tokens: a cool instrument-panel base, with one signal color and one
 // caution color. Keeping these in one place makes the dashboard's visual
