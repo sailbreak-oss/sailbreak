@@ -11,6 +11,7 @@ const MAX_BRIDGE_MESSAGE_BYTES: usize = 256 * 1024;
 const MAX_SHARED_PENDING_PER_SESSION: usize = 256;
 const MAX_SHARED_PENDING_TOTAL: usize = 1024;
 const MAX_JSON_DEPTH: usize = 16;
+const MAX_JS_STACK_BYTES: usize = 2 * 1024 * 1024;
 
 const BRIDGE_BUNDLE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -64,6 +65,7 @@ pub struct QuickJsBridge {
 impl QuickJsBridge {
     pub fn new() -> Result<Self> {
         let runtime = Runtime::new().map_err(runtime_error)?;
+        runtime.set_max_stack_size(MAX_JS_STACK_BYTES);
         let context = Context::full(&runtime).map_err(runtime_error)?;
         context
             .with(|ctx| ctx.eval::<(), _>(BRIDGE_BUNDLE))

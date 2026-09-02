@@ -63,6 +63,7 @@ struct ManagedSession {
     host: ProtoSessionHost,
     next_sequence: u64,
     next_text_sequence: u64,
+    route_ref: String,
 }
 
 pub struct ProtoAdapter {
@@ -114,6 +115,7 @@ impl ProtoAdapter {
         if request.route_ref.is_none() {
             request.route_ref = Some(id.clone());
         }
+        let route_ref = request.route_ref.clone().unwrap_or_else(|| id.clone());
 
         let mut host = ProtoSessionHost::with_shared_bridge(self.bridge.clone())?;
         host.start(request)?;
@@ -130,6 +132,7 @@ impl ProtoAdapter {
                 host,
                 next_sequence: 0,
                 next_text_sequence: 0,
+                route_ref,
             },
         );
         Ok(())
@@ -152,6 +155,7 @@ impl ProtoAdapter {
                     detail: format!("adapter input sequence overflow: {id}"),
                 })?;
         let snapshot = session.host.snapshot()?;
+        let route_ref = session.route_ref.clone();
         let input = InputEnvelope::new(
             snapshot.session_id,
             snapshot.instance_id,
@@ -159,7 +163,7 @@ impl ProtoAdapter {
             session.next_sequence,
             InputPayload::new(
                 format!("{id}:sample:{}", session.next_sequence),
-                id,
+                route_ref,
                 source,
                 kind,
             ),
@@ -268,12 +272,13 @@ impl ProtoAdapter {
     }
 
     pub fn parent_ref(&mut self, id: &str) -> Result<LogicalParentRef> {
+        let route_ref = self.session(id)?.route_ref.clone();
         let snapshot = self.snapshot(id)?;
         LogicalParentRef::new(
             snapshot.session.session_id,
             snapshot.session.instance_id,
             snapshot.session.projection.view_epoch,
-            id,
+            route_ref,
         )
     }
 

@@ -66,6 +66,18 @@ const GPUI_VERSION = '0.2.2';
 const HOST_PLATFORM = 'embedded-quickjs';
 const REGISTRY_DIGEST = `proto-ui-main@${PROTO_UI_COMMIT}`;
 const MAX_BRIDGE_MESSAGE_BYTES = 256 * 1024;
+const DOCUMENT_POSITION_PRECEDING = 2;
+const DOCUMENT_POSITION_FOLLOWING = 4;
+const nodeGlobal = globalThis as unknown as {
+  Node?: { DOCUMENT_POSITION_PRECEDING: number; DOCUMENT_POSITION_FOLLOWING: number };
+};
+if (!nodeGlobal.Node) {
+  nodeGlobal.Node = {
+    DOCUMENT_POSITION_PRECEDING,
+    DOCUMENT_POSITION_FOLLOWING,
+  };
+}
+let nextSurfaceOrder = 0;
 const bridgeMicrotasks: Array<() => void> = [];
 const microtaskGlobal = globalThis as unknown as {
   queueMicrotask?: (callback: () => void) => void;
@@ -222,8 +234,9 @@ type WireEvent =
     };
 
 type Surface = {
-  focusable: boolean;
   focused: boolean;
+  readonly order: number;
+  compareDocumentPosition(other: Surface): number;
   focus(): void;
   blur(): void;
 };
@@ -618,18 +631,6 @@ function emitStyle(record: SessionRecord): void {
   });
 }
 
-function emitA11y(record: SessionRecord, value: unknown): void {
-  if (record.disposed) return;
-  record.a11y = a11ySnapshot(value, record);
-  record.events.push({
-    type: 'a11y',
-    session_id: record.session_id,
-    instance_id: record.instance_id,
-    view_epoch: record.session?.mountEpoch ?? 1,
-    a11y: record.a11y,
-  });
-}
-
 function emitStateValues(record: SessionRecord): void {
   if (record.disposed) return;
   record.state_values = exposedStates(record.exposed_handles);
@@ -639,6 +640,18 @@ function emitStateValues(record: SessionRecord): void {
     instance_id: record.instance_id,
     view_epoch: record.session?.mountEpoch ?? 1,
     values: { ...record.state_values },
+  });
+}
+
+function emitA11y(record: SessionRecord, value: unknown): void {
+  if (record.disposed) return;
+  record.a11y = a11ySnapshot(value, record);
+  record.events.push({
+    type: 'a11y',
+    session_id: record.session_id,
+    instance_id: record.instance_id,
+    view_epoch: record.session?.mountEpoch ?? 1,
+    a11y: record.a11y,
   });
 }
 
@@ -684,11 +697,55 @@ function prototypeFor(instance: unknown): Prototype | null {
   return null;
 }
 
+function rootRecordFor(record: SessionRecord): SessionRecord {
+  let current = record;
+  const visited = new Set<string>();
+  while (!visited.has(current.session_id)) {
+    visited.add(current.session_id);
+    const parent = parentRecordFor(current);
+    if (!parent) break;
+    current = parent;
+  }
+  return current;
+}
+
 function rootTargetFor(instance: unknown): Surface | null {
   for (const record of sessions.values()) {
     if (record.surface === instance) return record.surface;
   }
   return null;
+}
+
+function familyGlobalBus(record: SessionRecord): LogicalBus {
+  return rootRecordFor(record).global_bus;
+}
+
+function recordForSurface(surface: Surface): SessionRecord | null {
+  for (const record of sessions.values()) {
+    if (record.surface === surface) return record;
+  }
+  return null;
+}
+
+function blurSurface(surface: Surface): void {
+  if (!surface.focused) return;
+  surface.focused = false;
+  const record = recordForSurface(surface);
+  record?.root_bus.dispatch('host:blur', { target: surface, nativeEvent: { target: surface } });
+}
+
+function focusSurface(surface: Surface): void {
+  if (surface.focused) return;
+  const record = recordForSurface(surface);
+  if (!record) return;
+  const root = rootRecordFor(record);
+  for (const candidate of sessions.values()) {
+    if (candidate.surface !== surface && rootRecordFor(candidate) === root) {
+      blurSurface(candidate.surface);
+    }
+  }
+  surface.focused = true;
+  record.root_bus.dispatch('host:focus', { target: surface, nativeEvent: { target: surface } });
 }
 
 function parseParent(value: unknown): WireParent | null {
@@ -865,7 +922,7 @@ function attachCapabilities(record: SessionRecord, wiring: ModuleWiringLike): vo
   ]);
   wiring.attach('event', [
     [EVENT_ROOT_TARGET_CAP, () => record.root_bus],
-    [EVENT_GLOBAL_TARGET_CAP, () => record.global_bus],
+    [EVENT_GLOBAL_TARGET_CAP, () => familyGlobalBus(record)],
     [EVENT_CANCEL_DEFAULT_ACTION_CAP, () => {
       emitDiagnostic(
         record,
@@ -916,17 +973,19 @@ function attachCapabilities(record: SessionRecord, wiring: ModuleWiringLike): vo
     }],
     [FOCUS_INSTANCE_TOKEN_CAP, record.surface],
     [FOCUS_PARENT_CAP, parentGetter],
-    [FOCUS_IS_NATIVELY_FOCUSABLE_CAP, () => record.surface.focusable],
-    [FOCUS_SET_FOCUSABLE_CAP, (target: Surface, enabled: boolean) => {
-      target.focusable = enabled;
-    }],
+    [FOCUS_IS_NATIVELY_FOCUSABLE_CAP, () => true],
+    // GPUI owns tab-stop projection; the QuickJS surface remains programmatically focusable.
+    [FOCUS_SET_FOCUSABLE_CAP, (_target: Surface, _enabled: boolean) => undefined],
     [FOCUS_REQUEST_FOCUS_CAP, (target: Surface) => {
-      if (!target.focusable) return false;
       target.focus();
-      return true;
+      return target.focused;
     }],
     [FOCUS_BLUR_CAP, (target: Surface) => target.blur()],
-    [FOCUS_RUN_IN_CALLBACK_CAP, (callback: () => void) => callback()],
+    [FOCUS_RUN_IN_CALLBACK_CAP, (callback: () => void) => {
+      const session = record.session;
+      if (session?.invokeInCallbackScope) session.invokeInCallbackScope(callback);
+      else callback();
+    }],
   ]);
   wiring.attach('feedback', [
     [EFFECTS_CAP, {
@@ -979,14 +1038,21 @@ function createRecord(
   routeRef: string | null,
   parentRef: WireParent | null,
 ): SessionRecord {
+  const order = nextSurfaceOrder++;
   const surface: Surface = {
-    focusable: false,
     focused: false,
+    order,
+    compareDocumentPosition(other) {
+      if (surface === other) return 0;
+      return surface.order < other.order
+        ? DOCUMENT_POSITION_FOLLOWING
+        : DOCUMENT_POSITION_PRECEDING;
+    },
     focus() {
-      surface.focused = true;
+      focusSurface(surface);
     },
     blur() {
-      surface.focused = false;
+      blurSurface(surface);
     },
   };
   return {
@@ -1080,6 +1146,7 @@ function runtimeHost(record: SessionRecord) {
     onRuntimeReady: (wiring: ModuleWiringLike) => attachCapabilities(record, wiring),
   };
 }
+
 
 function startSession(command: Record<string, unknown>): void {
   const sessionId = getRequiredString(command, 'session_id');
@@ -1200,11 +1267,11 @@ function input(command: Record<string, unknown>): void {
   }
   const event = { detail };
   if (kind === 'key_down' || kind === 'key_up') {
-    record.global_bus.dispatch(eventType, event);
+    familyGlobalBus(record).dispatch(eventType, event);
   } else if (kind === 'focus') {
-    record.root_bus.dispatch('host:focus', event);
+    focusSurface(record.surface);
   } else if (kind === 'blur') {
-    record.root_bus.dispatch('host:blur', event);
+    blurSurface(record.surface);
   } else {
     record.root_bus.dispatch(eventType, event);
   }

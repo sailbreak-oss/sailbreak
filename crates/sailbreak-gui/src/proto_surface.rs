@@ -11,8 +11,9 @@ use gpui::{
 };
 use proto_ui_gpui::{
     A11ySnapshot, ButtonStyle, ColorValue, ProtoButtonState, ProtoSeparatorSnapshot,
-    ProtoTextareaSnapshot, ProtoToggleSnapshot, SeparatorOrientation, TextControlEvent,
-    TextControlEventType, TextControlSelection, TextControlSelectionDirection, ViewEpoch,
+    ProtoTextareaSnapshot, ProtoToggleSnapshot, SeparatorOrientation, TabsContentSnapshot,
+    TabsListSnapshot, TabsTriggerSnapshot, TextControlEvent, TextControlEventType,
+    TextControlSelection, TextControlSelectionDirection, ViewEpoch,
 };
 
 /// Project a Proto UI Button snapshot into the native GPUI surface.
@@ -26,7 +27,14 @@ pub fn button_element(
     state: &ProtoButtonState,
     on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    action_element(id, label, &state.style, state.a11y.as_ref(), on_a11y_click)
+    action_element(
+        id,
+        label,
+        &state.style,
+        state.a11y.as_ref(),
+        None,
+        on_a11y_click,
+    )
 }
 
 /// Project a Proto UI Toggle snapshot through the same native action surface.
@@ -41,8 +49,43 @@ pub fn toggle_element(
         label,
         &state.resolved_style,
         state.a11y.as_ref(),
+        None,
         on_a11y_click,
     )
+}
+
+/// Project one Tabs Trigger through a caller-owned GPUI focus handle.
+pub fn tab_trigger_element(
+    id: &'static str,
+    label: &'static str,
+    state: &TabsTriggerSnapshot,
+    focus_handle: &FocusHandle,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    action_element(
+        id,
+        label,
+        &state.resolved_style,
+        state.a11y.as_ref(),
+        Some(focus_handle),
+        on_a11y_click,
+    )
+}
+
+pub fn tab_list_element(id: &'static str, state: &TabsListSnapshot) -> Stateful<Div> {
+    let element = div().id(id).debug_selector(move || id.to_owned());
+    match state.a11y.as_ref() {
+        Some(a11y) => apply_a11y(element, a11y, |_, _, _| {}),
+        None => element,
+    }
+}
+
+pub fn tab_panel_element(id: &'static str, state: &TabsContentSnapshot) -> Stateful<Div> {
+    let element = div().id(id).debug_selector(move || id.to_owned());
+    match state.a11y.as_ref() {
+        Some(a11y) => apply_a11y(element, a11y, |_, _, _| {}),
+        None => element,
+    }
 }
 
 /// Project a contentless Proto Separator while keeping surrounding layout host-owned.
@@ -67,6 +110,7 @@ fn action_element(
     label: &'static str,
     style: &ButtonStyle,
     a11y: Option<&A11ySnapshot>,
+    focus_handle: Option<&FocusHandle>,
     on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let mut element = div()
@@ -85,8 +129,12 @@ fn action_element(
         .bg(to_hsla(style.background))
         .text_color(to_hsla(style.foreground))
         .text_sm()
-        .font_weight(gpui::FontWeight::MEDIUM)
-        .focusable();
+        .font_weight(gpui::FontWeight::MEDIUM);
+    element = if let Some(handle) = focus_handle {
+        element.track_focus(handle)
+    } else {
+        element.focusable()
+    };
     if let Some(snapshot) = a11y {
         element = apply_a11y(element, snapshot, on_a11y_click);
     }
@@ -1220,6 +1268,9 @@ fn role_for(role: &str) -> Role {
         "button" => Role::Button,
         "textbox" => Role::TextInput,
         "separator" => Role::Splitter,
+        "tab" => Role::Tab,
+        "tablist" => Role::TabList,
+        "tabpanel" => Role::TabPanel,
         _ => Role::Unknown,
     }
 }

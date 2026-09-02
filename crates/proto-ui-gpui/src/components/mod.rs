@@ -2,6 +2,7 @@ mod adapter;
 mod checkbox;
 mod separator;
 mod switch;
+mod tabs;
 mod textarea;
 mod toggle;
 
@@ -20,6 +21,11 @@ pub use switch::{
     SwitchThumbSnapshot,
 };
 
+pub use tabs::{
+    ProtoTabsHost, TabsActivationMode, TabsContentProps, TabsContentSnapshot, TabsDispatchOutcome,
+    TabsListProps, TabsListSnapshot, TabsOrientation, TabsRootProps, TabsRootSnapshot,
+    TabsSnapshot, TabsTriggerProps, TabsTriggerSnapshot,
+};
 pub use textarea::{
     ProtoTextareaHost, ProtoTextareaSnapshot, TextareaDispatchOutcome, TextareaProps, TextareaWrap,
 };

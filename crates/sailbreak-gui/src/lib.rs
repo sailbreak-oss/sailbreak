@@ -4,19 +4,21 @@
 //! reported by [`lctrl_hal::Hal`] and marks every capability according to the
 //! core availability value, including its explanation.
 
-use std::{cell::RefCell, env, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::BTreeMap, env, rc::Rc, sync::Arc};
 
 use gpui::{
-    App, Bounds, Context, Div, Entity, IntoElement, Render, Stateful, Subscription, Window,
-    WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
+    App, Bounds, Context, Div, Entity, FocusHandle, IntoElement, Render, Stateful, Subscription,
+    Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
 };
 use lctrl_core::{Availability, CapabilitySet, HardwareInfo, LctrlError, Platform, Result};
 use lctrl_hal::Hal;
 use proto_ui_gpui::{
-    BridgeError, DispatchOutcome, InputKind, InputSource, ProtoButtonHost, ProtoButtonState,
-    ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoTextareaHost, ProtoTextareaSnapshot,
-    ProtoToggleHost, ProtoToggleSnapshot, SeparatorProps, ShadcnButtonSize, ShadcnButtonVariant,
-    TextareaProps, ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
+    BridgeError, DispatchOutcome, FocusOperationResult, InputKind, InputSource, ProtoButtonHost,
+    ProtoButtonState, ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoTabsHost, ProtoTextareaHost,
+    ProtoTextareaSnapshot, ProtoToggleHost, ProtoToggleSnapshot, SeparatorProps, ShadcnButtonSize,
+    ShadcnButtonVariant, TabsActivationMode, TabsContentProps, TabsListProps, TabsOrientation,
+    TabsRootProps, TabsSnapshot, TabsTriggerProps, TextareaProps, ToggleDispatchOutcome,
+    ToggleProps, ToggleSize, ToggleVariant,
 };
 
 mod proto_surface;
@@ -87,7 +89,6 @@ impl DashboardSnapshot {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DashboardAction {
-    SelectSection(usize),
     Refresh,
     RunCommand(&'static [&'static str]),
     SaveProfile,
@@ -130,6 +131,26 @@ const SIDEBAR_BUTTON_IDS: [&str; 7] = [
     "sidebar-section-5",
     "sidebar-section-6",
 ];
+const SIDEBAR_CONTENT_IDS: [&str; 7] = [
+    "sidebar-content-0",
+    "sidebar-content-1",
+    "sidebar-content-2",
+    "sidebar-content-3",
+    "sidebar-content-4",
+    "sidebar-content-5",
+    "sidebar-content-6",
+];
+const SECTION_VALUES: [&str; 7] = [
+    "overview",
+    "power",
+    "performance",
+    "devices",
+    "bios",
+    "tuning",
+    "diagnostics",
+];
+const SIDEBAR_TABS_ROOT_ID: &str = "sidebar-tabs-root";
+const SIDEBAR_TABS_LIST_ID: &str = "sidebar-tabs-list";
 
 const ACTION_BUTTONS: [(&str, &str, ShadcnButtonVariant, ShadcnButtonSize); 7] = [
     (
@@ -209,6 +230,9 @@ struct ProtoUiState {
     textarea_host: Option<ProtoTextareaHost>,
     textarea_snapshot: Option<ProtoTextareaSnapshot>,
     textarea_error: Option<String>,
+    tabs_host: Option<ProtoTabsHost>,
+    tabs_snapshot: Option<TabsSnapshot>,
+    tabs_error: Option<String>,
     error: Option<String>,
 }
 
@@ -224,11 +248,18 @@ impl ProtoUiState {
                     textarea_host: None,
                     textarea_snapshot: None,
                     textarea_error: None,
+                    tabs_host: None,
+                    tabs_snapshot: None,
+                    tabs_error: None,
                     error: Some(error.to_string()),
                 };
             }
         };
         let (textarea_host, textarea_snapshot, textarea_error) = match Self::build_textarea() {
+            Ok((host, snapshot)) => (Some(host), Some(snapshot), None),
+            Err(error) => (None, None, Some(error.to_string())),
+        };
+        let (tabs_host, tabs_snapshot, tabs_error) = match Self::build_tabs() {
             Ok((host, snapshot)) => (Some(host), Some(snapshot), None),
             Err(error) => (None, None, Some(error.to_string())),
         };
@@ -239,6 +270,9 @@ impl ProtoUiState {
             textarea_host,
             textarea_snapshot,
             textarea_error,
+            tabs_host,
+            tabs_snapshot,
+            tabs_error,
             error: None,
         }
     }
@@ -247,19 +281,6 @@ impl ProtoUiState {
     -> std::result::Result<(ProtoButtonHost, ProtoToggleHost, ProtoSeparatorHost), BridgeError>
     {
         let mut host = ProtoButtonHost::new()?;
-        for (index, _) in SECTION_NAMES.iter().enumerate() {
-            let variant = if index == 0 {
-                ShadcnButtonVariant::Secondary
-            } else {
-                ShadcnButtonVariant::Ghost
-            };
-            host.register_button(
-                SIDEBAR_BUTTON_IDS[index],
-                SECTION_BUTTON_LABELS[index],
-                variant,
-                ShadcnButtonSize::Sm,
-            )?;
-        }
         for (id, label, variant, size) in ACTION_BUTTONS {
             host.register_button(id, label, variant, size)?;
         }
@@ -311,6 +332,51 @@ impl ProtoUiState {
         Ok((textarea_host, textarea_snapshot))
     }
 
+    fn build_tabs() -> std::result::Result<(ProtoTabsHost, TabsSnapshot), BridgeError> {
+        let mut host = ProtoTabsHost::new()?;
+        host.register_root(
+            SIDEBAR_TABS_ROOT_ID,
+            "Dashboard sections",
+            TabsRootProps {
+                default_value: SECTION_VALUES[0].to_owned(),
+                orientation: TabsOrientation::Vertical,
+                activation_mode: TabsActivationMode::Automatic,
+                ..TabsRootProps::default()
+            },
+        )?;
+        host.register_list(
+            SIDEBAR_TABS_LIST_ID,
+            SIDEBAR_TABS_ROOT_ID,
+            TabsListProps {
+                loop_navigation: true,
+                a11y_label: "Dashboard sections".to_owned(),
+                ..TabsListProps::default()
+            },
+        )?;
+        for index in 0..SECTION_VALUES.len() {
+            host.register_trigger(
+                SIDEBAR_BUTTON_IDS[index],
+                SECTION_BUTTON_LABELS[index],
+                SIDEBAR_TABS_LIST_ID,
+                TabsTriggerProps {
+                    value: SECTION_VALUES[index].to_owned(),
+                    disabled: false,
+                },
+            )?;
+            host.register_content(
+                SIDEBAR_CONTENT_IDS[index],
+                SIDEBAR_TABS_ROOT_ID,
+                TabsContentProps {
+                    value: SECTION_VALUES[index].to_owned(),
+                    keep_mounted: false,
+                },
+            )?;
+        }
+        host.setup()?;
+        let snapshot = host.snapshot()?;
+        Ok((host, snapshot))
+    }
+
     fn unavailable_error(&self) -> BridgeError {
         BridgeError::Runtime {
             detail: self
@@ -326,6 +392,15 @@ impl ProtoUiState {
                 .textarea_error
                 .clone()
                 .unwrap_or_else(|| "Proto UI textarea host is unavailable".to_owned()),
+        }
+    }
+
+    fn tabs_unavailable_error(&self) -> BridgeError {
+        BridgeError::Runtime {
+            detail: self
+                .tabs_error
+                .clone()
+                .unwrap_or_else(|| "Proto UI Tabs host is unavailable".to_owned()),
         }
     }
 
@@ -349,6 +424,115 @@ impl ProtoUiState {
 
     fn textarea_snapshot(&self) -> Option<&ProtoTextareaSnapshot> {
         self.textarea_snapshot.as_ref()
+    }
+
+    fn tabs_snapshot(&self) -> Option<&TabsSnapshot> {
+        self.tabs_snapshot.as_ref()
+    }
+
+    fn refresh_tabs(&mut self) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.tabs_unavailable_error();
+        let host = self.tabs_host.as_mut().ok_or(unavailable)?;
+        self.tabs_snapshot = Some(host.snapshot()?);
+        Ok(())
+    }
+
+    fn selected_section_index(&self) -> usize {
+        let selected = self
+            .tabs_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.root.as_ref())
+            .map(|root| root.value.as_str());
+        selected
+            .and_then(|value| {
+                SECTION_VALUES
+                    .iter()
+                    .position(|candidate| *candidate == value)
+            })
+            .unwrap_or(0)
+    }
+
+    fn active_tab_id(&self) -> Option<String> {
+        self.tabs_snapshot
+            .as_ref()?
+            .triggers
+            .iter()
+            .find(|trigger| trigger.focused)
+            .map(|trigger| trigger.id.clone())
+    }
+
+    fn set_tab_focus_ready(
+        &mut self,
+        id: &str,
+        ready: bool,
+    ) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.tabs_unavailable_error();
+        self.tabs_host
+            .as_mut()
+            .ok_or(unavailable)?
+            .set_focus_ready(id, ready)
+    }
+
+    fn focus_tab(
+        &mut self,
+        id: &str,
+        source: InputSource,
+    ) -> std::result::Result<FocusOperationResult, BridgeError> {
+        let unavailable = self.tabs_unavailable_error();
+        let result = self
+            .tabs_host
+            .as_mut()
+            .ok_or(unavailable)?
+            .focus_with_source(id, source)?;
+        self.refresh_tabs()?;
+        Ok(result)
+    }
+
+    fn blur_tab(&mut self, id: &str) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.tabs_unavailable_error();
+        self.tabs_host
+            .as_mut()
+            .ok_or(unavailable)?
+            .blur(id, InputSource::Programmatic)?;
+        self.refresh_tabs()
+    }
+
+    fn dispatch_tab_key(&mut self, key: &str) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.tabs_unavailable_error();
+        self.tabs_host
+            .as_mut()
+            .ok_or(unavailable)?
+            .dispatch_key(key)?;
+        self.refresh_tabs()
+    }
+
+    fn press_tab(
+        &mut self,
+        id: &str,
+        source: InputSource,
+    ) -> std::result::Result<bool, BridgeError> {
+        let unavailable = self.tabs_unavailable_error();
+        let outcome = self
+            .tabs_host
+            .as_mut()
+            .ok_or(unavailable)?
+            .press_commit(id, source)?;
+        self.refresh_tabs()?;
+        Ok(outcome.click_count == 1)
+    }
+
+    fn dispatch_tab_input(
+        &mut self,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+    ) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.tabs_unavailable_error();
+        self.tabs_host
+            .as_mut()
+            .ok_or(unavailable)?
+            .dispatch_trigger(id, kind, source, None)?;
+        self.refresh_tabs()
     }
 
     fn dispatch(
@@ -390,18 +574,6 @@ impl ProtoUiState {
             .ok_or(unavailable)?
             .set_props(id, performance_preview_props(active))?;
         Ok(())
-    }
-
-    fn set_variant(
-        &mut self,
-        id: &str,
-        variant: ShadcnButtonVariant,
-    ) -> std::result::Result<DispatchOutcome, BridgeError> {
-        let unavailable = self.unavailable_error();
-        self.host
-            .as_mut()
-            .ok_or(unavailable)?
-            .set_variant(id, variant)
     }
 
     fn dispatch_textarea(
@@ -846,6 +1018,8 @@ pub struct Dashboard {
     textarea_subscription: Option<Subscription>,
     textarea_focus_subscription: Option<Subscription>,
     textarea_blur_subscription: Option<Subscription>,
+    tab_focus_handles: BTreeMap<&'static str, FocusHandle>,
+    tab_focus_subscriptions: Vec<Subscription>,
 }
 
 impl Dashboard {
@@ -866,15 +1040,46 @@ impl Dashboard {
             },
             None => snapshot,
         };
+        let active_section = proto.selected_section_index();
         Self {
             snapshot,
             controller,
-            active_section: 0,
+            active_section,
             proto,
             textarea_input: None,
             textarea_subscription: None,
             textarea_focus_subscription: None,
             textarea_blur_subscription: None,
+            tab_focus_handles: BTreeMap::new(),
+            tab_focus_subscriptions: Vec::new(),
+        }
+    }
+
+    fn ensure_tab_focus_handles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.tab_focus_handles.is_empty() {
+            return;
+        }
+        for id in SIDEBAR_BUTTON_IDS {
+            let handle = cx.focus_handle();
+            let focus_subscription = cx.on_focus(&handle, window, move |this, window, cx| {
+                let source = if window.last_input_was_keyboard() {
+                    InputSource::Keyboard
+                } else {
+                    InputSource::Mouse
+                };
+                this.handle_tab_focus(id, source, cx);
+                cx.notify();
+            });
+            let blur_subscription = cx.on_blur(&handle, window, move |this, _, cx| {
+                this.handle_tab_blur(id, cx);
+                cx.notify();
+            });
+            if let Err(error) = self.proto.set_tab_focus_ready(id, true) {
+                self.snapshot.status_message = format!("Proto UI tab focus unavailable: {error}");
+            }
+            self.tab_focus_handles.insert(id, handle);
+            self.tab_focus_subscriptions.push(focus_subscription);
+            self.tab_focus_subscriptions.push(blur_subscription);
         }
     }
 
@@ -956,6 +1161,59 @@ impl Dashboard {
         self.handle_textarea_focus(id, false, InputSource::Programmatic, cx);
     }
 
+    fn sync_active_section_from_tabs(&mut self) {
+        let next = self.proto.selected_section_index();
+        if next != self.active_section {
+            self.active_section = next;
+            self.snapshot.status_message =
+                format!("Section {} selected", SECTION_NAMES[self.active_section].1);
+        }
+    }
+
+    fn handle_tab_focus(&mut self, id: &str, source: InputSource, _cx: &mut Context<Self>) {
+        match self.proto.focus_tab(id, source) {
+            Ok(FocusOperationResult::Accepted) => self.sync_active_section_from_tabs(),
+            Ok(FocusOperationResult::NotReady) => {
+                self.snapshot.status_message = format!("Proto UI tab focus is not ready: {id}");
+            }
+            Ok(FocusOperationResult::Rejected) => {
+                self.snapshot.status_message = format!("Proto UI tab focus was rejected: {id}");
+            }
+            Err(error) => {
+                self.snapshot.status_message = format!("Proto UI tab focus failed: {error}");
+            }
+        }
+    }
+
+    fn handle_tab_blur(&mut self, id: &str, _cx: &mut Context<Self>) {
+        if let Err(error) = self.proto.blur_tab(id) {
+            self.snapshot.status_message = format!("Proto UI tab blur failed: {error}");
+        }
+    }
+
+    fn handle_tab_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Err(error) = self.proto.dispatch_tab_key(key) {
+            self.snapshot.status_message = format!("Proto UI tab navigation failed: {error}");
+            return;
+        }
+        self.sync_active_section_from_tabs();
+        if let Some(id) = self.proto.active_tab_id()
+            && let Some(handle) = self.tab_focus_handles.get(id.as_str())
+        {
+            window.focus(handle, cx);
+        }
+    }
+
+    fn handle_tab_press(&mut self, id: &str, source: InputSource) {
+        match self.proto.press_tab(id, source) {
+            Ok(true) => self.sync_active_section_from_tabs(),
+            Ok(false) => {}
+            Err(error) => {
+                self.snapshot.status_message = format!("Proto UI tab activation failed: {error}");
+            }
+        }
+    }
+
     fn profile_source(&self) -> Result<String> {
         self.proto
             .textarea_snapshot()
@@ -1008,30 +1266,6 @@ impl Dashboard {
 
     fn apply_action(&mut self, action: DashboardAction) {
         match action {
-            DashboardAction::SelectSection(index) => {
-                let next_section = index.min(SECTION_NAMES.len() - 1);
-                let previous_section = self.active_section;
-                self.active_section = next_section;
-                let mut variant_error = None;
-                if previous_section != next_section {
-                    if let Err(error) = self.proto.set_variant(
-                        SIDEBAR_BUTTON_IDS[previous_section],
-                        ShadcnButtonVariant::Ghost,
-                    ) {
-                        variant_error = Some(error.to_string());
-                    }
-                    if let Err(error) = self.proto.set_variant(
-                        SIDEBAR_BUTTON_IDS[next_section],
-                        ShadcnButtonVariant::Secondary,
-                    ) {
-                        variant_error = Some(error.to_string());
-                    }
-                }
-                self.snapshot.status_message = match variant_error {
-                    Some(error) => format!("Proto UI action failed: {error}"),
-                    None => format!("Section {} selected", SECTION_NAMES[self.active_section].1),
-                };
-            }
             DashboardAction::Refresh => match self.controller.refresh() {
                 Ok(mut snapshot) => {
                     snapshot.status_message = "Status refreshed".into();
@@ -1152,12 +1386,145 @@ impl Dashboard {
     }
 }
 
+fn tab_navigation_key(key: &str) -> Option<&'static str> {
+    match key {
+        "left" | "ArrowLeft" => Some("ArrowLeft"),
+        "right" | "ArrowRight" => Some("ArrowRight"),
+        "up" | "ArrowUp" => Some("ArrowUp"),
+        "down" | "ArrowDown" => Some("ArrowDown"),
+        "home" | "Home" => Some("Home"),
+        "end" | "End" => Some("End"),
+        _ => None,
+    }
+}
+
+fn tab_action(
+    dashboard: &Dashboard,
+    cx: &mut Context<Dashboard>,
+    id: &'static str,
+    label: &'static str,
+) -> Stateful<Div> {
+    let Some(state) = dashboard
+        .proto
+        .tabs_snapshot()
+        .and_then(|snapshot| snapshot.triggers.iter().find(|trigger| trigger.id == id))
+    else {
+        return unavailable_button(id, label);
+    };
+    let disabled = state.disabled;
+    let Some(focus_handle) = dashboard.tab_focus_handles.get(id).cloned() else {
+        return unavailable_button(id, label);
+    };
+    let dashboard_entity = cx.entity().downgrade();
+    let mouse_focus = focus_handle.clone();
+    proto_surface::tab_trigger_element(id, label, state, &focus_handle, move |_, _, cx| {
+        dashboard_entity
+            .update(cx, |this, cx| {
+                this.handle_tab_press(id, InputSource::Accessibility);
+                cx.notify();
+            })
+            .ok();
+    })
+    .on_hover(cx.listener(move |this, hovered, _, cx| {
+        let kind = if *hovered {
+            InputKind::PointerEnter
+        } else {
+            InputKind::PointerLeave
+        };
+        if let Err(error) = this.proto.dispatch_tab_input(id, kind, InputSource::Mouse) {
+            this.snapshot.status_message = format!("Proto UI tab hover failed: {error}");
+        }
+        cx.notify();
+    }))
+    .on_mouse_down(
+        gpui::MouseButton::Left,
+        cx.listener(move |this, _, window, cx| {
+            if !disabled {
+                window.focus(&mouse_focus, cx);
+            }
+            if let Err(error) =
+                this.proto
+                    .dispatch_tab_input(id, InputKind::PointerDown, InputSource::Mouse)
+            {
+                this.snapshot.status_message = format!("Proto UI tab press failed: {error}");
+            }
+            cx.notify();
+        }),
+    )
+    .on_mouse_up(
+        gpui::MouseButton::Left,
+        cx.listener(move |this, _, _, cx| {
+            if let Err(error) =
+                this.proto
+                    .dispatch_tab_input(id, InputKind::PointerUp, InputSource::Mouse)
+            {
+                this.snapshot.status_message = format!("Proto UI tab release failed: {error}");
+            }
+            cx.notify();
+        }),
+    )
+    .on_key_down(
+        cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+            if let Some(key) = tab_navigation_key(&event.keystroke.key) {
+                this.handle_tab_key(key, window, cx);
+                cx.notify();
+            }
+        }),
+    )
+    .on_click(cx.listener(move |this, event, _, cx| {
+        let source = match event {
+            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
+            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
+            gpui::ClickEvent::Touch(_) => InputSource::Touch,
+        };
+        this.handle_tab_press(id, source);
+        cx.notify();
+    }))
+}
+fn section_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Stateful<Div> {
+    let index = dashboard.active_section.min(SECTION_VALUES.len() - 1);
+    let content_id = SIDEBAR_CONTENT_IDS[index];
+    let mut panel = dashboard
+        .proto
+        .tabs_snapshot()
+        .and_then(|snapshot| {
+            snapshot
+                .contents
+                .iter()
+                .find(|content| content.id == content_id && content.present)
+        })
+        .map_or_else(
+            || div().id(content_id),
+            |content| proto_surface::tab_panel_element(content_id, content),
+        )
+        .flex_1()
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .p_6()
+        .gap_5()
+        .child(identity_header(&dashboard.snapshot))
+        .child(separator_view(dashboard, MAIN_HEADER_SEPARATOR_ID))
+        .child(safety_banner(&dashboard.snapshot.status_message))
+        .child(separator_view(dashboard, ACTION_SEPARATOR_ID))
+        .child(action_bar(dashboard, cx))
+        .child(separator_view(dashboard, CAPABILITY_SEPARATOR_ID));
+    if index == TUNING_SECTION_INDEX {
+        panel = panel.child(tuning_panel(dashboard, cx));
+    } else {
+        panel = panel
+            .child(capability_matrix(&dashboard.snapshot.capabilities))
+            .child(telemetry_panel(&dashboard.snapshot));
+    }
+    panel
+}
+
 impl Render for Dashboard {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.ensure_tab_focus_handles(window, cx);
         if self.active_section == TUNING_SECTION_INDEX {
             self.ensure_textarea_input(window, cx);
         }
-        let snapshot = &self.snapshot;
         div()
             .size_full()
             .flex()
@@ -1166,54 +1533,41 @@ impl Render for Dashboard {
             .text_color(rgb(TEXT))
             .font_family("Iosevka, IBM Plex Mono, monospace")
             .child(sidebar(self, cx))
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .overflow_hidden()
-                    .p_6()
-                    .gap_5()
-                    .child(identity_header(snapshot))
-                    .child(separator_view(self, MAIN_HEADER_SEPARATOR_ID))
-                    .child(safety_banner(&snapshot.status_message))
-                    .child(separator_view(self, ACTION_SEPARATOR_ID))
-                    .child(action_bar(self, cx))
-                    .child(separator_view(self, CAPABILITY_SEPARATOR_ID))
-                    .child(capability_matrix(&snapshot.capabilities))
-                    .child(telemetry_panel(snapshot))
-                    .when(self.active_section == TUNING_SECTION_INDEX, |this| {
-                        this.child(tuning_panel(self, cx))
-                    }),
-            )
+            .child(section_panel(self, cx))
     }
 }
 
 fn sidebar(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoElement {
-    let session_label = if dashboard.proto.error.is_some() {
+    let tabs_unavailable = dashboard.proto.error.is_some() || dashboard.proto.tabs_error.is_some();
+    let session_label = if tabs_unavailable {
         "●  PROTO UI UNAVAILABLE"
     } else {
         "●  CLICK-READY"
     };
-    let session_color = if dashboard.proto.error.is_some() {
+    let session_color = if tabs_unavailable {
         UNAVAILABLE
     } else {
         CAUTION
     };
+    let list = dashboard
+        .proto
+        .tabs_snapshot()
+        .map_or_else(
+            || div().id(SIDEBAR_TABS_LIST_ID),
+            |snapshot| proto_surface::tab_list_element(SIDEBAR_TABS_LIST_ID, &snapshot.list),
+        )
+        .flex()
+        .flex_col()
+        .gap_2()
+        .pt_5();
     let sections = SIDEBAR_BUTTON_IDS
         .into_iter()
         .enumerate()
         .map(|(index, id)| {
-            action_button(
-                dashboard,
-                cx,
-                id,
-                SECTION_BUTTON_LABELS[index],
-                DashboardAction::SelectSection(index),
-            )
-            .w_full()
-            .justify_start()
-            .gap_3()
+            tab_action(dashboard, cx, id, SECTION_BUTTON_LABELS[index])
+                .w_full()
+                .justify_start()
+                .gap_3()
         });
 
     div()
@@ -1252,7 +1606,7 @@ fn sidebar(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoEleme
                         .child("INTERACTIVE CONSOLE 0.1.1"),
                 ),
         )
-        .child(div().flex().flex_col().gap_2().pt_5().children(sections))
+        .child(list.children(sections))
         .child(
             div()
                 .mt_6()
@@ -1629,13 +1983,16 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_navigation_action_updates_active_section() {
+    fn dashboard_navigation_is_derived_from_proto_tabs_selection() {
         let snapshot = DashboardSnapshot::unavailable(Platform::Linux, "test");
         let mut dashboard = Dashboard::new(snapshot);
 
-        dashboard.apply_action(DashboardAction::SelectSection(2));
+        dashboard.handle_tab_press(SIDEBAR_BUTTON_IDS[2], InputSource::Mouse);
 
         assert_eq!(dashboard.active_section, 2);
+        let tabs = dashboard.proto.tabs_snapshot().expect("tabs snapshot");
+        assert!(tabs.contents[2].present);
+        assert!(!tabs.contents[0].present);
         assert_eq!(
             dashboard.snapshot.status_message,
             "Section PERFORMANCE selected"

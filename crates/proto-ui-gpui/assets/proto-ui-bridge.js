@@ -18301,7 +18301,7 @@
   });
   var footer_proto_default = dialogFooter;
   // index.ts
-  globalThis.__sailbreak_proto_ui_metadata = { proto_ui_version: "0.3.0-alpha.0", proto_ui_commit: "8d2b5cc14c13ace472f61d9c77aad7e9929e7f0f" };
+  globalThis.__sailbreak_proto_ui_metadata = { proto_ui_version: "0.3.0-alpha.0", proto_ui_commit: "837677e857edb5e457ca9fa6915e066782d7eef6" };
   var BUILD_METADATA = globalThis.__sailbreak_proto_ui_metadata;
   var PROTO_UI_VERSION = typeof BUILD_METADATA?.proto_ui_version === "string" ? BUILD_METADATA.proto_ui_version : "main-snapshot";
   var PROTO_UI_COMMIT = typeof BUILD_METADATA?.proto_ui_commit === "string" ? BUILD_METADATA.proto_ui_commit : "unrecorded";
@@ -18312,6 +18312,16 @@
   var HOST_PLATFORM = "embedded-quickjs";
   var REGISTRY_DIGEST = `proto-ui-main@${PROTO_UI_COMMIT}`;
   var MAX_BRIDGE_MESSAGE_BYTES = 256 * 1024;
+  var DOCUMENT_POSITION_PRECEDING = 2;
+  var DOCUMENT_POSITION_FOLLOWING = 4;
+  var nodeGlobal = globalThis;
+  if (!nodeGlobal.Node) {
+    nodeGlobal.Node = {
+      DOCUMENT_POSITION_PRECEDING,
+      DOCUMENT_POSITION_FOLLOWING
+    };
+  }
+  var nextSurfaceOrder = 0;
   var bridgeMicrotasks = [];
   var microtaskGlobal = globalThis;
   if (typeof microtaskGlobal.queueMicrotask !== "function") {
@@ -18654,18 +18664,6 @@
       style: { tokens: [...record.style_tokens] }
     });
   }
-  function emitA11y(record, value) {
-    if (record.disposed)
-      return;
-    record.a11y = a11ySnapshot(value, record);
-    record.events.push({
-      type: "a11y",
-      session_id: record.session_id,
-      instance_id: record.instance_id,
-      view_epoch: record.session?.mountEpoch ?? 1,
-      a11y: record.a11y
-    });
-  }
   function emitStateValues(record) {
     if (record.disposed)
       return;
@@ -18676,6 +18674,18 @@
       instance_id: record.instance_id,
       view_epoch: record.session?.mountEpoch ?? 1,
       values: { ...record.state_values }
+    });
+  }
+  function emitA11y(record, value) {
+    if (record.disposed)
+      return;
+    record.a11y = a11ySnapshot(value, record);
+    record.events.push({
+      type: "a11y",
+      session_id: record.session_id,
+      instance_id: record.instance_id,
+      view_epoch: record.session?.mountEpoch ?? 1,
+      a11y: record.a11y
     });
   }
   function setExposes(record, value) {
@@ -18727,12 +18737,56 @@
     }
     return null;
   }
+  function rootRecordFor(record) {
+    let current = record;
+    const visited = new Set;
+    while (!visited.has(current.session_id)) {
+      visited.add(current.session_id);
+      const parent = parentRecordFor(current);
+      if (!parent)
+        break;
+      current = parent;
+    }
+    return current;
+  }
   function rootTargetFor(instance3) {
     for (const record of sessions.values()) {
       if (record.surface === instance3)
         return record.surface;
     }
     return null;
+  }
+  function familyGlobalBus(record) {
+    return rootRecordFor(record).global_bus;
+  }
+  function recordForSurface(surface) {
+    for (const record of sessions.values()) {
+      if (record.surface === surface)
+        return record;
+    }
+    return null;
+  }
+  function blurSurface(surface) {
+    if (!surface.focused)
+      return;
+    surface.focused = false;
+    const record = recordForSurface(surface);
+    record?.root_bus.dispatch("host:blur", { target: surface, nativeEvent: { target: surface } });
+  }
+  function focusSurface(surface) {
+    if (surface.focused)
+      return;
+    const record = recordForSurface(surface);
+    if (!record)
+      return;
+    const root = rootRecordFor(record);
+    for (const candidate of sessions.values()) {
+      if (candidate.surface !== surface && rootRecordFor(candidate) === root) {
+        blurSurface(candidate.surface);
+      }
+    }
+    surface.focused = true;
+    record.root_bus.dispatch("host:focus", { target: surface, nativeEvent: { target: surface } });
   }
   function parseParent(value) {
     if (typeof value === "undefined" || value === null)
@@ -18905,7 +18959,7 @@
     ]);
     wiring.attach("event", [
       [EVENT_ROOT_TARGET_CAP, () => record.root_bus],
-      [EVENT_GLOBAL_TARGET_CAP, () => record.global_bus],
+      [EVENT_GLOBAL_TARGET_CAP, () => familyGlobalBus(record)],
       [EVENT_CANCEL_DEFAULT_ACTION_CAP, () => {
         emitDiagnostic(record, "default-action-not-applicable", "GPUI owns the native default action; no browser cancellation was claimed", false);
       }]
@@ -18953,18 +19007,22 @@
       }],
       [FOCUS_INSTANCE_TOKEN_CAP, record.surface],
       [FOCUS_PARENT_CAP, parentGetter],
-      [FOCUS_IS_NATIVELY_FOCUSABLE_CAP, () => record.surface.focusable],
-      [FOCUS_SET_FOCUSABLE_CAP, (target, enabled) => {
-        target.focusable = enabled;
+      [FOCUS_IS_NATIVELY_FOCUSABLE_CAP, () => true],
+      [FOCUS_SET_FOCUSABLE_CAP, (_target, _enabled) => {
+        return;
       }],
       [FOCUS_REQUEST_FOCUS_CAP, (target) => {
-        if (!target.focusable)
-          return false;
         target.focus();
-        return true;
+        return target.focused;
       }],
       [FOCUS_BLUR_CAP, (target) => target.blur()],
-      [FOCUS_RUN_IN_CALLBACK_CAP, (callback) => callback()]
+      [FOCUS_RUN_IN_CALLBACK_CAP, (callback) => {
+        const session2 = record.session;
+        if (session2?.invokeInCallbackScope)
+          session2.invokeInCallbackScope(callback);
+        else
+          callback();
+      }]
     ]);
     wiring.attach("feedback", [
       [EFFECTS_CAP, {
@@ -19007,14 +19065,20 @@
     };
   }
   function createRecord(sessionId, instanceId, prototype3, definition, props, meta, slot, routeRef, parentRef) {
+    const order = nextSurfaceOrder++;
     const surface = {
-      focusable: false,
       focused: false,
+      order,
+      compareDocumentPosition(other) {
+        if (surface === other)
+          return 0;
+        return surface.order < other.order ? DOCUMENT_POSITION_FOLLOWING : DOCUMENT_POSITION_PRECEDING;
+      },
       focus() {
-        surface.focused = true;
+        focusSurface(surface);
       },
       blur() {
-        surface.focused = false;
+        blurSurface(surface);
       }
     };
     return {
@@ -19225,11 +19289,11 @@
     }
     const event2 = { detail };
     if (kind === "key_down" || kind === "key_up") {
-      record.global_bus.dispatch(eventType, event2);
+      familyGlobalBus(record).dispatch(eventType, event2);
     } else if (kind === "focus") {
-      record.root_bus.dispatch("host:focus", event2);
+      focusSurface(record.surface);
     } else if (kind === "blur") {
-      record.root_bus.dispatch("host:blur", event2);
+      blurSurface(record.surface);
     } else {
       record.root_bus.dispatch(eventType, event2);
     }
