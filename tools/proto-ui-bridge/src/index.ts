@@ -85,6 +85,8 @@ type WireA11y = {
   disabled: boolean;
   focused: boolean;
   focus_visible: boolean;
+  hidden: boolean;
+  orientation?: string;
   selected?: boolean;
   toggled?: boolean;
   actions?: string[];
@@ -231,6 +233,7 @@ const registry: Registry = {
   'shadcn-toggle': shadcn.shadcnToggle,
   'shadcn-checkbox-root': shadcn.shadcnCheckboxRoot,
   'shadcn-checkbox-indicator': shadcn.shadcnCheckboxIndicator,
+  'shadcn-separator-root': shadcn.shadcnSeparatorRoot,
   'shadcn-switch-root': shadcn.shadcnSwitchRoot,
   'shadcn-switch-thumb': shadcn.shadcnSwitchThumb,
   'shadcn-tabs-root': shadcn.shadcnTabsRoot,
@@ -413,20 +416,24 @@ function templateChildren(value: unknown, record: SessionRecord): WireTemplateNo
 function a11ySnapshot(value: unknown, record: SessionRecord): WireA11y {
   const object = recordOf(value);
   const states = object ? recordOf(object.states) : null;
+  const tree = object ? recordOf(object.tree) : null;
   const nameObject = object ? recordOf(object.name) : null;
   const name = nameObject?.kind === 'content'
     ? record.slot.accessible_name
-    : stringValue(nameObject?.value) ?? stringValue(object?.name) ?? record.slot.accessible_name;
+    : stringValue(nameObject?.value) ?? stringValue(object?.name) ?? '';
   const actionsObject = object ? recordOf(object.actions) : null;
   const actions = actionsObject ? Object.keys(actionsObject) : [];
   const selected = booleanValue(states?.selected);
   const toggled = booleanValue(states?.checked) ?? booleanValue(states?.pressed);
+  const orientation = stringValue(states?.orientation);
   return {
     role: stringValue(object?.role) ?? 'generic',
     name,
     disabled: booleanValue(states?.disabled) ?? false,
     focused: booleanValue(states?.focused) ?? false,
     focus_visible: booleanValue(states?.focusVisible) ?? false,
+    hidden: booleanValue(tree?.hidden) ?? false,
+    ...(orientation !== null && orientation.length > 0 ? { orientation } : {}),
     ...(selected !== null ? { selected } : {}),
     ...(toggled !== null ? { toggled } : {}),
     ...(actions.length > 0 ? { actions } : {}),

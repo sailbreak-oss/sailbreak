@@ -194,7 +194,7 @@
     }
   ],
   "lockfile_sha256": "sha256:4224dc5426a51c227714008d7a3a360cb6dd813a1b03b0c5fc94342699d6f6cf",
-  "bundle_sha256": "sha256:1f7fd8640d50851e780e6024f137e28bc239d5f06d8a2f2d1c4dd69d931657f8",
+  "bundle_sha256": "sha256:7fd47f95e2c084ed8ad80778740d4214b28d4ab8181b62b10ff2a70beb24b1e8",
   "license_sources": [
     "https://github.com/Proto-UI/Proto-UI/blob/18b9c78f73135c36fb949f97acc0c2124cbf9ecc/packages/prototypes/shadcn/THIRD_PARTY_NOTICES.md",
     "https://github.com/Proto-UI/Proto-UI/blob/18b9c78f73135c36fb949f97acc0c2124cbf9ecc/packages/core/LICENSE"

@@ -21,6 +21,8 @@ fn native_state_projection_preserves_disabled_selected_and_toggled() {
         disabled: true,
         focused: false,
         focus_visible: false,
+        hidden: false,
+        orientation: None,
         selected: Some(true),
         toggled: Some(true),
         actions: vec!["activate".to_owned()],
@@ -30,4 +32,30 @@ fn native_state_projection_preserves_disabled_selected_and_toggled() {
     assert!(projection.disabled);
     assert_eq!(projection.selected, Some(true));
     assert_eq!(projection.toggled, Some(gpui::Toggled::True));
+}
+
+#[test]
+fn separator_a11y_maps_hidden_and_semantic_orientation() {
+    let semantic = A11ySnapshot {
+        role: "separator".to_owned(),
+        name: String::new(),
+        disabled: false,
+        focused: false,
+        focus_visible: false,
+        hidden: false,
+        orientation: Some("horizontal".to_owned()),
+        selected: None,
+        toggled: None,
+        actions: vec![],
+    };
+    let projection = project_a11y(&semantic);
+    assert_eq!(projection.role, gpui::accesskit::Role::Splitter);
+    assert_eq!(projection.orientation, Some(gpui::Orientation::Horizontal));
+    assert!(!projection.hidden);
+
+    let mut decorative = semantic;
+    decorative.hidden = true;
+    decorative.role.clear();
+    decorative.orientation = None;
+    assert!(project_a11y(&decorative).hidden);
 }

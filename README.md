@@ -43,15 +43,16 @@ The GUI pins Zed GPUI commit [`399258feeaf90ad8a3a208c99221ee87b6452f38`](https:
 
 The pinned revision changes the published 0.2.2 host API: accessibility builders live in `crates/gpui/src/elements/div.rs`, platform construction is `gpui_platform::application()` from `crates/gpui_platform/src/gpui_platform.rs`, and `ClickEvent` includes a `Touch` variant. Sailbreak records these deltas explicitly; it does not claim touch behavior beyond preserving the input source on the bridge.
 
-The governed host profile admits Button, Toggle, composed Switch Root/Thumb, and Checkbox Root/Indicator; the current dashboard renders Button and Toggle while typed hardware-state readback for Switch/Checkbox remains deferred. Unsupported Host Caps return structured diagnostics rather than silently becoming local Rust controls.
+The governed host profile admits Button, Toggle, composed Switch Root/Thumb, Checkbox Root/Indicator, and Separator; the dashboard renders Button, Toggle, and profile-backed layout separators while typed hardware-state readback for Switch/Checkbox remains deferred. Unsupported Host Caps return structured diagnostics rather than silently becoming local Rust controls.
 
-The GPUI integration is one Module-first `ProtoAdapter`, not one Adapter per prototype. It implements shared QuickJS sessions, lifecycle/ACK/input, bounded scheduling, opaque parent graphs, Context/Anatomy, Rule Meta, style, and A11y once. Button/Toggle/Switch/Checkbox profiles are conformance fixtures and thin typed facades; later prototypes may add required Module Host Caps but must not copy Runtime semantics into Rust.
+The GPUI integration is one Module-first `ProtoAdapter`, not one Adapter per prototype. It implements shared QuickJS sessions, lifecycle/ACK/input, bounded scheduling, opaque parent graphs, Context/Anatomy, Rule Meta, style, and A11y once. Prototype profiles are conformance fixtures and thin typed facades; later prototypes may add required Module Host Caps but must not copy Runtime semantics into Rust.
 
 The embedded profile currently proves:
 
 - every recorded Proto-UI Shadcn direct entry is resolved through one governed registry;
 - composed `shadcn-switch-root`/`shadcn-switch-thumb` covers controlled/uncontrolled checked state, disabled suppression, focus/dark rule meta, shared Context/Anatomy parent graph, remount, stale-parent rejection, replacement, and disposal;
 - composed `shadcn-checkbox-root`/`shadcn-checkbox-indicator` covers checked, unchecked, indeterminate, disabled suppression, Space activation, focus/dark styling, SVG indicator projection, stale-parent replacement, sibling isolation, remount, and disposal;
+- `shadcn-separator-root` provides contentless horizontal/vertical geometry, decorative hiding, semantic separator orientation, stable replacement, remount/disposal, and profile-backed dashboard region separators;
 - `shadcn-button` variants (`default`, `destructive`, `outline`, `secondary`, `ghost`, `link`) and sizes (`default`, `sm`, `lg`, `icon`) are projected from Runtime style tokens;
 - `shadcn-toggle` covers `default`/`outline`, `default`/`sm`/`lg`, controlled and uncontrolled active state, disabled suppression, focus-visible styling, replacement/disposal, and one `activeChange` per native activation;
 - pointer hover/press, keyboard and native GPUI click activation, disabled gating, focus intent, Slot content, and semantic a11y snapshots cross the bridge;

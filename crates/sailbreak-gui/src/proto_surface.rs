@@ -1,6 +1,11 @@
 use gpui::accesskit::{ActionData, Role};
-use gpui::{AccessibleAction, App, Div, Stateful, Toggled, Window, div, prelude::*, px, rgb};
-use proto_ui_gpui::{A11ySnapshot, ButtonStyle, ColorValue, ProtoButtonState, ProtoToggleSnapshot};
+use gpui::{
+    AccessibleAction, App, Div, Orientation, Stateful, Toggled, Window, div, prelude::*, px, rgb,
+};
+use proto_ui_gpui::{
+    A11ySnapshot, ButtonStyle, ColorValue, ProtoButtonState, ProtoSeparatorSnapshot,
+    ProtoToggleSnapshot, SeparatorOrientation,
+};
 
 /// Project a Proto UI Button snapshot into the native GPUI surface.
 ///
@@ -30,6 +35,23 @@ pub fn toggle_element(
         state.a11y.as_ref(),
         on_a11y_click,
     )
+}
+
+/// Project a contentless Proto Separator while keeping surrounding layout host-owned.
+pub fn separator_element(id: &'static str, state: &ProtoSeparatorSnapshot) -> Stateful<Div> {
+    let mut element = div()
+        .id(id)
+        .debug_selector(move || id.to_owned())
+        .flex_shrink_0()
+        .bg(to_hsla(state.color));
+    element = match state.orientation {
+        SeparatorOrientation::Horizontal => element.h(px(1.)).w_full(),
+        SeparatorOrientation::Vertical => element.w(px(1.)).h_full(),
+    };
+    if let Some(a11y) = state.session.a11y.as_ref() {
+        element = apply_a11y(element, a11y, |_, _, _| {});
+    }
+    element
 }
 
 fn action_element(
@@ -91,6 +113,8 @@ fn to_hsla(color: ColorValue) -> gpui::Hsla {
 pub struct AccessibleProjection {
     pub role: Role,
     pub label: String,
+    pub hidden: bool,
+    pub orientation: Option<Orientation>,
     pub disabled: bool,
     pub selected: Option<bool>,
     pub toggled: Option<Toggled>,
@@ -102,6 +126,15 @@ pub fn project_a11y(snapshot: &A11ySnapshot) -> AccessibleProjection {
     AccessibleProjection {
         role: role_for(&snapshot.role),
         label: snapshot.name.clone(),
+        hidden: snapshot.hidden,
+        orientation: snapshot
+            .orientation
+            .as_deref()
+            .and_then(|orientation| match orientation {
+                "horizontal" => Some(Orientation::Horizontal),
+                "vertical" => Some(Orientation::Vertical),
+                _ => None,
+            }),
         disabled: snapshot.disabled,
         selected: snapshot.selected,
         toggled: snapshot
@@ -121,7 +154,18 @@ fn apply_a11y(
     on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let projection = project_a11y(snapshot);
-    element = element.role(projection.role).aria_label(projection.label);
+    if projection.hidden {
+        return element;
+    }
+    if projection.role != Role::Unknown {
+        element = element.role(projection.role);
+    }
+    if !projection.label.is_empty() {
+        element = element.aria_label(projection.label);
+    }
+    if let Some(orientation) = projection.orientation {
+        element = element.aria_orientation(orientation);
+    }
     if let Some(selected) = projection.selected {
         element = element.aria_selected(selected);
     }
@@ -142,6 +186,7 @@ fn apply_a11y(
 fn role_for(role: &str) -> Role {
     match role {
         "button" => Role::Button,
+        "separator" => Role::Splitter,
         _ => Role::Unknown,
     }
 }

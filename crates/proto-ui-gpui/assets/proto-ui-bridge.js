@@ -17262,6 +17262,64 @@
     }
   });
   var item_proto_default4 = selectItem2;
+
+  // ../packages/prototypes/base/src/separator/root.proto.ts
+  function setupSeparatorRoot(def2) {
+    def2.props.define({
+      orientation: { type: "enum", empty: "fallback", options: ["horizontal", "vertical"] },
+      decorative: { type: "boolean", empty: "fallback" }
+    });
+    def2.props.setDefaults({ orientation: "horizontal", decorative: true });
+    const orientation = def2.state.enum("orientation", "horizontal", {
+      options: ["horizontal", "vertical"]
+    });
+    const decorative = def2.state.bool("decorative", true);
+    const role = def2.state.string("role", "");
+    const hidden = def2.state.bool("hidden", true);
+    const a11yOrientation = def2.state.string("a11yOrientation", "");
+    def2.expose.state("orientation", orientation);
+    def2.expose.state("decorative", decorative);
+    def2.a11y.role(role);
+    def2.a11y.state("orientation", a11yOrientation);
+    def2.a11y.tree({ hidden });
+    const sync = (props) => {
+      const nextOrientation = props.orientation ?? "horizontal";
+      const nextDecorative = props.decorative ?? true;
+      orientation.set(nextOrientation, "reason: separator orientation");
+      decorative.set(nextDecorative, "reason: separator decorative");
+      role.set(nextDecorative ? "" : "separator", "reason: separator role");
+      a11yOrientation.set(nextDecorative ? "" : nextOrientation, "reason: separator a11y orientation");
+      hidden.set(nextDecorative, "reason: separator hidden");
+    };
+    def2.lifecycle.onCreated((run2) => sync(run2.props.get()));
+    def2.props.watchAll((_run, next) => sync(next));
+    return () => null;
+  }
+  var asSeparatorRoot = defineAsHook({ name: "as-separator-root", setup: setupSeparatorRoot });
+  var separatorRoot = definePrototype({ name: "base-separator-root", setup: setupSeparatorRoot });
+  // ../packages/prototypes/shadcn/src/separator/root.proto.ts
+  var ROOT_BASE_TOKENS3 = ["shrink-0", "bg-border"].join(" ");
+  var separatorRoot2 = definePrototype({
+    name: "shadcn-separator-root",
+    setup(def2) {
+      const separatorState = asSeparatorRoot().stateHandles;
+      if (!separatorState) {
+        throw new Error("[shadcn-separator-root] asSeparatorRoot must project Separator root state handles.");
+      }
+      const { orientation } = separatorState;
+      def2.feedback.style.use(tw(ROOT_BASE_TOKENS3));
+      def2.rule({
+        when: (w) => w.state(orientation).eq("horizontal"),
+        intent: (i) => i.feedback.style.use(tw("h-px w-full"))
+      });
+      def2.rule({
+        when: (w) => w.state(orientation).eq("vertical"),
+        intent: (i) => i.feedback.style.use(tw("h-full w-px"))
+      });
+      return () => null;
+    }
+  });
+  var root_proto_default13 = separatorRoot2;
   // ../packages/prototypes/base/src/dialog/shared.ts
   var nextDialogRootId = 0;
   function createDialogRootId() {
@@ -18022,7 +18080,7 @@
       def2.feedback.style.use(tw("relative inline-flex items-start"));
     }
   });
-  var root_proto_default14 = dialogRoot2;
+  var root_proto_default15 = dialogRoot2;
 
   // ../packages/prototypes/shadcn/src/dialog/title.proto.ts
   var dialogTitle2 = definePrototype({
@@ -18100,6 +18158,7 @@
     "shadcn-toggle": toggle_proto_default,
     "shadcn-checkbox-root": root_proto_default2,
     "shadcn-checkbox-indicator": indicator_proto_default2,
+    "shadcn-separator-root": root_proto_default13,
     "shadcn-switch-root": root_proto_default4,
     "shadcn-switch-thumb": thumb_proto_default2,
     "shadcn-tabs-root": root_proto_default6,
@@ -18118,7 +18177,7 @@
     "shadcn-select-value": value_proto_default2,
     "shadcn-select-content": content_proto_default8,
     "shadcn-select-item": item_proto_default4,
-    "shadcn-dialog-root": root_proto_default14,
+    "shadcn-dialog-root": root_proto_default15,
     "shadcn-dialog-trigger": trigger_proto_default10,
     "shadcn-dialog-mask": overlay_proto_default2,
     "shadcn-dialog-content": content_proto_default10,
@@ -18284,18 +18343,22 @@
   function a11ySnapshot(value, record) {
     const object = recordOf(value);
     const states = object ? recordOf(object.states) : null;
+    const tree = object ? recordOf(object.tree) : null;
     const nameObject = object ? recordOf(object.name) : null;
-    const name = nameObject?.kind === "content" ? record.slot.accessible_name : stringValue(nameObject?.value) ?? stringValue(object?.name) ?? record.slot.accessible_name;
+    const name = nameObject?.kind === "content" ? record.slot.accessible_name : stringValue(nameObject?.value) ?? stringValue(object?.name) ?? "";
     const actionsObject = object ? recordOf(object.actions) : null;
     const actions = actionsObject ? Object.keys(actionsObject) : [];
     const selected = booleanValue(states?.selected);
     const toggled = booleanValue(states?.checked) ?? booleanValue(states?.pressed);
+    const orientation = stringValue(states?.orientation);
     return {
       role: stringValue(object?.role) ?? "generic",
       name,
       disabled: booleanValue(states?.disabled) ?? false,
       focused: booleanValue(states?.focused) ?? false,
       focus_visible: booleanValue(states?.focusVisible) ?? false,
+      hidden: booleanValue(tree?.hidden) ?? false,
+      ...orientation !== null && orientation.length > 0 ? { orientation } : {},
       ...selected !== null ? { selected } : {},
       ...toggled !== null ? { toggled } : {},
       ...actions.length > 0 ? { actions } : {}

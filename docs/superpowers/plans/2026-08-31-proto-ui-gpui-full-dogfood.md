@@ -529,6 +529,8 @@ Reuse `ProtoSurface` and `TemplateNode`; no event or focus lease is installed fo
 
 Use Proto Separator between the sidebar/header/action/capability regions. Keep the surrounding layout containers host-owned.
 
+- [x] **Ruling:** Separator is a static `ProtoAdapter` profile. The dashboard replaces main header/action/capability rules with received Separator state/style; host-owned containers keep layout responsibility.
+
 - [ ] **Step 5: Run GREEN and commit**
 
 ```bash

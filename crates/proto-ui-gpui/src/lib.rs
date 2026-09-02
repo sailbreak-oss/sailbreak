@@ -13,7 +13,8 @@ pub use button_host::{ProtoButtonHost, ProtoButtonState, ShadcnButtonSize, Shadc
 pub use components::{
     AdapterDispatchOutcome, AdapterSnapshot, CheckboxDispatchOutcome, CheckboxIndicatorSnapshot,
     CheckboxProps, CheckboxRootSnapshot, ProtoAdapter, ProtoCheckboxHost, ProtoCheckboxSnapshot,
-    ProtoSwitchHost, ProtoSwitchSnapshot, ProtoToggleHost, ProtoToggleSnapshot, PrototypeProfile,
+    ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoSwitchHost, ProtoSwitchSnapshot,
+    ProtoToggleHost, ProtoToggleSnapshot, PrototypeProfile, SeparatorOrientation, SeparatorProps,
     SwitchDispatchOutcome, SwitchProps, SwitchRootSnapshot, SwitchThumbSnapshot,
     ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
 };

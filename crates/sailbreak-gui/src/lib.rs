@@ -14,8 +14,9 @@ use lctrl_core::{Availability, CapabilitySet, HardwareInfo, LctrlError, Platform
 use lctrl_hal::Hal;
 use proto_ui_gpui::{
     BridgeError, DispatchOutcome, InputKind, InputSource, ProtoButtonHost, ProtoButtonState,
-    ProtoToggleHost, ProtoToggleSnapshot, ShadcnButtonSize, ShadcnButtonVariant,
-    ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
+    ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoToggleHost, ProtoToggleSnapshot,
+    SeparatorProps, ShadcnButtonSize, ShadcnButtonVariant, ToggleDispatchOutcome, ToggleProps,
+    ToggleSize, ToggleVariant,
 };
 
 mod proto_surface;
@@ -168,6 +169,9 @@ const ACTION_BUTTONS: [(&str, &str, ShadcnButtonVariant, ShadcnButtonSize); 7] =
     ),
 ];
 const PERFORMANCE_PREVIEW_TOGGLE_ID: &str = "performance-preview";
+const MAIN_HEADER_SEPARATOR_ID: &str = "main-header-separator";
+const ACTION_SEPARATOR_ID: &str = "action-separator";
+const CAPABILITY_SEPARATOR_ID: &str = "capability-separator";
 
 fn performance_preview_props(active: bool) -> ToggleProps {
     ToggleProps {
@@ -182,26 +186,31 @@ fn performance_preview_props(active: bool) -> ToggleProps {
 struct ProtoUiState {
     host: Option<ProtoButtonHost>,
     toggle_host: Option<ProtoToggleHost>,
+    separator_host: Option<ProtoSeparatorHost>,
     error: Option<String>,
 }
 
 impl ProtoUiState {
     fn new() -> Self {
         match Self::build() {
-            Ok((host, toggle_host)) => Self {
+            Ok((host, toggle_host, separator_host)) => Self {
                 host: Some(host),
                 toggle_host: Some(toggle_host),
+                separator_host: Some(separator_host),
                 error: None,
             },
             Err(error) => Self {
                 host: None,
                 toggle_host: None,
+                separator_host: None,
                 error: Some(error.to_string()),
             },
         }
     }
 
-    fn build() -> std::result::Result<(ProtoButtonHost, ProtoToggleHost), BridgeError> {
+    fn build()
+    -> std::result::Result<(ProtoButtonHost, ProtoToggleHost, ProtoSeparatorHost), BridgeError>
+    {
         let mut host = ProtoButtonHost::new()?;
         for (index, _) in SECTION_NAMES.iter().enumerate() {
             let variant = if index == 0 {
@@ -226,7 +235,15 @@ impl ProtoUiState {
             "PERFORMANCE PREVIEW",
             performance_preview_props(false),
         )?;
-        Ok((host, toggle_host))
+        let mut separator_host = ProtoSeparatorHost::new()?;
+        for id in [
+            MAIN_HEADER_SEPARATOR_ID,
+            ACTION_SEPARATOR_ID,
+            CAPABILITY_SEPARATOR_ID,
+        ] {
+            separator_host.register(id, SeparatorProps::default())?;
+        }
+        Ok((host, toggle_host, separator_host))
     }
 
     fn unavailable_error(&self) -> BridgeError {
@@ -244,6 +261,13 @@ impl ProtoUiState {
 
     fn toggle(&self, id: &str) -> std::result::Result<ProtoToggleSnapshot, BridgeError> {
         self.toggle_host
+            .as_ref()
+            .ok_or_else(|| self.unavailable_error())?
+            .snapshot(id)
+    }
+
+    fn separator(&self, id: &str) -> std::result::Result<ProtoSeparatorSnapshot, BridgeError> {
+        self.separator_host
             .as_ref()
             .ok_or_else(|| self.unavailable_error())?
             .snapshot(id)
@@ -475,6 +499,13 @@ fn toggle_action(
         this.handle_proto_toggle(id, action, source);
         cx.notify();
     }))
+}
+
+fn separator_view(dashboard: &Dashboard, id: &'static str) -> Stateful<Div> {
+    match dashboard.proto.separator(id) {
+        Ok(snapshot) => proto_surface::separator_element(id, &snapshot),
+        Err(_) => div().id(id).h(px(1.)).w_full().bg(rgb(UNAVAILABLE)),
+    }
 }
 
 fn unavailable_button(id: &'static str, label: &'static str) -> Stateful<Div> {
@@ -810,8 +841,11 @@ impl Render for Dashboard {
                     .p_6()
                     .gap_5()
                     .child(identity_header(snapshot))
+                    .child(separator_view(self, MAIN_HEADER_SEPARATOR_ID))
                     .child(safety_banner(&snapshot.status_message))
+                    .child(separator_view(self, ACTION_SEPARATOR_ID))
                     .child(action_bar(self, cx))
+                    .child(separator_view(self, CAPABILITY_SEPARATOR_ID))
                     .child(capability_matrix(&snapshot.capabilities))
                     .child(telemetry_panel(snapshot)),
             )
@@ -931,8 +965,6 @@ fn identity_header(snapshot: &DashboardSnapshot) -> impl IntoElement {
         .justify_between()
         .items_end()
         .pb_4()
-        .border_b_1()
-        .border_color(rgb(RULE))
         .child(
             div()
                 .flex()

@@ -259,6 +259,10 @@ pub struct A11ySnapshot {
     pub disabled: bool,
     pub focused: bool,
     pub focus_visible: bool,
+    #[serde(default)]
+    pub hidden: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orientation: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -276,6 +280,8 @@ impl A11ySnapshot {
             disabled,
             focused: false,
             focus_visible: false,
+            hidden: false,
+            orientation: None,
             selected: None,
             toggled: None,
             actions: vec!["activate".to_owned()],
@@ -586,6 +592,7 @@ pub enum PrototypeKey {
     ShadcnToggle,
     ShadcnCheckboxRoot,
     ShadcnCheckboxIndicator,
+    ShadcnSeparatorRoot,
     ShadcnSwitchRoot,
     ShadcnSwitchThumb,
     ShadcnTabsRoot,
@@ -624,6 +631,7 @@ impl PrototypeKey {
             Self::ShadcnToggle => "shadcn-toggle",
             Self::ShadcnCheckboxRoot => "shadcn-checkbox-root",
             Self::ShadcnCheckboxIndicator => "shadcn-checkbox-indicator",
+            Self::ShadcnSeparatorRoot => "shadcn-separator-root",
             Self::ShadcnSwitchRoot => "shadcn-switch-root",
             Self::ShadcnSwitchThumb => "shadcn-switch-thumb",
             Self::ShadcnTabsRoot => "shadcn-tabs-root",
@@ -661,6 +669,7 @@ impl PrototypeKey {
             "shadcn-toggle" => Ok(Self::ShadcnToggle),
             "shadcn-checkbox-root" => Ok(Self::ShadcnCheckboxRoot),
             "shadcn-checkbox-indicator" => Ok(Self::ShadcnCheckboxIndicator),
+            "shadcn-separator-root" => Ok(Self::ShadcnSeparatorRoot),
             "shadcn-switch-root" => Ok(Self::ShadcnSwitchRoot),
             "shadcn-switch-thumb" => Ok(Self::ShadcnSwitchThumb),
             "shadcn-tabs-root" => Ok(Self::ShadcnTabsRoot),
@@ -702,6 +711,7 @@ impl PrototypeKey {
             Self::ShadcnToggle,
             Self::ShadcnCheckboxRoot,
             Self::ShadcnCheckboxIndicator,
+            Self::ShadcnSeparatorRoot,
             Self::ShadcnSwitchRoot,
             Self::ShadcnSwitchThumb,
             Self::ShadcnTabsRoot,
