@@ -4,18 +4,23 @@ use serde_json::{Map, Value};
 
 use crate::protocol::{
     A11ySnapshot, AckDisposition, BridgeCommand, BridgeDiagnostic, BridgeError, BridgeEvent,
-    BridgeState, DispatchOutcome, InstanceId, ProjectionAck, ProjectionTransaction, PrototypeKey,
-    Result, SessionId, SlotProjection, StyleProjection, ViewEpoch,
+    BridgeState, DispatchOutcome, InstanceId, LogicalParentRef, ProjectionAck,
+    ProjectionTransaction, PrototypeKey, Result, SessionId, SlotProjection, StyleProjection,
+    ViewEpoch,
 };
-use crate::quickjs::QuickJsBridge;
+use crate::quickjs::SharedQuickJsBridge;
+
 #[derive(Clone, Debug)]
 pub struct StartRequest {
     pub session_id: SessionId,
     pub instance_id: InstanceId,
     pub prototype: PrototypeKey,
     pub props: Map<String, Value>,
+    pub meta: Map<String, Value>,
     pub slot: SlotProjection,
     pub accessible_content: Option<String>,
+    pub route_ref: Option<String>,
+    pub parent: Option<LogicalParentRef>,
 }
 
 impl StartRequest {
@@ -32,9 +37,30 @@ impl StartRequest {
             instance_id,
             prototype,
             props,
+            meta: Map::new(),
             slot,
             accessible_content: None,
+            route_ref: None,
+            parent: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_route_ref(mut self, route_ref: impl Into<String>) -> Self {
+        self.route_ref = Some(route_ref.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_parent(mut self, parent: LogicalParentRef) -> Self {
+        self.parent = Some(parent);
+        self
+    }
+
+    #[must_use]
+    pub fn with_meta(mut self, key: impl Into<String>, value: Value) -> Self {
+        self.meta.insert(key.into(), value);
+        self
     }
 
     #[must_use]
@@ -127,15 +153,19 @@ struct SessionRecord {
 /// session identity, projection ACK barrier, native input ordering, and terminal
 /// disposal state that are independent of any renderer.
 pub struct ProtoSessionHost {
-    bridge: QuickJsBridge,
+    bridge: SharedQuickJsBridge,
     session: Option<SessionRecord>,
     disposed: bool,
 }
 
 impl ProtoSessionHost {
     pub fn new() -> Result<Self> {
+        Self::with_shared_bridge(SharedQuickJsBridge::new()?)
+    }
+
+    pub(crate) fn with_shared_bridge(bridge: SharedQuickJsBridge) -> Result<Self> {
         Ok(Self {
-            bridge: QuickJsBridge::new()?,
+            bridge,
             session: None,
             disposed: false,
         })
@@ -148,13 +178,23 @@ impl ProtoSessionHost {
                 kind: format!("active session: {}", request.session_id),
             });
         }
+        if let Some(route_ref) = request.route_ref.as_deref()
+            && route_ref.trim().is_empty()
+        {
+            return Err(BridgeError::InvalidIdentity {
+                kind: "route".to_owned(),
+            });
+        }
         request.slot = effective_slot(&request)?;
         let command = BridgeCommand::Start {
             session_id: request.session_id.clone(),
             instance_id: request.instance_id.clone(),
             prototype: request.prototype,
             props: request.props.clone(),
+            meta: request.meta.clone(),
             slot: request.slot.clone(),
+            route_ref: request.route_ref.clone(),
+            parent: request.parent.clone(),
         };
         let events = self.dispatch(&command)?;
         let projection = events
@@ -182,6 +222,7 @@ impl ProtoSessionHost {
             BridgeState::new(request.session_id.clone(), request.instance_id.clone());
         protocol.install_view(projection.view_epoch)?;
         let mut record = SessionRecord {
+            route_ref: request.route_ref.clone(),
             request,
             protocol,
             style: projection.style.clone(),
@@ -189,7 +230,6 @@ impl ProtoSessionHost {
             state_values: BTreeMap::new(),
             diagnostics: Vec::new(),
             pending_commit: Some(projection.commit_id),
-            route_ref: None,
             last_output_sequence: 0,
             mounted: true,
             projection,
@@ -411,6 +451,17 @@ impl ProtoSessionHost {
         })
     }
 
+    /// Absorb events emitted for this session by another session's command on
+    /// a shared bridge. Session-tagged events are demultiplexed by the bridge;
+    /// this method is intentionally data-only and never calls QuickJS.
+    pub fn drain_events(&mut self) -> Result<DispatchOutcome> {
+        self.ensure_alive()?;
+        let session_id = self.record()?.request.session_id.clone();
+        let events = self.bridge.drain(session_id.as_str());
+        self.record_mut()
+            .and_then(|record| absorb_events(record, &events))
+    }
+
     fn ensure_alive(&self) -> Result<()> {
         if self.disposed {
             Err(BridgeError::Disposed)
@@ -420,7 +471,8 @@ impl ProtoSessionHost {
     }
 
     fn dispatch(&mut self, command: &BridgeCommand) -> Result<Vec<BridgeEvent>> {
-        match self.bridge.dispatch(command) {
+        let target = command_session_id(command);
+        match self.bridge.dispatch(command, target.as_deref()) {
             Ok(events) => Ok(events),
             Err(error @ BridgeError::Runtime { .. }) => {
                 self.disposed = true;
@@ -445,6 +497,20 @@ impl ProtoSessionHost {
             .ok_or_else(|| BridgeError::InvalidIdentity {
                 kind: "session host has not started a session".to_owned(),
             })
+    }
+}
+
+fn command_session_id(command: &BridgeCommand) -> Option<String> {
+    match command {
+        BridgeCommand::Registry => None,
+        BridgeCommand::Start { session_id, .. }
+        | BridgeCommand::SetProps { session_id, .. }
+        | BridgeCommand::Remount { session_id, .. }
+        | BridgeCommand::AdvanceTime { session_id, .. }
+        | BridgeCommand::Unmount { session_id, .. }
+        | BridgeCommand::Dispose { session_id, .. } => Some(session_id.as_str().to_owned()),
+        BridgeCommand::ProjectionAck { ack } => Some(ack.session_id.as_str().to_owned()),
+        BridgeCommand::Input { input, .. } => Some(input.session_id.as_str().to_owned()),
     }
 }
 

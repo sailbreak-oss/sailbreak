@@ -441,6 +441,9 @@ Keep Root and Thumb as separate Proto sessions connected by opaque logical paren
 
 Use Switch Root/Thumb for a capability whose current HAL reports `Available` or `Limited`; unavailable capabilities remain visibly unavailable and cannot emit a write command.
 
+- [x] **Ruling:** Adapter implementation is Module/Host-Cap-first. `ProtoAdapter` owns shared QuickJS, sessions, lifecycle, input, meta, and parent graph; Switch is a thin profile/facade and later prototypes must not add another full Host implementation.
+- [x] **Deferred GUI dogfood:** `DashboardSnapshot` exposes capability availability but no typed current `DeviceState`; rendering an enabled hardware Switch would invent checked state. The first hardware Switch moves to final composition after typed readback enters the snapshot. Unavailable capabilities remain non-interactive.
+
 - [ ] **Step 5: Run GREEN and commit**
 
 ```bash

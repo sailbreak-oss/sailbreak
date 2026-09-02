@@ -192,12 +192,20 @@ impl ProtoButtonHost {
 
         let session_id = SessionId::new(format!("sailbreak:button:{id}"))?;
         let instance_id = InstanceId::new(format!("sailbreak:button-instance:{id}"))?;
+        let mut meta = Map::new();
+        meta.insert(
+            "colorScheme".to_owned(),
+            Value::String(self.theme.color_scheme_name().to_owned()),
+        );
         let command = BridgeCommand::Start {
             session_id: session_id.clone(),
             instance_id: instance_id.clone(),
             prototype: crate::protocol::PrototypeKey::ShadcnButton,
             props: button_props(variant, size, false),
+            meta,
             slot: SlotProjection::new(format!("{id}:slot"), label.clone()),
+            route_ref: None,
+            parent: None,
         };
         let start_events = self.bridge.dispatch(&command)?;
         let projection = start_events

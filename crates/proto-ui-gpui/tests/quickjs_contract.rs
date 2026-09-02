@@ -17,7 +17,10 @@ fn embedded_runtime_materializes_the_real_shadcn_button() {
         .as_object()
         .expect("object props")
         .clone(),
+        meta: serde_json::Map::new(),
         slot: SlotProjection::new("button-slot", "Apply"),
+        route_ref: None,
+        parent: None,
     };
 
     let events = bridge.dispatch(&command).expect("button session starts");
@@ -54,7 +57,10 @@ fn projection_ack_unlocks_native_state_and_one_click_signal() {
         .as_object()
         .expect("object props")
         .clone(),
+        meta: serde_json::Map::new(),
         slot: SlotProjection::new("button-slot", "Apply"),
+        route_ref: None,
+        parent: None,
     };
     let start_events = bridge.dispatch(&start).expect("button session starts");
     let projection = start_events
@@ -211,7 +217,10 @@ fn stale_unmount_epoch_is_rejected_before_runtime() {
         instance_id: instance_id.clone(),
         prototype: PrototypeKey::ShadcnButton,
         props: serde_json::Map::new(),
+        meta: serde_json::Map::new(),
         slot: SlotProjection::new("button-slot", "Apply"),
+        route_ref: None,
+        parent: None,
     };
     bridge.dispatch(&start).expect("button starts");
     let unmount = BridgeCommand::Unmount {

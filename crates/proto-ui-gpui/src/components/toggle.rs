@@ -4,9 +4,21 @@ use serde_json::{Map, Value};
 
 use crate::{
     A11ySnapshot, BridgeDiagnostic, BridgeError, BridgeEvent, ButtonStyle, CommitDisposition,
-    InputEnvelope, InputKind, InputPayload, InputRequest, InputSource, InstanceId, NativeStyle,
-    ProjectionAck, PropsRequest, ProtoSessionHost, PrototypeKey, Result, SessionId,
-    SessionSnapshot, ShadcnTheme, SlotProjection, StartRequest, translate_projection,
+    InputKind, InputSource, NativeStyle, ProtoAdapter, PrototypeKey, PrototypeProfile, Result,
+    SessionId, SessionSnapshot, ShadcnTheme, SlotProjection, StartRequest,
+};
+
+const TOGGLE_PROFILE: PrototypeProfile = PrototypeProfile {
+    prototype: PrototypeKey::ShadcnToggle,
+    exposed_states: &[
+        "active",
+        "disabled",
+        "hovered",
+        "pressed",
+        "focused",
+        "focusVisible",
+    ],
+    signals: &["activeChange"],
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -93,31 +105,20 @@ pub struct ToggleDispatchOutcome {
     pub diagnostics: Vec<BridgeDiagnostic>,
 }
 
-struct ToggleRecord {
-    id: String,
-    label: String,
-    props: ToggleProps,
-    session: ProtoSessionHost,
-    next_sequence: u64,
-}
-
 pub struct ProtoToggleHost {
-    toggles: BTreeMap<String, ToggleRecord>,
-    theme: ShadcnTheme,
+    adapter: ProtoAdapter,
+    props: BTreeMap<String, ToggleProps>,
 }
 
 impl ProtoToggleHost {
     pub fn new() -> Result<Self> {
-        Ok(Self {
-            toggles: BTreeMap::new(),
-            theme: ShadcnTheme::default(),
-        })
+        Self::with_theme(ShadcnTheme::default())
     }
 
     pub fn with_theme(theme: ShadcnTheme) -> Result<Self> {
         Ok(Self {
-            toggles: BTreeMap::new(),
-            theme,
+            adapter: ProtoAdapter::with_theme(theme)?,
+            props: BTreeMap::new(),
         })
     }
 
@@ -131,34 +132,16 @@ impl ProtoToggleHost {
         let label = label.into();
         validate_identity(&id, "toggle")?;
         validate_identity(&label, "toggle accessible name")?;
-        if self.toggles.contains_key(&id) {
-            return Err(BridgeError::InvalidIdentity {
-                kind: format!("duplicate toggle: {id}"),
-            });
-        }
-
-        let session_id = SessionId::new(format!("sailbreak:toggle:{id}"))?;
-        let instance_id = InstanceId::new(format!("sailbreak:toggle-instance:{id}"))?;
-        let mut session = ProtoSessionHost::new()?;
-        session.start(StartRequest::new(
-            session_id,
-            instance_id,
+        let request = StartRequest::new(
+            SessionId::new(format!("sailbreak:toggle:{id}"))?,
+            crate::InstanceId::new(format!("sailbreak:toggle-instance:{id}"))?,
             PrototypeKey::ShadcnToggle,
             props.to_map(),
             SlotProjection::new(format!("{id}:slot"), label.clone()),
-        ))?;
-        acknowledge_pending(&mut session)?;
-
-        self.toggles.insert(
-            id.clone(),
-            ToggleRecord {
-                id,
-                label,
-                props,
-                session,
-                next_sequence: 0,
-            },
         );
+        self.adapter
+            .start(id.clone(), label, TOGGLE_PROFILE, request)?;
+        self.props.insert(id, props);
         Ok(())
     }
 
@@ -169,71 +152,36 @@ impl ProtoToggleHost {
         source: InputSource,
         detail: Option<Value>,
     ) -> Result<ToggleDispatchOutcome> {
-        let record = self.record_mut(id)?;
-        record.next_sequence =
-            record
-                .next_sequence
-                .checked_add(1)
-                .ok_or(BridgeError::NonMonotonicSequence {
-                    last: u64::MAX,
-                    received: u64::MAX,
-                })?;
-        let current = record.session.snapshot()?;
-        let input = InputEnvelope::new(
-            current.session_id.clone(),
-            current.instance_id.clone(),
-            current.projection.view_epoch,
-            record.next_sequence,
-            InputPayload::new(
-                format!("{id}:sample:{}", record.next_sequence),
-                id,
-                source,
-                kind,
-            ),
-        );
-        let outcome = record.session.input(InputRequest::new(input, detail))?;
-        let active_change_count = outcome
-            .events
-            .iter()
-            .filter(
-                |event| matches!(event, BridgeEvent::Signal { key, .. } if key == "activeChange"),
-            )
-            .count();
+        self.require_props(id)?;
+        let outcome = self.adapter.dispatch(id, kind, source, detail)?;
         Ok(ToggleDispatchOutcome {
-            active_change_count,
+            active_change_count: outcome.signal_count("activeChange"),
             events: outcome.events,
             diagnostics: outcome.diagnostics,
         })
     }
 
     pub fn set_props(&mut self, id: &str, props: ToggleProps) -> Result<CommitDisposition> {
-        let record = self.record_mut(id)?;
-        let snapshot = record.session.snapshot()?;
-        let disposition = record.session.set_props(PropsRequest::new(
-            snapshot.session_id,
-            snapshot.instance_id,
-            props.to_map(),
-        ))?;
-        acknowledge_pending(&mut record.session)?;
-        record.props = props;
+        self.require_props(id)?;
+        let disposition = self.adapter.set_props(id, props.to_map())?;
+        self.props.insert(id.to_owned(), props);
         Ok(disposition)
     }
 
     pub fn snapshot(&self, id: &str) -> Result<ProtoToggleSnapshot> {
-        let record = self.record(id)?;
-        let session = record.session.snapshot()?;
-        let active = state_bool(&session, "active")
-            .unwrap_or_else(|| record.props.active.unwrap_or(record.props.default_active));
-        let disabled = state_bool(&session, "disabled").unwrap_or(record.props.disabled);
-        let native_style = translate_projection(&session.style, self.theme);
-        let resolved_style = ButtonStyle::from_projection(&session.style, self.theme);
-        let a11y = session.a11y.clone();
+        let props = self.require_props(id)?.clone();
+        let snapshot = self.adapter.snapshot_current(id)?;
+        let active = snapshot
+            .state_bool("active")
+            .unwrap_or_else(|| props.active.unwrap_or(props.default_active));
+        let disabled = snapshot.state_bool("disabled").unwrap_or(props.disabled);
+        let a11y = snapshot.session.a11y.clone();
         Ok(ProtoToggleSnapshot {
-            id: record.id.clone(),
-            label: record.label.clone(),
-            session,
-            native_style,
-            resolved_style,
+            id: snapshot.id,
+            label: snapshot.label,
+            session: snapshot.session,
+            native_style: snapshot.native_style,
+            resolved_style: snapshot.resolved_style,
             active,
             disabled,
             a11y,
@@ -241,34 +189,15 @@ impl ProtoToggleHost {
     }
 
     pub fn dispose(&mut self, id: &str) -> Result<()> {
-        let mut record = self.toggles.remove(id).ok_or_else(|| unknown_toggle(id))?;
-        record.session.dispose()
+        self.require_props(id)?;
+        self.adapter.dispose(id)?;
+        self.props.remove(id);
+        Ok(())
     }
 
-    fn record(&self, id: &str) -> Result<&ToggleRecord> {
-        self.toggles.get(id).ok_or_else(|| unknown_toggle(id))
+    fn require_props(&self, id: &str) -> Result<&ToggleProps> {
+        self.props.get(id).ok_or_else(|| unknown_toggle(id))
     }
-
-    fn record_mut(&mut self, id: &str) -> Result<&mut ToggleRecord> {
-        self.toggles.get_mut(id).ok_or_else(|| unknown_toggle(id))
-    }
-}
-
-fn acknowledge_pending(session: &mut ProtoSessionHost) -> Result<()> {
-    let snapshot = session.snapshot()?;
-    if snapshot.pending_commit {
-        session.acknowledge(ProjectionAck::applied(
-            snapshot.session_id,
-            snapshot.instance_id,
-            snapshot.projection.view_epoch,
-            snapshot.projection.commit_id,
-        ))?;
-    }
-    Ok(())
-}
-
-fn state_bool(snapshot: &SessionSnapshot, key: &str) -> Option<bool> {
-    snapshot.state_values.get(key).and_then(Value::as_bool)
 }
 
 fn validate_identity(value: &str, kind: &str) -> Result<()> {

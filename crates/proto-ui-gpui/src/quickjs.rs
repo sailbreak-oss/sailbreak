@@ -1,3 +1,5 @@
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+
 use rquickjs::{CatchResultExt, Context, Function, Object, Runtime};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -160,6 +162,78 @@ impl QuickJsBridge {
             });
         }
         Ok(events)
+    }
+}
+/// A single embedded QuickJS context that can be shared by multiple semantic
+/// sessions. The bridge demultiplexes session-tagged events so independently
+/// owned Rust session hosts never observe another session's projection.
+#[derive(Clone)]
+pub(crate) struct SharedQuickJsBridge {
+    state: Rc<RefCell<SharedQuickJsBridgeState>>,
+}
+
+struct SharedQuickJsBridgeState {
+    bridge: QuickJsBridge,
+    pending: BTreeMap<String, Vec<BridgeEvent>>,
+}
+
+impl SharedQuickJsBridge {
+    pub(crate) fn new() -> Result<Self> {
+        Ok(Self {
+            state: Rc::new(RefCell::new(SharedQuickJsBridgeState {
+                bridge: QuickJsBridge::new()?,
+                pending: BTreeMap::new(),
+            })),
+        })
+    }
+
+    pub(crate) fn dispatch(
+        &self,
+        command: &BridgeCommand,
+        target_session: Option<&str>,
+    ) -> Result<Vec<BridgeEvent>> {
+        let mut state = self.state.borrow_mut();
+        let fresh = state.bridge.dispatch(command)?;
+        let mut events = target_session
+            .and_then(|session| state.pending.remove(session))
+            .unwrap_or_default();
+        for event in fresh {
+            if let Some(session) = event_session_id(&event) {
+                if target_session == Some(session) {
+                    events.push(event);
+                } else {
+                    state
+                        .pending
+                        .entry(session.to_owned())
+                        .or_default()
+                        .push(event);
+                }
+            } else {
+                events.push(event);
+            }
+        }
+        Ok(events)
+    }
+
+    pub(crate) fn drain(&self, target_session: &str) -> Vec<BridgeEvent> {
+        self.state
+            .borrow_mut()
+            .pending
+            .remove(target_session)
+            .unwrap_or_default()
+    }
+}
+
+fn event_session_id(event: &BridgeEvent) -> Option<&str> {
+    match event {
+        BridgeEvent::Projection { projection } => Some(projection.session_id.as_str()),
+        BridgeEvent::Style { session_id, .. }
+        | BridgeEvent::A11y { session_id, .. }
+        | BridgeEvent::State { session_id, .. }
+        | BridgeEvent::Signal { session_id, .. } => Some(session_id.as_str()),
+        BridgeEvent::Registry { .. }
+        | BridgeEvent::Ready { .. }
+        | BridgeEvent::Diagnostic { .. } => None,
     }
 }
 

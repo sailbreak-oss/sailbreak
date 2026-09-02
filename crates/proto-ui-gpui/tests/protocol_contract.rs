@@ -224,7 +224,10 @@ fn bridge_commands_are_data_only_and_round_trip() {
             .as_object()
             .expect("object props")
             .clone(),
+        meta: serde_json::Map::new(),
         slot: SlotProjection::new("button-slot", "Apply"),
+        route_ref: None,
+        parent: None,
     };
     let value = serde_json::to_value(&command).expect("command serializes");
     assert_eq!(value["type"], "start");

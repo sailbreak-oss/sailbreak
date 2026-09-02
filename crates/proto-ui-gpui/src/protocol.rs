@@ -119,6 +119,38 @@ impl fmt::Display for InstanceId {
         f.write_str(&self.0)
     }
 }
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct LogicalParentRef {
+    pub session_id: SessionId,
+    pub instance_id: InstanceId,
+    pub view_epoch: ViewEpoch,
+    pub route_ref: String,
+}
+
+impl LogicalParentRef {
+    pub fn new(
+        session_id: SessionId,
+        instance_id: InstanceId,
+        view_epoch: ViewEpoch,
+        route_ref: impl Into<String>,
+    ) -> Result<Self> {
+        let route_ref = route_ref.into();
+        if route_ref.trim().is_empty() {
+            return Err(BridgeError::InvalidIdentity {
+                kind: "parent route".to_owned(),
+            });
+        }
+        Ok(Self {
+            session_id,
+            instance_id,
+            view_epoch,
+            route_ref,
+        })
+    }
+}
+
+/// Opaque logical parent identity used to connect separately mounted parts.
+pub type ParentRef = LogicalParentRef;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -515,6 +547,13 @@ pub enum BridgeError {
         expected: ViewEpoch,
         received: ViewEpoch,
     },
+    #[error("stale parent epoch: expected {expected}, received {received}")]
+    StaleParent {
+        expected: ViewEpoch,
+        received: ViewEpoch,
+    },
+    #[error("parent route mismatch: expected {expected}, received {received}")]
+    ParentRouteMismatch { expected: String, received: String },
     #[error("stale commit: last {last}, received {received}")]
     StaleCommit { last: u64, received: u64 },
     #[error("non-monotonic sequence: last {last}, received {received}")]
@@ -703,7 +742,13 @@ pub enum BridgeCommand {
         prototype: PrototypeKey,
         #[serde(default)]
         props: serde_json::Map<String, serde_json::Value>,
+        #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+        meta: serde_json::Map<String, serde_json::Value>,
         slot: SlotProjection,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        route_ref: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<LogicalParentRef>,
     },
     ProjectionAck {
         ack: ProjectionAck,

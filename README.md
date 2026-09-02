@@ -43,11 +43,14 @@ The GUI pins Zed GPUI commit [`399258feeaf90ad8a3a208c99221ee87b6452f38`](https:
 
 The pinned revision changes the published 0.2.2 host API: accessibility builders live in `crates/gpui/src/elements/div.rs`, platform construction is `gpui_platform::application()` from `crates/gpui_platform/src/gpui_platform.rs`, and `ClickEvent` includes a `Touch` variant. Sailbreak records these deltas explicitly; it does not claim touch behavior beyond preserving the input source on the bridge.
 
-The first host profile is intentionally partial: the governed registry contains every recorded Shadcn direct entry, while the Sailbreak surface currently admits Button and Toggle. Unsupported host capabilities return structured diagnostics rather than silently becoming local Rust controls.
+The governed host profile admits Button, Toggle, and composed Switch Root/Thumb; the current dashboard renders Button and Toggle while typed hardware-state readback for Switch remains deferred. Unsupported Host Caps return structured diagnostics rather than silently becoming local Rust controls.
+
+The GPUI integration is one Module-first `ProtoAdapter`, not one Adapter per prototype. It implements shared QuickJS sessions, lifecycle/ACK/input, opaque parent graphs, Context/Anatomy, Rule Meta, style, and A11y once. Button/Toggle/Switch profiles are conformance fixtures and thin typed facades; later prototypes may add required Module Host Caps but must not copy Runtime semantics into Rust.
 
 The embedded profile currently proves:
 
 - every recorded Proto-UI Shadcn direct entry is resolved through one governed registry;
+- composed `shadcn-switch-root`/`shadcn-switch-thumb` covers controlled/uncontrolled checked state, disabled suppression, focus/dark rule meta, shared Context/Anatomy parent graph, remount, stale-parent rejection, replacement, and disposal;
 - `shadcn-button` variants (`default`, `destructive`, `outline`, `secondary`, `ghost`, `link`) and sizes (`default`, `sm`, `lg`, `icon`) are projected from Runtime style tokens;
 - `shadcn-toggle` covers `default`/`outline`, `default`/`sm`/`lg`, controlled and uncontrolled active state, disabled suppression, focus-visible styling, replacement/disposal, and one `activeChange` per native activation;
 - pointer hover/press, keyboard and native GPUI click activation, disabled gating, focus intent, Slot content, and semantic a11y snapshots cross the bridge;

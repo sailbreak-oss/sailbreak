@@ -102,6 +102,14 @@ impl ShadcnTheme {
             _ => None,
         }
     }
+
+    #[must_use]
+    pub const fn color_scheme_name(self) -> &'static str {
+        match self.scheme {
+            ColorScheme::Light => "light",
+            ColorScheme::Dark => "dark",
+        }
+    }
 }
 
 impl Default for ShadcnTheme {

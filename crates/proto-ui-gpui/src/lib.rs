@@ -11,7 +11,9 @@ mod theme;
 
 pub use button_host::{ProtoButtonHost, ProtoButtonState, ShadcnButtonSize, ShadcnButtonVariant};
 pub use components::{
-    ProtoToggleHost, ProtoToggleSnapshot, ToggleDispatchOutcome, ToggleProps, ToggleSize,
+    AdapterDispatchOutcome, AdapterSnapshot, ProtoAdapter, ProtoSwitchHost, ProtoSwitchSnapshot,
+    ProtoToggleHost, ProtoToggleSnapshot, PrototypeProfile, SwitchDispatchOutcome, SwitchProps,
+    SwitchRootSnapshot, SwitchThumbSnapshot, ToggleDispatchOutcome, ToggleProps, ToggleSize,
     ToggleVariant,
 };
 pub use protocol::*;

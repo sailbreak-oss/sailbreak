@@ -27,6 +27,16 @@ import {
 import { A11Y_PROJECT_CAP } from '@proto.ui/module-a11y';
 import { EFFECTS_CAP } from '@proto.ui/module-feedback';
 import { EXPOSE_STATE_SET_EXPOSES_CAP } from '@proto.ui/module-expose-state';
+import { CONTEXT_INSTANCE_TOKEN_CAP, CONTEXT_PARENT_CAP } from '@proto.ui/module-context';
+import {
+  ANATOMY_INSTANCE_TOKEN_CAP,
+  ANATOMY_PARENT_CAP,
+  ANATOMY_GET_PROTO_CAP,
+  ANATOMY_ROOT_TARGET_CAP,
+  ANATOMY_ORDER_OBSERVER_CAP,
+} from '@proto.ui/module-anatomy';
+import { RULE_META_GET_CAP } from '@proto.ui/module-rule-meta';
+
 import * as shadcn from '@proto.ui/prototypes-shadcn';
 
 type BuildMetadata = {
@@ -79,6 +89,13 @@ type WireA11y = {
   toggled?: boolean;
   actions?: string[];
 };
+type WireParent = {
+  session_id: string;
+  instance_id: string;
+  view_epoch: number;
+  route_ref: string;
+};
+
 type WireEvent =
   | { type: 'registry'; proto_ui: string; keys: string[] }
   | {
@@ -180,8 +197,12 @@ type SessionRecord = {
   session_id: string;
   instance_id: string;
   prototype: string;
+  definition: Prototype;
   props: JsonObject;
+  meta: JsonObject;
   slot: { slot_id: string; accessible_name: string };
+  route_ref: string | null;
+  parent_ref: WireParent | null;
   root_bus: LogicalBus;
   global_bus: LogicalBus;
   surface: Surface;
@@ -502,13 +523,100 @@ function setExposes(record: SessionRecord, value: unknown): void {
   }
 }
 
+function parentRecordFor(record: SessionRecord): SessionRecord | null {
+  const parent = record.parent_ref;
+  if (!parent) return null;
+  const candidate = sessions.get(parent.session_id);
+  if (!candidate || candidate.disposed) return null;
+  if (candidate.instance_id !== parent.instance_id) return null;
+  if (candidate.route_ref !== parent.route_ref) return null;
+  if (candidate.session?.mountEpoch !== parent.view_epoch) return null;
+  if (candidate.session?.mountPhase === 'detached' || candidate.session?.mountPhase === 'unmounting') {
+    return null;
+  }
+  return candidate;
+}
+
+function parentTokenFor(instance: unknown): unknown | null {
+  for (const record of sessions.values()) {
+    if (record.surface === instance) return parentRecordFor(record)?.surface ?? null;
+  }
+  return null;
+}
+
+function prototypeFor(instance: unknown): Prototype | null {
+  for (const record of sessions.values()) {
+    if (record.surface === instance) return record.definition;
+  }
+  return null;
+}
+
+function rootTargetFor(instance: unknown): Surface | null {
+  for (const record of sessions.values()) {
+    if (record.surface === instance) return record.surface;
+  }
+  return null;
+}
+
+function parseParent(value: unknown): WireParent | null {
+  if (typeof value === 'undefined' || value === null) return null;
+  const object = recordOf(value);
+  if (!object) throw new Error('parent must be a JSON object');
+  return {
+    session_id: getRequiredString(object, 'session_id'),
+    instance_id: getRequiredString(object, 'instance_id'),
+    view_epoch: getRequiredNumber(object, 'view_epoch'),
+    route_ref: getRequiredString(object, 'route_ref'),
+  };
+}
+
+function validateParent(parent: WireParent): void {
+  const candidate = sessions.get(parent.session_id);
+  if (!candidate) throw new Error(`unknown parent session: ${parent.session_id}`);
+  if (candidate.instance_id !== parent.instance_id) {
+    throw new Error(`parent instance mismatch: ${parent.instance_id}`);
+  }
+  if (candidate.route_ref !== parent.route_ref) {
+    throw new Error(`parent route mismatch: expected ${candidate.route_ref ?? ''}/${parent.route_ref}`);
+  }
+  const epoch = candidate.session?.mountEpoch ?? 0;
+  if (epoch !== parent.view_epoch) {
+    throw new Error(`stale parent view epoch: expected ${epoch}/${parent.view_epoch}`);
+  }
+  if (candidate.disposed || candidate.session?.mountPhase === 'detached' || candidate.session?.mountPhase === 'unmounting') {
+    throw new Error(`parent session is not mounted: ${parent.session_id}`);
+  }
+}
+
 function attachCapabilities(record: SessionRecord, wiring: ModuleWiringLike): void {
+  const parentGetter = (instance: unknown): unknown | null => parentTokenFor(instance);
+  wiring.attach('rule-meta', [
+    [RULE_META_GET_CAP, (key: string) => record.meta[key]],
+  ]);
+  wiring.attach('context', [
+    [CONTEXT_INSTANCE_TOKEN_CAP, record.surface],
+    [CONTEXT_PARENT_CAP, parentGetter],
+  ]);
+  wiring.attach('anatomy', [
+    [ANATOMY_INSTANCE_TOKEN_CAP, record.surface],
+    [ANATOMY_PARENT_CAP, parentGetter],
+    [ANATOMY_GET_PROTO_CAP, (instance: unknown) => prototypeFor(instance)],
+    [ANATOMY_ROOT_TARGET_CAP, (instance: unknown) => rootTargetFor(instance)],
+    [ANATOMY_ORDER_OBSERVER_CAP, () => () => undefined],
+  ]);
   wiring.attach('as-trigger', [
     [AS_TRIGGER_INSTANCE_CAP, record.surface],
-    [AS_TRIGGER_PARENT_CAP, () => null],
-    [AS_TRIGGER_GET_PROTO_CAP, () => null],
+    [AS_TRIGGER_PARENT_CAP, parentGetter],
+    [AS_TRIGGER_GET_PROTO_CAP, (instance: unknown) => prototypeFor(instance)],
     [AS_TRIGGER_MERGE_GROUP_CAP, () => undefined],
-    [AS_TRIGGER_GET_GROUP_EVENT_TARGET_CAP, () => record.root_bus],
+    [AS_TRIGGER_GET_GROUP_EVENT_TARGET_CAP, (instance: unknown) => {
+      const target = rootTargetFor(instance);
+      if (!target) return record.root_bus;
+      for (const candidate of sessions.values()) {
+        if (candidate.surface === target) return candidate.root_bus;
+      }
+      return record.root_bus;
+    }],
   ]);
   wiring.attach('event', [
     [EVENT_ROOT_TARGET_CAP, () => record.root_bus],
@@ -541,7 +649,7 @@ function attachCapabilities(record: SessionRecord, wiring: ModuleWiringLike): vo
       return () => record.ready_listeners.delete(listener);
     }],
     [FOCUS_INSTANCE_TOKEN_CAP, record.surface],
-    [FOCUS_PARENT_CAP, () => null],
+    [FOCUS_PARENT_CAP, parentGetter],
     [FOCUS_IS_NATIVELY_FOCUSABLE_CAP, () => record.surface.focusable],
     [FOCUS_SET_FOCUSABLE_CAP, (target: Surface, enabled: boolean) => {
       target.focusable = enabled;
@@ -598,8 +706,12 @@ function createRecord(
   sessionId: string,
   instanceId: string,
   prototype: string,
+  definition: Prototype,
   props: JsonObject,
+  meta: JsonObject,
   slot: { slot_id: string; accessible_name: string },
+  routeRef: string | null,
+  parentRef: WireParent | null,
 ): SessionRecord {
   const surface: Surface = {
     focusable: false,
@@ -615,8 +727,12 @@ function createRecord(
     session_id: sessionId,
     instance_id: instanceId,
     prototype,
+    definition,
     props,
+    meta,
     slot,
+    route_ref: routeRef,
+    parent_ref: parentRef,
     root_bus: new LogicalBus(),
     global_bus: new LogicalBus(),
     surface,
@@ -700,14 +816,30 @@ function startSession(command: Record<string, unknown>): void {
     throw new Error(`unknown Proto UI prototype: ${prototype}`);
   }
   const props = jsonObject(command.props ?? {});
+  const meta = jsonObject(command.meta ?? {});
   const slotObject = recordOf(command.slot);
   if (!slotObject) throw new Error('slot must be a JSON object');
   const slot = {
     slot_id: getRequiredString(slotObject, 'slot_id'),
     accessible_name: getRequiredString(slotObject, 'accessible_name'),
   };
+  const routeRef = command.route_ref === undefined || command.route_ref === null
+    ? null
+    : getRequiredString({ route_ref: command.route_ref }, 'route_ref');
+  const parentRef = parseParent(command.parent);
+  if (parentRef) validateParent(parentRef);
   if (sessions.has(sessionId)) throw new Error(`duplicate session: ${sessionId}`);
-  const record = createRecord(sessionId, instanceId, prototype, props, slot);
+  const record = createRecord(
+    sessionId,
+    instanceId,
+    prototype,
+    definition,
+    props,
+    meta,
+    slot,
+    routeRef,
+    parentRef,
+  );
   sessions.set(sessionId, record);
   try {
     const session = createRuntimeSession(definition, runtimeHost(record)) as RuntimeSessionLike;
@@ -765,6 +897,11 @@ function input(command: Record<string, unknown>): void {
   if (!inputObject) throw new Error('input must be a JSON object');
   const record = sessionFor(inputObject);
   const kind = getRequiredString(inputObject, 'kind');
+  const routeRef = getRequiredString(inputObject, 'route_ref');
+  if (record.route_ref !== null && record.route_ref !== routeRef) {
+    throw new Error(`input route mismatch: expected ${record.route_ref}/${routeRef}`);
+  }
+  if (record.route_ref === null) record.route_ref = routeRef;
   const sampleId = getRequiredString(inputObject, 'sample_id');
   if (kind === 'press_commit') {
     if (record.seen_press_samples.has(sampleId)) return;

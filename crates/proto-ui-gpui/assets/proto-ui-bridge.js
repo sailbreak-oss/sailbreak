@@ -18065,15 +18065,111 @@
         record.state_unsubs.push(unsubscribe);
     }
   }
+  function parentRecordFor(record) {
+    const parent = record.parent_ref;
+    if (!parent)
+      return null;
+    const candidate = sessions.get(parent.session_id);
+    if (!candidate || candidate.disposed)
+      return null;
+    if (candidate.instance_id !== parent.instance_id)
+      return null;
+    if (candidate.route_ref !== parent.route_ref)
+      return null;
+    if (candidate.session?.mountEpoch !== parent.view_epoch)
+      return null;
+    if (candidate.session?.mountPhase === "detached" || candidate.session?.mountPhase === "unmounting") {
+      return null;
+    }
+    return candidate;
+  }
+  function parentTokenFor(instance3) {
+    for (const record of sessions.values()) {
+      if (record.surface === instance3)
+        return parentRecordFor(record)?.surface ?? null;
+    }
+    return null;
+  }
+  function prototypeFor(instance3) {
+    for (const record of sessions.values()) {
+      if (record.surface === instance3)
+        return record.definition;
+    }
+    return null;
+  }
+  function rootTargetFor(instance3) {
+    for (const record of sessions.values()) {
+      if (record.surface === instance3)
+        return record.surface;
+    }
+    return null;
+  }
+  function parseParent(value) {
+    if (typeof value === "undefined" || value === null)
+      return null;
+    const object = recordOf(value);
+    if (!object)
+      throw new Error("parent must be a JSON object");
+    return {
+      session_id: getRequiredString(object, "session_id"),
+      instance_id: getRequiredString(object, "instance_id"),
+      view_epoch: getRequiredNumber(object, "view_epoch"),
+      route_ref: getRequiredString(object, "route_ref")
+    };
+  }
+  function validateParent(parent) {
+    const candidate = sessions.get(parent.session_id);
+    if (!candidate)
+      throw new Error(`unknown parent session: ${parent.session_id}`);
+    if (candidate.instance_id !== parent.instance_id) {
+      throw new Error(`parent instance mismatch: ${parent.instance_id}`);
+    }
+    if (candidate.route_ref !== parent.route_ref) {
+      throw new Error(`parent route mismatch: expected ${candidate.route_ref ?? ""}/${parent.route_ref}`);
+    }
+    const epoch = candidate.session?.mountEpoch ?? 0;
+    if (epoch !== parent.view_epoch) {
+      throw new Error(`stale parent view epoch: expected ${epoch}/${parent.view_epoch}`);
+    }
+    if (candidate.disposed || candidate.session?.mountPhase === "detached" || candidate.session?.mountPhase === "unmounting") {
+      throw new Error(`parent session is not mounted: ${parent.session_id}`);
+    }
+  }
   function attachCapabilities(record, wiring) {
+    const parentGetter = (instance3) => parentTokenFor(instance3);
+    wiring.attach("rule-meta", [
+      [RULE_META_GET_CAP, (key) => record.meta[key]]
+    ]);
+    wiring.attach("context", [
+      [CONTEXT_INSTANCE_TOKEN_CAP, record.surface],
+      [CONTEXT_PARENT_CAP, parentGetter]
+    ]);
+    wiring.attach("anatomy", [
+      [ANATOMY_INSTANCE_TOKEN_CAP, record.surface],
+      [ANATOMY_PARENT_CAP, parentGetter],
+      [ANATOMY_GET_PROTO_CAP, (instance3) => prototypeFor(instance3)],
+      [ANATOMY_ROOT_TARGET_CAP, (instance3) => rootTargetFor(instance3)],
+      [ANATOMY_ORDER_OBSERVER_CAP, () => () => {
+        return;
+      }]
+    ]);
     wiring.attach("as-trigger", [
       [AS_TRIGGER_INSTANCE_CAP, record.surface],
-      [AS_TRIGGER_PARENT_CAP, () => null],
-      [AS_TRIGGER_GET_PROTO_CAP, () => null],
+      [AS_TRIGGER_PARENT_CAP, parentGetter],
+      [AS_TRIGGER_GET_PROTO_CAP, (instance3) => prototypeFor(instance3)],
       [AS_TRIGGER_MERGE_GROUP_CAP, () => {
         return;
       }],
-      [AS_TRIGGER_GET_GROUP_EVENT_TARGET_CAP, () => record.root_bus]
+      [AS_TRIGGER_GET_GROUP_EVENT_TARGET_CAP, (instance3) => {
+        const target = rootTargetFor(instance3);
+        if (!target)
+          return record.root_bus;
+        for (const candidate of sessions.values()) {
+          if (candidate.surface === target)
+            return candidate.root_bus;
+        }
+        return record.root_bus;
+      }]
     ]);
     wiring.attach("event", [
       [EVENT_ROOT_TARGET_CAP, () => record.root_bus],
@@ -18101,7 +18197,7 @@
         return () => record.ready_listeners.delete(listener);
       }],
       [FOCUS_INSTANCE_TOKEN_CAP, record.surface],
-      [FOCUS_PARENT_CAP, () => null],
+      [FOCUS_PARENT_CAP, parentGetter],
       [FOCUS_IS_NATIVELY_FOCUSABLE_CAP, () => record.surface.focusable],
       [FOCUS_SET_FOCUSABLE_CAP, (target, enabled) => {
         target.focusable = enabled;
@@ -18155,7 +18251,7 @@
       }
     };
   }
-  function createRecord(sessionId, instanceId, prototype3, props, slot) {
+  function createRecord(sessionId, instanceId, prototype3, definition, props, meta, slot, routeRef, parentRef) {
     const surface = {
       focusable: false,
       focused: false,
@@ -18170,8 +18266,12 @@
       session_id: sessionId,
       instance_id: instanceId,
       prototype: prototype3,
+      definition,
       props,
+      meta,
       slot,
+      route_ref: routeRef,
+      parent_ref: parentRef,
       root_bus: new LogicalBus,
       global_bus: new LogicalBus,
       surface,
@@ -18259,6 +18359,7 @@
       throw new Error(`unknown Proto UI prototype: ${prototype3}`);
     }
     const props = jsonObject(command.props ?? {});
+    const meta = jsonObject(command.meta ?? {});
     const slotObject = recordOf(command.slot);
     if (!slotObject)
       throw new Error("slot must be a JSON object");
@@ -18266,9 +18367,13 @@
       slot_id: getRequiredString(slotObject, "slot_id"),
       accessible_name: getRequiredString(slotObject, "accessible_name")
     };
+    const routeRef = command.route_ref === undefined || command.route_ref === null ? null : getRequiredString({ route_ref: command.route_ref }, "route_ref");
+    const parentRef = parseParent(command.parent);
+    if (parentRef)
+      validateParent(parentRef);
     if (sessions.has(sessionId))
       throw new Error(`duplicate session: ${sessionId}`);
-    const record = createRecord(sessionId, instanceId, prototype3, props, slot);
+    const record = createRecord(sessionId, instanceId, prototype3, definition, props, meta, slot, routeRef, parentRef);
     sessions.set(sessionId, record);
     try {
       const session2 = createRuntimeSession(definition, runtimeHost(record));
@@ -18329,6 +18434,12 @@
       throw new Error("input must be a JSON object");
     const record = sessionFor(inputObject);
     const kind = getRequiredString(inputObject, "kind");
+    const routeRef = getRequiredString(inputObject, "route_ref");
+    if (record.route_ref !== null && record.route_ref !== routeRef) {
+      throw new Error(`input route mismatch: expected ${record.route_ref}/${routeRef}`);
+    }
+    if (record.route_ref === null)
+      record.route_ref = routeRef;
     const sampleId = getRequiredString(inputObject, "sample_id");
     if (kind === "press_commit") {
       if (record.seen_press_samples.has(sampleId))
