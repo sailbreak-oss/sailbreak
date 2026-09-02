@@ -14,15 +14,20 @@ use lctrl_core::{Availability, CapabilitySet, HardwareInfo, LctrlError, Platform
 use lctrl_hal::Hal;
 use proto_ui_gpui::{
     BridgeError, DispatchOutcome, FocusOperationResult, InputKind, InputSource, ProtoButtonHost,
-    ProtoButtonState, ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoTabsHost, ProtoTextareaHost,
-    ProtoTextareaSnapshot, ProtoToggleHost, ProtoToggleSnapshot, SeparatorProps, ShadcnButtonSize,
-    ShadcnButtonVariant, TabsActivationMode, TabsContentProps, TabsListProps, TabsOrientation,
-    TabsRootProps, TabsSnapshot, TabsTriggerProps, TextareaProps, ToggleDispatchOutcome,
-    ToggleProps, ToggleSize, ToggleVariant,
+    ProtoButtonState, ProtoSelectHost, ProtoSelectSnapshot, ProtoSeparatorHost,
+    ProtoSeparatorSnapshot, ProtoTabsHost, ProtoTextareaHost, ProtoTextareaSnapshot,
+    ProtoToggleHost, ProtoToggleSnapshot, SelectContentProps, SelectDispatchOutcome,
+    SelectItemProps, SelectRootProps, SelectTriggerProps, SelectValueProps, SeparatorProps,
+    ShadcnButtonSize, ShadcnButtonVariant, TabsActivationMode, TabsContentProps, TabsListProps,
+    TabsOrientation, TabsRootProps, TabsSnapshot, TabsTriggerProps, TextareaProps,
+    ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
 };
 
 mod proto_surface;
-pub use proto_surface::{AccessibleProjection, overlay_surface_element, project_a11y};
+pub use proto_surface::{
+    AccessibleProjection, overlay_surface_element, project_a11y, select_content_element,
+    select_item_element, select_value_element,
+};
 
 // Palette tokens: a cool instrument-panel base, with one signal color and one
 // caution color. Keeping these in one place makes the dashboard's visual
@@ -212,6 +217,34 @@ description = "Sailbreak tuning profile draft"
 const MAIN_HEADER_SEPARATOR_ID: &str = "main-header-separator";
 const ACTION_SEPARATOR_ID: &str = "action-separator";
 const CAPABILITY_SEPARATOR_ID: &str = "capability-separator";
+const PERFORMANCE_MODE_SELECT_ROOT_ID: &str = "performance-mode-select";
+const PERFORMANCE_MODE_SELECT_TRIGGER_ID: &str = "performance-mode-trigger";
+const PERFORMANCE_MODE_SELECT_VALUE_ID: &str = "performance-mode-value";
+const PERFORMANCE_MODE_SELECT_CONTENT_ID: &str = "performance-mode-content";
+const TUNING_PROFILE_SELECT_ROOT_ID: &str = "tuning-profile-select";
+const TUNING_PROFILE_SELECT_TRIGGER_ID: &str = "tuning-profile-trigger";
+const TUNING_PROFILE_SELECT_VALUE_ID: &str = "tuning-profile-value";
+const TUNING_PROFILE_SELECT_CONTENT_ID: &str = "tuning-profile-content";
+const POWER_SCHEME_SELECT_ROOT_ID: &str = "power-scheme-select";
+const POWER_SCHEME_SELECT_TRIGGER_ID: &str = "power-scheme-trigger";
+const POWER_SCHEME_SELECT_VALUE_ID: &str = "power-scheme-value";
+const POWER_SCHEME_SELECT_CONTENT_ID: &str = "power-scheme-content";
+
+fn unavailable_select_root_props() -> SelectRootProps {
+    SelectRootProps {
+        disabled: true,
+        ..SelectRootProps::default()
+    }
+}
+
+fn unavailable_select_item(value: &str) -> SelectItemProps {
+    SelectItemProps {
+        value: value.to_owned(),
+        text_value: value.to_owned(),
+        disabled: true,
+        ..SelectItemProps::default()
+    }
+}
 
 fn performance_preview_props(active: bool) -> ToggleProps {
     ToggleProps {
@@ -233,6 +266,13 @@ struct ProtoUiState {
     tabs_host: Option<ProtoTabsHost>,
     tabs_snapshot: Option<TabsSnapshot>,
     tabs_error: Option<String>,
+    performance_select_host: Option<ProtoSelectHost>,
+    performance_select_snapshot: Option<ProtoSelectSnapshot>,
+    tuning_select_host: Option<ProtoSelectHost>,
+    tuning_select_snapshot: Option<ProtoSelectSnapshot>,
+    power_select_host: Option<ProtoSelectHost>,
+    power_select_snapshot: Option<ProtoSelectSnapshot>,
+    select_error: Option<String>,
     error: Option<String>,
 }
 
@@ -251,6 +291,13 @@ impl ProtoUiState {
                     tabs_host: None,
                     tabs_snapshot: None,
                     tabs_error: None,
+                    performance_select_host: None,
+                    performance_select_snapshot: None,
+                    tuning_select_host: None,
+                    tuning_select_snapshot: None,
+                    power_select_host: None,
+                    power_select_snapshot: None,
+                    select_error: None,
                     error: Some(error.to_string()),
                 };
             }
@@ -263,6 +310,19 @@ impl ProtoUiState {
             Ok((host, snapshot)) => (Some(host), Some(snapshot), None),
             Err(error) => (None, None, Some(error.to_string())),
         };
+        let (performance_select_host, performance_select_snapshot) =
+            match Self::build_performance_select() {
+                Ok((host, snapshot)) => (Some(host), Some(snapshot)),
+                Err(_) => (None, None),
+            };
+        let (tuning_select_host, tuning_select_snapshot) = match Self::build_tuning_select() {
+            Ok((host, snapshot)) => (Some(host), Some(snapshot)),
+            Err(_) => (None, None),
+        };
+        let (power_select_host, power_select_snapshot) = match Self::build_power_select() {
+            Ok((host, snapshot)) => (Some(host), Some(snapshot)),
+            Err(_) => (None, None),
+        };
         Self {
             host: Some(host),
             toggle_host: Some(toggle_host),
@@ -273,6 +333,13 @@ impl ProtoUiState {
             tabs_host,
             tabs_snapshot,
             tabs_error,
+            performance_select_host,
+            performance_select_snapshot,
+            tuning_select_host,
+            tuning_select_snapshot,
+            power_select_host,
+            power_select_snapshot,
+            select_error: None,
             error: None,
         }
     }
@@ -370,6 +437,119 @@ impl ProtoUiState {
                     value: SECTION_VALUES[index].to_owned(),
                     keep_mounted: false,
                 },
+            )?;
+        }
+        host.setup()?;
+        let snapshot = host.snapshot()?;
+        Ok((host, snapshot))
+    }
+    fn build_performance_select()
+    -> std::result::Result<(ProtoSelectHost, ProtoSelectSnapshot), BridgeError> {
+        let mut host = ProtoSelectHost::new()?;
+        host.register_root(
+            PERFORMANCE_MODE_SELECT_ROOT_ID,
+            "Performance mode",
+            unavailable_select_root_props(),
+        )?;
+        host.register_trigger(
+            PERFORMANCE_MODE_SELECT_TRIGGER_ID,
+            PERFORMANCE_MODE_SELECT_ROOT_ID,
+            SelectTriggerProps::default(),
+        )?;
+        host.register_value(
+            PERFORMANCE_MODE_SELECT_VALUE_ID,
+            PERFORMANCE_MODE_SELECT_ROOT_ID,
+            SelectValueProps {
+                placeholder: "Performance mode".to_owned(),
+            },
+        )?;
+        host.register_content(
+            PERFORMANCE_MODE_SELECT_CONTENT_ID,
+            PERFORMANCE_MODE_SELECT_ROOT_ID,
+            SelectContentProps::default(),
+        )?;
+        for value in ["balanced", "quiet", "performance", "geek"] {
+            host.register_item(
+                format!("{PERFORMANCE_MODE_SELECT_ROOT_ID}-{value}"),
+                value.to_uppercase(),
+                PERFORMANCE_MODE_SELECT_CONTENT_ID,
+                unavailable_select_item(value),
+            )?;
+        }
+        host.setup()?;
+        let snapshot = host.snapshot()?;
+        Ok((host, snapshot))
+    }
+
+    fn build_tuning_select()
+    -> std::result::Result<(ProtoSelectHost, ProtoSelectSnapshot), BridgeError> {
+        let mut host = ProtoSelectHost::new()?;
+        host.register_root(
+            TUNING_PROFILE_SELECT_ROOT_ID,
+            "Tuning profile",
+            unavailable_select_root_props(),
+        )?;
+        host.register_trigger(
+            TUNING_PROFILE_SELECT_TRIGGER_ID,
+            TUNING_PROFILE_SELECT_ROOT_ID,
+            SelectTriggerProps::default(),
+        )?;
+        host.register_value(
+            TUNING_PROFILE_SELECT_VALUE_ID,
+            TUNING_PROFILE_SELECT_ROOT_ID,
+            SelectValueProps {
+                placeholder: "Tuning profile".to_owned(),
+            },
+        )?;
+        host.register_content(
+            TUNING_PROFILE_SELECT_CONTENT_ID,
+            TUNING_PROFILE_SELECT_ROOT_ID,
+            SelectContentProps::default(),
+        )?;
+        for value in ["sailbreak-gui", "balanced", "quiet", "performance"] {
+            host.register_item(
+                format!("{TUNING_PROFILE_SELECT_ROOT_ID}-{value}"),
+                value.to_uppercase(),
+                TUNING_PROFILE_SELECT_CONTENT_ID,
+                unavailable_select_item(value),
+            )?;
+        }
+        host.setup()?;
+        let snapshot = host.snapshot()?;
+        Ok((host, snapshot))
+    }
+
+    fn build_power_select()
+    -> std::result::Result<(ProtoSelectHost, ProtoSelectSnapshot), BridgeError> {
+        let mut host = ProtoSelectHost::new()?;
+        host.register_root(
+            POWER_SCHEME_SELECT_ROOT_ID,
+            "Power scheme",
+            unavailable_select_root_props(),
+        )?;
+        host.register_trigger(
+            POWER_SCHEME_SELECT_TRIGGER_ID,
+            POWER_SCHEME_SELECT_ROOT_ID,
+            SelectTriggerProps::default(),
+        )?;
+        host.register_value(
+            POWER_SCHEME_SELECT_VALUE_ID,
+            POWER_SCHEME_SELECT_ROOT_ID,
+            SelectValueProps {
+                placeholder: "Power scheme".to_owned(),
+            },
+        )?;
+        host.register_content(
+            POWER_SCHEME_SELECT_CONTENT_ID,
+            POWER_SCHEME_SELECT_ROOT_ID,
+            SelectContentProps::default(),
+        )?;
+        for value in ["balanced", "power-saver", "high-performance"] {
+            host.register_item(
+                format!("{POWER_SCHEME_SELECT_ROOT_ID}-{value}"),
+                value.to_uppercase(),
+                POWER_SCHEME_SELECT_CONTENT_ID,
+                unavailable_select_item(value),
             )?;
         }
         host.setup()?;
@@ -533,6 +713,69 @@ impl ProtoUiState {
             .ok_or(unavailable)?
             .dispatch_trigger(id, kind, source, None)?;
         self.refresh_tabs()
+    }
+
+    fn select_snapshot(&self, root_id: &str) -> Option<&ProtoSelectSnapshot> {
+        match root_id {
+            PERFORMANCE_MODE_SELECT_ROOT_ID => self.performance_select_snapshot.as_ref(),
+            TUNING_PROFILE_SELECT_ROOT_ID => self.tuning_select_snapshot.as_ref(),
+            POWER_SCHEME_SELECT_ROOT_ID => self.power_select_snapshot.as_ref(),
+            _ => None,
+        }
+    }
+
+    fn select_host_mut(&mut self, root_id: &str) -> Option<&mut ProtoSelectHost> {
+        match root_id {
+            PERFORMANCE_MODE_SELECT_ROOT_ID => self.performance_select_host.as_mut(),
+            TUNING_PROFILE_SELECT_ROOT_ID => self.tuning_select_host.as_mut(),
+            POWER_SCHEME_SELECT_ROOT_ID => self.power_select_host.as_mut(),
+            _ => None,
+        }
+    }
+
+    fn refresh_select(&mut self, root_id: &str) -> std::result::Result<(), BridgeError> {
+        let Some(host) = self.select_host_mut(root_id) else {
+            return Err(self.select_unavailable_error());
+        };
+        let snapshot = host.snapshot()?;
+        match root_id {
+            PERFORMANCE_MODE_SELECT_ROOT_ID => {
+                self.performance_select_snapshot = Some(snapshot);
+            }
+            TUNING_PROFILE_SELECT_ROOT_ID => {
+                self.tuning_select_snapshot = Some(snapshot);
+            }
+            POWER_SCHEME_SELECT_ROOT_ID => {
+                self.power_select_snapshot = Some(snapshot);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn select_unavailable_error(&self) -> BridgeError {
+        BridgeError::Runtime {
+            detail: self
+                .select_error
+                .clone()
+                .unwrap_or_else(|| "Proto UI Select host is unavailable".to_owned()),
+        }
+    }
+
+    fn dispatch_select(
+        &mut self,
+        root_id: &str,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) -> std::result::Result<SelectDispatchOutcome, BridgeError> {
+        let Some(host) = self.select_host_mut(root_id) else {
+            return Err(self.select_unavailable_error());
+        };
+        let outcome = host.dispatch(id, kind, source, detail)?;
+        self.refresh_select(root_id)?;
+        Ok(outcome)
     }
 
     fn dispatch(
@@ -870,6 +1113,82 @@ fn action_bar(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoEl
             PERFORMANCE_PREVIEW_TOGGLE_ID,
             "PERFORMANCE PREVIEW",
             DashboardAction::RunCommand(PERFORMANCE_DRY_RUN_COMMAND),
+        ),
+    ])
+}
+fn selector_trigger_view(
+    dashboard: &Dashboard,
+    cx: &mut Context<Dashboard>,
+    root_id: &'static str,
+    trigger_id: &'static str,
+    label: &'static str,
+) -> Stateful<Div> {
+    let Some(snapshot) = dashboard
+        .proto
+        .select_snapshot(root_id)
+        .and_then(|snapshot| snapshot.trigger.as_ref())
+    else {
+        return unavailable_button(trigger_id, label);
+    };
+    let dashboard_entity = cx.entity().downgrade();
+    proto_surface::select_trigger_element(trigger_id, label, snapshot, None, move |_, _, cx| {
+        dashboard_entity
+            .update(cx, |this, cx| {
+                if let Err(error) = this.proto.dispatch_select(
+                    root_id,
+                    trigger_id,
+                    InputKind::PressCommit,
+                    InputSource::Accessibility,
+                    None,
+                ) {
+                    this.snapshot.status_message = format!("Proto UI Select failed: {error}");
+                }
+                cx.notify();
+            })
+            .ok();
+    })
+    .on_click(cx.listener(move |this, event, _, cx| {
+        let source = match event {
+            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
+            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
+            gpui::ClickEvent::Touch(_) => InputSource::Touch,
+        };
+        if let Err(error) =
+            this.proto
+                .dispatch_select(root_id, trigger_id, InputKind::PressCommit, source, None)
+        {
+            this.snapshot.status_message = format!("Proto UI Select failed: {error}");
+        }
+        cx.notify();
+    }))
+}
+
+/// Disabled Select surfaces for performance mode, tuning profile, and power
+/// scheme. The hardware snapshot has no typed current readback for these
+/// channels yet, so the selectors remain honestly disabled instead of
+/// inventing state; enabling them is the final-composition migration.
+fn selectors_strip(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoElement {
+    div().flex().flex_row().flex_wrap().gap_2().children([
+        selector_trigger_view(
+            dashboard,
+            cx,
+            PERFORMANCE_MODE_SELECT_ROOT_ID,
+            PERFORMANCE_MODE_SELECT_TRIGGER_ID,
+            "Performance mode",
+        ),
+        selector_trigger_view(
+            dashboard,
+            cx,
+            TUNING_PROFILE_SELECT_ROOT_ID,
+            TUNING_PROFILE_SELECT_TRIGGER_ID,
+            "Tuning profile",
+        ),
+        selector_trigger_view(
+            dashboard,
+            cx,
+            POWER_SCHEME_SELECT_ROOT_ID,
+            POWER_SCHEME_SELECT_TRIGGER_ID,
+            "Power scheme",
         ),
     ])
 }
@@ -1508,6 +1827,7 @@ fn section_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Stateful
         .child(safety_banner(&dashboard.snapshot.status_message))
         .child(separator_view(dashboard, ACTION_SEPARATOR_ID))
         .child(action_bar(dashboard, cx))
+        .child(selectors_strip(dashboard, cx))
         .child(separator_view(dashboard, CAPABILITY_SEPARATOR_ID));
     if index == TUNING_SECTION_INDEX {
         panel = panel.child(tuning_panel(dashboard, cx));
@@ -1982,6 +2302,77 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn dashboard_selectors_are_present_disabled_and_never_reach_controller() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Recorder {
+            calls: AtomicUsize,
+        }
+
+        impl GuiController for Recorder {
+            fn refresh(&self) -> Result<DashboardSnapshot> {
+                Ok(DashboardSnapshot::unavailable(Platform::Linux, "refreshed"))
+            }
+
+            fn execute(&self, args: &[&str]) -> Result<String> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Ok(format!("executed {}", args.join(" ")))
+            }
+        }
+
+        let controller = Arc::new(Recorder {
+            calls: AtomicUsize::new(0),
+        });
+        let mut dashboard = Dashboard::with_controller(
+            DashboardSnapshot::unavailable(Platform::Linux, "initial"),
+            controller.clone(),
+        );
+
+        for (root_id, trigger_id) in [
+            (
+                PERFORMANCE_MODE_SELECT_ROOT_ID,
+                PERFORMANCE_MODE_SELECT_TRIGGER_ID,
+            ),
+            (
+                TUNING_PROFILE_SELECT_ROOT_ID,
+                TUNING_PROFILE_SELECT_TRIGGER_ID,
+            ),
+            (POWER_SCHEME_SELECT_ROOT_ID, POWER_SCHEME_SELECT_TRIGGER_ID),
+        ] {
+            let snapshot = dashboard
+                .proto
+                .select_snapshot(root_id)
+                .expect("selector is present");
+            assert!(snapshot.root.disabled);
+            assert!(
+                snapshot
+                    .trigger
+                    .as_ref()
+                    .expect("trigger is present")
+                    .disabled
+            );
+            assert_eq!(snapshot.trigger.as_ref().expect("trigger").id, trigger_id);
+            assert!(snapshot.items.iter().all(|item| item.disabled));
+            assert!(!snapshot.root.open);
+        }
+
+        // A disabled selection never emits a semantic signal and never reaches
+        // the GuiController, which remains the only bridge to CLI actions.
+        let outcome = dashboard
+            .proto
+            .dispatch_select(
+                PERFORMANCE_MODE_SELECT_ROOT_ID,
+                &format!("{PERFORMANCE_MODE_SELECT_ROOT_ID}-performance"),
+                InputKind::PressCommit,
+                InputSource::Accessibility,
+                None,
+            )
+            .expect("dispatch succeeds");
+        assert_eq!(outcome.item_select_count, 0);
+        assert_eq!(outcome.value_change_count, 0);
+        assert_eq!(controller.calls.load(Ordering::SeqCst), 0);
+    }
     #[test]
     fn dashboard_navigation_is_derived_from_proto_tabs_selection() {
         let snapshot = DashboardSnapshot::unavailable(Platform::Linux, "test");

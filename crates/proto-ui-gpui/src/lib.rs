@@ -15,14 +15,17 @@ pub use button_host::{ProtoButtonHost, ProtoButtonState, ShadcnButtonSize, Shadc
 pub use components::{
     AdapterDispatchOutcome, AdapterSnapshot, CheckboxDispatchOutcome, CheckboxIndicatorSnapshot,
     CheckboxProps, CheckboxRootSnapshot, ProtoAdapter, ProtoCheckboxHost, ProtoCheckboxSnapshot,
-    ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoSwitchHost, ProtoSwitchSnapshot,
-    ProtoTabsHost, ProtoTextareaHost, ProtoTextareaSnapshot, ProtoToggleHost, ProtoToggleSnapshot,
-    PrototypeProfile, SeparatorOrientation, SeparatorProps, SwitchDispatchOutcome, SwitchProps,
-    SwitchRootSnapshot, SwitchThumbSnapshot, TabsActivationMode, TabsContentProps,
-    TabsContentSnapshot, TabsDispatchOutcome, TabsListProps, TabsListSnapshot, TabsOrientation,
-    TabsRootProps, TabsRootSnapshot, TabsSnapshot, TabsTriggerProps, TabsTriggerSnapshot,
-    TextareaDispatchOutcome, TextareaProps, TextareaWrap, ToggleDispatchOutcome, ToggleProps,
-    ToggleSize, ToggleVariant,
+    ProtoSelectHost, ProtoSelectSnapshot, ProtoSeparatorHost, ProtoSeparatorSnapshot,
+    ProtoSwitchHost, ProtoSwitchSnapshot, ProtoTabsHost, ProtoTextareaHost, ProtoTextareaSnapshot,
+    ProtoToggleHost, ProtoToggleSnapshot, PrototypeProfile, SelectContentPosition,
+    SelectContentProps, SelectContentSnapshot, SelectDispatchOutcome, SelectItemProps,
+    SelectItemSnapshot, SelectPosition, SelectRootProps, SelectRootSnapshot, SelectSnapshot,
+    SelectTriggerProps, SelectTriggerSnapshot, SelectValueProps, SelectValueSnapshot,
+    SeparatorOrientation, SeparatorProps, SwitchDispatchOutcome, SwitchProps, SwitchRootSnapshot,
+    SwitchThumbSnapshot, TabsActivationMode, TabsContentProps, TabsContentSnapshot,
+    TabsDispatchOutcome, TabsListProps, TabsListSnapshot, TabsOrientation, TabsRootProps,
+    TabsRootSnapshot, TabsSnapshot, TabsTriggerProps, TabsTriggerSnapshot, TextareaDispatchOutcome,
+    TextareaProps, TextareaWrap, ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
 };
 pub use focus::{FocusOperationResult, FocusRegistry, FocusTarget};
 pub use overlay::*;

@@ -54,6 +54,15 @@ impl AdapterDispatchOutcome {
             .filter(|event| event.event.event_type == event_type)
             .count()
     }
+
+    pub fn absorb(&mut self, mut other: Self) {
+        for (key, count) in other.signal_counts {
+            *self.signal_counts.entry(key).or_insert(0) += count;
+        }
+        self.text_events.append(&mut other.text_events);
+        self.events.append(&mut other.events);
+        self.diagnostics.append(&mut other.diagnostics);
+    }
 }
 
 struct ManagedSession {
@@ -169,18 +178,14 @@ impl ProtoAdapter {
             ),
         );
         let outcome = session.host.input(InputRequest::new(input, detail))?;
-        let mut signal_counts = BTreeMap::new();
-        for event in &outcome.events {
-            if let BridgeEvent::Signal { key, .. } = event {
-                *signal_counts.entry(key.clone()).or_insert(0) += 1;
-            }
-        }
-        Ok(AdapterDispatchOutcome {
-            signal_counts,
-            text_events: outcome.text_events,
-            events: outcome.events,
-            diagnostics: outcome.diagnostics,
-        })
+        Ok(adapter_dispatch_outcome(outcome))
+    }
+
+    pub fn drain(&mut self, id: &str) -> Result<AdapterDispatchOutcome> {
+        let session = self.session_mut(id)?;
+        let outcome = session.host.drain_events()?;
+        acknowledge_pending(&mut session.host)?;
+        Ok(adapter_dispatch_outcome(outcome))
     }
     pub fn dispatch_text(
         &mut self,
@@ -312,6 +317,21 @@ impl ProtoAdapter {
 
     fn session_mut(&mut self, id: &str) -> Result<&mut ManagedSession> {
         self.sessions.get_mut(id).ok_or_else(|| unknown_session(id))
+    }
+}
+
+fn adapter_dispatch_outcome(outcome: crate::DispatchOutcome) -> AdapterDispatchOutcome {
+    let mut signal_counts = BTreeMap::new();
+    for event in &outcome.events {
+        if let BridgeEvent::Signal { key, .. } = event {
+            *signal_counts.entry(key.clone()).or_insert(0) += 1;
+        }
+    }
+    AdapterDispatchOutcome {
+        signal_counts,
+        text_events: outcome.text_events,
+        events: outcome.events,
+        diagnostics: outcome.diagnostics,
     }
 }
 

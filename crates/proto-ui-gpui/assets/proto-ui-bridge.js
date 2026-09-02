@@ -18321,6 +18321,15 @@
       DOCUMENT_POSITION_FOLLOWING
     };
   }
+  var logicalSurfaces = new WeakSet;
+  var elementGlobal = globalThis;
+  if (typeof elementGlobal.HTMLElement !== "function") {
+    elementGlobal.HTMLElement = class LogicalHTMLElement {
+      static [Symbol.hasInstance](candidate) {
+        return typeof candidate === "object" && candidate !== null && logicalSurfaces.has(candidate);
+      }
+    };
+  }
   var nextSurfaceOrder = 0;
   var bridgeMicrotasks = [];
   var microtaskGlobal = globalThis;
@@ -19081,6 +19090,7 @@
         blurSurface(surface);
       }
     };
+    logicalSurfaces.add(surface);
     return {
       session_id: sessionId,
       instance_id: instanceId,

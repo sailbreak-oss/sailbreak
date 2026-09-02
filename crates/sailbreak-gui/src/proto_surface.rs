@@ -11,7 +11,8 @@ use gpui::{
 };
 use proto_ui_gpui::{
     A11ySnapshot, ButtonStyle, ColorValue, PlacementSnapshot, ProtoButtonState,
-    ProtoSeparatorSnapshot, ProtoTextareaSnapshot, ProtoToggleSnapshot, SeparatorOrientation,
+    ProtoSeparatorSnapshot, ProtoTextareaSnapshot, ProtoToggleSnapshot, SelectContentSnapshot,
+    SelectItemSnapshot, SelectTriggerSnapshot, SelectValueSnapshot, SeparatorOrientation,
     TabsContentSnapshot, TabsListSnapshot, TabsTriggerSnapshot, TextControlEvent,
     TextControlEventType, TextControlSelection, TextControlSelectionDirection, ViewEpoch,
 };
@@ -71,6 +72,69 @@ pub fn tab_trigger_element(
         on_a11y_click,
     )
 }
+/// Project a Select Trigger through a caller-owned native focus handle.
+pub fn select_trigger_element(
+    id: &'static str,
+    label: &'static str,
+    state: &SelectTriggerSnapshot,
+    focus_handle: Option<&FocusHandle>,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    action_element(
+        id,
+        label,
+        &state.resolved_style,
+        state.a11y.as_ref(),
+        focus_handle,
+        on_a11y_click,
+    )
+}
+
+/// Project the Proto-owned display value into a native trigger child.
+pub fn select_value_element(id: &'static str, state: &SelectValueSnapshot) -> Stateful<Div> {
+    div()
+        .id(id)
+        .debug_selector(move || id.to_owned())
+        .child(state.display_value.clone())
+}
+
+/// Project a Select Content portal from the last Rust-owned placement fact.
+/// No layout or paint callback calls JavaScript.
+pub fn select_content_element(id: &'static str, state: &SelectContentSnapshot) -> Stateful<Div> {
+    let mut element = state.placement.as_ref().map_or_else(
+        || div().id(id).debug_selector(move || id.to_owned()),
+        |placement| overlay_surface_element(id, placement),
+    );
+    if let Some(a11y) = state.a11y.as_ref() {
+        element = apply_a11y(element, a11y, |_, _, _| {});
+    }
+    if !state.present {
+        element = element.opacity(0.0);
+    }
+    element
+}
+
+/// Project one Select option and its selected indicator through the same
+/// Proto-resolved action styling used by the trigger.
+pub fn select_item_element(
+    id: &'static str,
+    state: &SelectItemSnapshot,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let element = action_element(
+        id,
+        state.label.clone(),
+        &state.resolved_style,
+        state.a11y.as_ref(),
+        None,
+        on_a11y_click,
+    );
+    if state.selected_indicator {
+        element.child("✓")
+    } else {
+        element
+    }
+}
 
 pub fn tab_list_element(id: &'static str, state: &TabsListSnapshot) -> Stateful<Div> {
     let element = div().id(id).debug_selector(move || id.to_owned());
@@ -122,7 +186,7 @@ pub fn overlay_surface_element(id: &'static str, placement: &PlacementSnapshot) 
 
 fn action_element(
     id: &'static str,
-    label: &'static str,
+    label: impl IntoElement,
     style: &ButtonStyle,
     a11y: Option<&A11ySnapshot>,
     focus_handle: Option<&FocusHandle>,

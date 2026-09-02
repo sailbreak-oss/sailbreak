@@ -1,5 +1,6 @@
 mod adapter;
 mod checkbox;
+mod select;
 mod separator;
 mod switch;
 mod tabs;
@@ -21,6 +22,12 @@ pub use switch::{
     SwitchThumbSnapshot,
 };
 
+pub use select::{
+    ProtoSelectHost, ProtoSelectSnapshot, SelectContentPosition, SelectContentProps,
+    SelectContentSnapshot, SelectDispatchOutcome, SelectItemProps, SelectItemSnapshot,
+    SelectPosition, SelectRootProps, SelectRootSnapshot, SelectSnapshot, SelectTriggerProps,
+    SelectTriggerSnapshot, SelectValueProps, SelectValueSnapshot,
+};
 pub use tabs::{
     ProtoTabsHost, TabsActivationMode, TabsContentProps, TabsContentSnapshot, TabsDispatchOutcome,
     TabsListProps, TabsListSnapshot, TabsOrientation, TabsRootProps, TabsRootSnapshot,

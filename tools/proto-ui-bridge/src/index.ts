@@ -77,6 +77,15 @@ if (!nodeGlobal.Node) {
     DOCUMENT_POSITION_FOLLOWING,
   };
 }
+const logicalSurfaces = new WeakSet<object>();
+const elementGlobal = globalThis as unknown as { HTMLElement?: unknown };
+if (typeof elementGlobal.HTMLElement !== 'function') {
+  elementGlobal.HTMLElement = class LogicalHTMLElement {
+    static [Symbol.hasInstance](candidate: unknown): boolean {
+      return typeof candidate === 'object' && candidate !== null && logicalSurfaces.has(candidate);
+    }
+  };
+}
 let nextSurfaceOrder = 0;
 const bridgeMicrotasks: Array<() => void> = [];
 const microtaskGlobal = globalThis as unknown as {
@@ -1055,6 +1064,7 @@ function createRecord(
       blurSurface(surface);
     },
   };
+  logicalSurfaces.add(surface);
   return {
     session_id: sessionId,
     instance_id: instanceId,
