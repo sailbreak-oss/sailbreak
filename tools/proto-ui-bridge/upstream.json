@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/Proto-UI/Proto-UI.git",
   "ref": "main",
-  "commit": "40ba5fb9011aba78f4d0a41a668fb93421f96865",
+  "commit": "8c6dadc00554ad89040a5f36eb2df56eb9ad3c17",
   "package_manager": "pnpm@10.32.1",
   "package_versions": [
     {
@@ -194,9 +194,9 @@
     }
   ],
   "lockfile_sha256": "sha256:4224dc5426a51c227714008d7a3a360cb6dd813a1b03b0c5fc94342699d6f6cf",
-  "bundle_sha256": "sha256:5d2e53bac6bfabfd24c676d3f3cdd30c5cd30ea95a1f80282975e08d2d650310",
+  "bundle_sha256": "sha256:e7cbcc7e45037c7e71117a1adc93bc075fc7cb7b404621d67c70093d353d26d0",
   "license_sources": [
-    "https://github.com/Proto-UI/Proto-UI/blob/40ba5fb9011aba78f4d0a41a668fb93421f96865/packages/prototypes/shadcn/THIRD_PARTY_NOTICES.md",
-    "https://github.com/Proto-UI/Proto-UI/blob/40ba5fb9011aba78f4d0a41a668fb93421f96865/packages/core/LICENSE"
+    "https://github.com/Proto-UI/Proto-UI/blob/8c6dadc00554ad89040a5f36eb2df56eb9ad3c17/packages/prototypes/shadcn/THIRD_PARTY_NOTICES.md",
+    "https://github.com/Proto-UI/Proto-UI/blob/8c6dadc00554ad89040a5f36eb2df56eb9ad3c17/packages/core/LICENSE"
   ]
 }

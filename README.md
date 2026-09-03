@@ -55,7 +55,20 @@ The embedded dogfood contract currently proves:
 - profile confirmation is modal and only its explicit `--yes` confirmation reaches `GuiController::execute`; BIOS confirmation remains unavailable until a typed BIOS read/modify/write request exists;
 - the performance-preview Toggle invokes only `--dry-run`, and clearing it never turns into a commit. `GuiController` is the sole CLI/HAL/config gateway.
 
-This is executable dogfood coverage, not official Proto-UI A-GPUI conformance. A headless Linux invocation intentionally returns the existing display-channel error; visual desktop evidence is unavailable without `DISPLAY` or `WAYLAND_DISPLAY`. The contract still exercises resolved host snapshots and safety behavior without claiming visual proof.
+### Conformance profile
+
+The machine-readable record [`docs/proto-ui-gpui-profile.json`](docs/proto-ui-gpui-profile.json) is the versioned Sailbreak independent-dogfood profile (schema v1, `independent_dogfood`/`limited`, `official_proto_ui_adapter_claim: false`). It pins the exact source identity — Proto-UI `main` at `8c6dadc00554ad89040a5f36eb2df56eb9ad3c17` (lockfile sha256:4224dc5426a51c227714008d7a3a360cb6dd813a1b03b0c5fc94342699d6f6cf, bundle sha256:e7cbcc7e45037c7e71117a1adc93bc075fc7cb7b404621d67c70093d353d26d0) — plus the GPUI 0.2.2/Zed `399258feeaf90ad8a3a208c99221ee87b6452f38` host, the exact eleven-family/thirty-three-prototype admission set, an 18-row capability matrix, authority-tiered evidence, and the recorded canonical upstream and local runs.
+
+`crates/proto-ui-gpui/tests/conformance_contract.rs` treats the profile as an executable contract and enforces the boundaries below:
+
+- exact manifest linkage (commit, lockfile, bundle digest, package versions) and exact matrix/family/prototype sets;
+- evidence tiers separate Runtime/fake-host/host-capability proof from native GPUI (AccessKit/dogfood) evidence; no tier claims a desktop smoke that has not run;
+- Linux stays `limited` until an actual `DISPLAY`/`WAYLAND_DISPLAY` session records visual evidence; Windows CI compilation/tests are recorded as build evidence only, never GUI, AccessKit, or hardware proof;
+- the bridge imports `@proto.ui/runtime` from its public package root only, contains no local `definePrototype`, no browser layout/paint APIs, and no GPUI/closures/JS objects on the Rust wire;
+- Dialog admission uses the MASK part — no invented Portal/Overlay prototypes, and CloseIcon stays registry-only/native-unproven;
+- the current props/default semantic fallback paths in the family facades are explicitly enumerated as acknowledged limitations rather than hidden.
+
+Upstream contribution candidates are prepared HAL-free in five slices (protocol/leases, GPUI host capability and lifecycle, Template/Slot/Style/SVG translation, one Shadcn Adapter family per pull request, profile metadata and evidence). Admission is maintainer-gated: no official Proto-UI GPUI Adapter claim is made before upstream review and complete native evidence for the declared profile.
 
 ## Install
 

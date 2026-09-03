@@ -1,4 +1,3 @@
-import { definePrototype, tw } from '@proto.ui/core';
 import type { CapEntries, Prototype, TemplateChildren } from '@proto.ui/core';
 import { createRuntimeSession, type RuntimeSession } from '@proto.ui/runtime';
 import {
@@ -37,7 +36,6 @@ import {
   ANATOMY_ORDER_OBSERVER_CAP,
 } from '@proto.ui/module-anatomy';
 import { RULE_META_GET_CAP } from '@proto.ui/module-rule-meta';
-import { asTextareaRoot } from '@proto.ui/prototypes-base/textarea';
 import {
   TEXT_CONTROL_HOST_CAP,
   TEXT_CONTROL_RUN_IN_CALLBACK_CAP,
@@ -315,32 +313,6 @@ type SessionRecord = {
   scheduled_tasks: Array<() => void>;
 };
 
-const TEXTAREA_BASE_TOKENS =
-  'flex min-h-16 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-colors';
-
-const shadcnTextareaRoot = definePrototype({
-  name: 'shadcn-textarea-root',
-  modules: asTextareaRoot.modules,
-  setup(def) {
-    const base = asTextareaRoot();
-    const state = base.stateHandles;
-    if (!state) throw new Error('[shadcn-textarea-root] asTextareaRoot must project state handles.');
-    const { disabled, focusVisible } = state;
-    def.feedback.style.use(tw(TEXTAREA_BASE_TOKENS));
-    def.rule({
-      when: (w) => w.state(focusVisible).eq(true),
-      intent: (i) => i.feedback.style.use(tw('border-ring ring-3 ring-ring/50')),
-    });
-    def.rule({
-      when: (w) => w.state(disabled).eq(true),
-      intent: (i) => i.feedback.style.use(tw('cursor-not-allowed opacity-50')),
-    });
-    def.rule({
-      when: (w) => w.all(w.meta('colorScheme').eq('dark'), w.state(disabled).eq(false)),
-      intent: (i) => i.feedback.style.use(tw('bg-input/30')),
-    });
-  },
-});
 
 type Registry = Record<string, Prototype>;
 
@@ -353,7 +325,7 @@ const registry: Registry = {
   'shadcn-switch-root': shadcn.shadcnSwitchRoot,
   'shadcn-switch-thumb': shadcn.shadcnSwitchThumb,
   'shadcn-tabs-root': shadcn.shadcnTabsRoot,
-  'shadcn-textarea-root': shadcnTextareaRoot,
+  'shadcn-textarea-root': shadcn.shadcnTextareaRoot,
   'shadcn-tabs-list': shadcn.shadcnTabsList,
   'shadcn-tabs-trigger': shadcn.shadcnTabsTrigger,
   'shadcn-tabs-content': shadcn.shadcnTabsContent,

@@ -1,4 +1,4 @@
-The embedded JavaScript bundle is generated from the Proto UI `main` snapshot recorded in `upstream.json`.
+The embedded JavaScript bundle is generated from the Proto UI `main` snapshot pinned at commit `8c6dadc00554ad89040a5f36eb2df56eb9ad3c17`, recorded in `upstream.json` (bundle sha256:e7cbcc7e45037c7e71117a1adc93bc075fc7cb7b404621d67c70093d353d26d0).
 
 The bundle includes Proto UI packages under the MIT License:
 
@@ -8,8 +8,10 @@ The bundle includes Proto UI packages under the MIT License:
 - `@proto.ui/prototypes-shadcn`
 - the `@proto.ui/module-*` packages required by those packages
 
-Proto UI source and license:
-https://github.com/Proto-UI/Proto-UI
+Proto UI source and license (pinned commit):
+https://github.com/Proto-UI/Proto-UI/tree/8c6dadc00554ad89040a5f36eb2df56eb9ad3c17
+https://github.com/Proto-UI/Proto-UI/blob/8c6dadc00554ad89040a5f36eb2df56eb9ad3c17/packages/core/LICENSE
+https://github.com/Proto-UI/Proto-UI/blob/8c6dadc00554ad89040a5f36eb2df56eb9ad3c17/packages/prototypes/shadcn/THIRD_PARTY_NOTICES.md
 
 `@proto.ui/prototypes-shadcn` is an unofficial implementation derived from shadcn/ui.
 The shadcn/ui-derived material is distributed under the MIT License.

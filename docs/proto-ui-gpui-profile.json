@@ -1,0 +1,652 @@
+{
+  "schema_version": 1,
+  "profile": "sailbreak-proto-ui-gpui",
+  "status": "independent_dogfood",
+  "support_level": "limited",
+  "official_proto_ui_adapter_claim": false,
+  "source": {
+    "repository": "https://github.com/Proto-UI/Proto-UI.git",
+    "ref": "main",
+    "commit": "8c6dadc00554ad89040a5f36eb2df56eb9ad3c17",
+    "package_manager": "pnpm@10.32.1",
+    "package_versions": {
+      "@proto.ui/runtime": "0.3.0-alpha.0",
+      "@proto.ui/prototypes-shadcn": "0.3.0-alpha.0"
+    },
+    "lockfile_sha256": "sha256:4224dc5426a51c227714008d7a3a360cb6dd813a1b03b0c5fc94342699d6f6cf",
+    "bundle_sha256": "sha256:e7cbcc7e45037c7e71117a1adc93bc075fc7cb7b404621d67c70093d353d26d0",
+    "manifest_path": "tools/proto-ui-bridge/upstream.json",
+    "license_sources": [
+      "https://github.com/Proto-UI/Proto-UI/blob/8c6dadc00554ad89040a5f36eb2df56eb9ad3c17/packages/prototypes/shadcn/THIRD_PARTY_NOTICES.md",
+      "https://github.com/Proto-UI/Proto-UI/blob/8c6dadc00554ad89040a5f36eb2df56eb9ad3c17/packages/core/LICENSE"
+    ]
+  },
+  "host": {
+    "name": "sailbreak",
+    "crate": "proto-ui-gpui",
+    "gpui_version": "0.2.2",
+    "zed_revision": "399258feeaf90ad8a3a208c99221ee87b6452f38",
+    "rust_toolchain": "1.95.0",
+    "platform_scope": ["linux", "windows"],
+    "runtime": "embedded QuickJS; Bun is build-time only"
+  },
+  "families": [
+    "button",
+    "toggle",
+    "switch",
+    "checkbox",
+    "separator",
+    "textarea",
+    "tabs",
+    "select",
+    "dropdown",
+    "dialog",
+    "hover_card"
+  ],
+  "family_prototype_ids": {
+    "button": ["P-SHADCN-BUTTON"],
+    "toggle": ["P-SHADCN-TOGGLE"],
+    "switch": ["P-SHADCN-SWITCH", "P-SHADCN-SWITCH-THUMB"],
+    "checkbox": ["P-SHADCN-CHECKBOX", "P-SHADCN-CHECKBOX-INDICATOR"],
+    "separator": ["P-SHADCN-SEPARATOR"],
+    "textarea": ["P-SHADCN-TEXTAREA"],
+    "tabs": [
+      "P-SHADCN-TABS",
+      "P-SHADCN-TABS-LIST",
+      "P-SHADCN-TABS-TRIGGER",
+      "P-SHADCN-TABS-CONTENT"
+    ],
+    "select": [
+      "P-SHADCN-SELECT",
+      "P-SHADCN-SELECT-TRIGGER",
+      "P-SHADCN-SELECT-VALUE",
+      "P-SHADCN-SELECT-CONTENT",
+      "P-SHADCN-SELECT-ITEM"
+    ],
+    "dropdown": [
+      "P-SHADCN-DROPDOWN-MENU",
+      "P-SHADCN-DROPDOWN-MENU-TRIGGER",
+      "P-SHADCN-DROPDOWN-MENU-CONTENT",
+      "P-SHADCN-DROPDOWN-MENU-ITEM"
+    ],
+    "dialog": [
+      "P-SHADCN-DIALOG",
+      "P-SHADCN-DIALOG-TRIGGER",
+      "P-SHADCN-DIALOG-MASK",
+      "P-SHADCN-DIALOG-CONTENT",
+      "P-SHADCN-DIALOG-TITLE",
+      "P-SHADCN-DIALOG-DESCRIPTION",
+      "P-SHADCN-DIALOG-HEADER",
+      "P-SHADCN-DIALOG-FOOTER",
+      "P-SHADCN-DIALOG-CLOSE"
+    ],
+    "hover_card": [
+      "P-SHADCN-HOVER-CARD",
+      "P-SHADCN-HOVER-CARD-TRIGGER",
+      "P-SHADCN-HOVER-CARD-CONTENT"
+    ]
+  },
+  "prototype_ids": [
+    "P-SHADCN-BUTTON",
+    "P-SHADCN-TOGGLE",
+    "P-SHADCN-SWITCH",
+    "P-SHADCN-SWITCH-THUMB",
+    "P-SHADCN-CHECKBOX",
+    "P-SHADCN-CHECKBOX-INDICATOR",
+    "P-SHADCN-SEPARATOR",
+    "P-SHADCN-TEXTAREA",
+    "P-SHADCN-TABS",
+    "P-SHADCN-TABS-LIST",
+    "P-SHADCN-TABS-TRIGGER",
+    "P-SHADCN-TABS-CONTENT",
+    "P-SHADCN-SELECT",
+    "P-SHADCN-SELECT-TRIGGER",
+    "P-SHADCN-SELECT-VALUE",
+    "P-SHADCN-SELECT-CONTENT",
+    "P-SHADCN-SELECT-ITEM",
+    "P-SHADCN-DROPDOWN-MENU",
+    "P-SHADCN-DROPDOWN-MENU-TRIGGER",
+    "P-SHADCN-DROPDOWN-MENU-CONTENT",
+    "P-SHADCN-DROPDOWN-MENU-ITEM",
+    "P-SHADCN-DIALOG",
+    "P-SHADCN-DIALOG-TRIGGER",
+    "P-SHADCN-DIALOG-MASK",
+    "P-SHADCN-DIALOG-CONTENT",
+    "P-SHADCN-DIALOG-TITLE",
+    "P-SHADCN-DIALOG-DESCRIPTION",
+    "P-SHADCN-DIALOG-HEADER",
+    "P-SHADCN-DIALOG-FOOTER",
+    "P-SHADCN-DIALOG-CLOSE",
+    "P-SHADCN-HOVER-CARD",
+    "P-SHADCN-HOVER-CARD-TRIGGER",
+    "P-SHADCN-HOVER-CARD-CONTENT"
+  ],
+  "omissions": [
+    {
+      "id": "dialog_portal",
+      "status": "omitted",
+      "reason": "Dialog admission uses the MASK part; no Portal prototype is catalogued or projected."
+    },
+    {
+      "id": "dialog_overlay",
+      "status": "omitted",
+      "reason": "Overlay is a Rust-owned host lease, not a Dialog prototype; no Overlay prototype is catalogued or projected."
+    },
+    {
+      "id": "typed_hardware_state",
+      "status": "limited",
+      "reason": "Dashboard capability snapshots do not yet provide typed current values for mutable hardware controls."
+    },
+    {
+      "id": "typed_bios_read_modify_write",
+      "status": "omitted",
+      "reason": "BIOS confirmation stays unavailable until a typed read/modify/write request and readback contract exists."
+    },
+    {
+      "id": "linux_desktop_display_smoke",
+      "status": "omitted",
+      "reason": "The available Linux evidence is headless; no DISPLAY or WAYLAND_DISPLAY desktop run is recorded."
+    },
+    {
+      "id": "windows_gui_hardware_smoke",
+      "status": "omitted",
+      "reason": "Windows CI compilation/tests do not prove GUI rendering, AccessKit delivery, or hardware behavior."
+    }
+  ],
+  "uncataloged_capabilities": [
+    {
+      "prototype_id": "P-SHADCN-DIALOG-CLOSE-ICON",
+      "status": "registry_only_native_unproven",
+      "reason": "The governed registry exposes a CloseIcon entry, but ProtoDialogHost does not project it and no native evidence proves it; it is excluded from the canonical 33 IDs."
+    }
+  ],
+  "wire_policy": {
+    "rust_wire_is_data_only": true,
+    "allowed": "Typed protocol envelopes and bounded serde JSON primitives, arrays, and maps.",
+    "forbidden": [
+      "GPUI entities or elements",
+      "Rust closures or callbacks",
+      "QuickJS objects or functions",
+      "browser layout or paint APIs"
+    ],
+    "runtime_import_policy": "The bridge imports @proto.ui/runtime only from its public package root."
+  },
+  "evidence": {
+    "authority_tiers": {
+      "upstream_manifest": "Recorded source manifest and generated-bundle identity; authoritative for revisions and digests.",
+      "upstream_runtime": "Pinned Proto-UI Runtime/Vitest execution; authoritative for Web-shaped Runtime behavior only.",
+      "upstream_catalog": "Pinned prototype-catalog checker; authoritative for upstream declarations and registry accounting only.",
+      "upstream_types": "Pinned type/doc checks; authoritative for package type consistency only.",
+      "upstream_web_comparison": "Pinned web-conformance comparison; Web comparison evidence, explicitly not GPUI evidence.",
+      "upstream_portable_and_web_only": "Full upstream portable test suite (Runtime Vitest plus browser and catalog/release/types/style/component/agent checks); portable/Web-shaped evidence only, never native GPUI proof.",
+      "local_bundle_tool": "Sailbreak's Bun build/check tooling; authoritative for the checked-in bundle bytes only.",
+      "runtime_fake_host": "proto-ui-gpui Runtime, fake-host, and host-capability contract tests; not native GPUI proof.",
+      "host_capability": "Data-only focus, overlay, lifecycle, and projection capability contracts; not a rendered desktop proof.",
+      "native_gpui": "sailbreak-gui native projection and AccessKit/dogfood contracts; native API/type evidence without a display smoke.",
+      "desktop_smoke": "Not currently recorded; this tier requires an actual Linux or Windows display-session run.",
+      "windows_ci": "Windows CI compile/test evidence only; never GUI, AccessKit, or hardware proof by itself.",
+      "local_workspace": "Sailbreak Cargo contracts, checks, clippy, and release build at the recorded worktree; local build evidence, not desktop or hardware proof."
+    },
+    "paths": {
+      "upstream": [
+        "tools/proto-ui-bridge/upstream.json",
+        "tools/proto-ui-bridge/NOTICE"
+      ],
+      "runtime_fake_host": [
+        "crates/proto-ui-gpui/tests/protocol_contract.rs",
+        "crates/proto-ui-gpui/tests/quickjs_contract.rs",
+        "crates/proto-ui-gpui/tests/runtime_contract.rs",
+        "crates/proto-ui-gpui/tests/template_contract.rs",
+        "crates/proto-ui-gpui/tests/style_contract.rs",
+        "crates/proto-ui-gpui/tests/button_host_contract.rs",
+        "crates/proto-ui-gpui/tests/toggle_contract.rs",
+        "crates/proto-ui-gpui/tests/switch_contract.rs",
+        "crates/proto-ui-gpui/tests/checkbox_contract.rs",
+        "crates/proto-ui-gpui/tests/separator_contract.rs",
+        "crates/proto-ui-gpui/tests/textarea_contract.rs",
+        "crates/proto-ui-gpui/tests/tabs_contract.rs",
+        "crates/proto-ui-gpui/tests/select_contract.rs",
+        "crates/proto-ui-gpui/tests/dropdown_contract.rs",
+        "crates/proto-ui-gpui/tests/dialog_contract.rs",
+        "crates/proto-ui-gpui/tests/hover_card_contract.rs"
+      ],
+      "host_capability": [
+        "crates/proto-ui-gpui/src/protocol.rs",
+        "crates/proto-ui-gpui/src/focus.rs",
+        "crates/proto-ui-gpui/src/overlay.rs",
+        "crates/proto-ui-gpui/tests/protocol_contract.rs",
+        "crates/proto-ui-gpui/tests/overlay_contract.rs",
+        "crates/proto-ui-gpui/tests/runtime_contract.rs"
+      ],
+      "native_gpui": [
+        "crates/sailbreak-gui/src/proto_surface.rs",
+        "crates/sailbreak-gui/tests/accessibility_contract.rs",
+        "crates/sailbreak-gui/tests/dogfood_contract.rs"
+      ],
+      "desktop_smoke": [],
+      "windows_ci": [".github/workflows/ci.yml"]
+    },
+    "observations": {
+      "runtime_fake_host": {
+        "status": "contract_sources_present",
+        "result": "Component, protocol, template, style, Runtime, and stale/lifecycle contracts exercise decoded Runtime and fake-host paths."
+      },
+      "host_capability": {
+        "status": "contract_sources_present",
+        "result": "Focus, overlay, data-only ordering, stale rejection, and lease disposal are covered at the host-capability boundary."
+      },
+      "native_gpui": {
+        "status": "contract_sources_present_no_display_run",
+        "result": "proto_surface.rs plus AccessKit and dogfood contracts are the only native evidence; they do not establish visual desktop delivery."
+      },
+      "desktop_smoke": {
+        "status": "not_observed",
+        "result": "Linux remains headless until an actual DISPLAY or WAYLAND_DISPLAY run is recorded; no Windows GUI smoke is recorded."
+      },
+      "windows_ci": {
+        "status": "pending_run_url",
+        "run_url": null,
+        "result": "CI compilation/tests may establish build coverage but cannot establish GUI, AccessKit, or hardware behavior."
+      }
+    }
+  },
+  "canonical_runs": [
+    {
+      "command": "corepack pnpm@10.32.1 test",
+      "status": "passed",
+      "exit_code": 0,
+      "summary": "Runtime Vitest 351 files passed/3 skipped; 1591 tests passed/34 todo; browser 9 files/37 tests; plus catalog/release/types/style/component/agent checks; wall 259.40s.",
+      "authority": "upstream_portable_and_web_only",
+      "artifact": "full upstream portable test suite",
+      "hash": null,
+      "observed_at_commit": "8c6dadc00554ad89040a5f36eb2df56eb9ad3c17"
+    },
+    {
+      "command": "corepack pnpm@10.32.1 vitest run packages/spec/fixtures/test/adapter-profile-schema.test.ts packages/spec/graph/test/adapter-profile.test.ts packages/prototypes/shadcn/test/button.test.ts packages/prototypes/shadcn/test/toggle.test.ts packages/prototypes/shadcn/test/switch.test.ts packages/prototypes/shadcn/test/checkbox.test.ts packages/prototypes/shadcn/test/separator.test.ts packages/prototypes/shadcn/test/textarea.test.ts packages/prototypes/shadcn/test/tabs.test.ts packages/prototypes/shadcn/test/select.test.ts packages/prototypes/shadcn/test/dropdown.test.ts packages/prototypes/shadcn/test/dialog.test.ts packages/prototypes/shadcn/test/hover-card.test.ts",
+      "status": "passed",
+      "exit_code": 0,
+      "summary": "13 files / 55 tests passed at the exact pinned checkout.",
+      "authority": "upstream_runtime",
+      "artifact": "13-file Vitest result at the pinned checkout",
+      "hash": null,
+      "observed_at_commit": "8c6dadc00554ad89040a5f36eb2df56eb9ad3c17"
+    },
+    {
+      "command": "corepack pnpm@10.32.1 check:prototype-catalog",
+      "status": "passed",
+      "exit_code": 0,
+      "summary": "126 declarations / 174 static entries / 125 P entities / 0 debt / 1 dynamic factory.",
+      "authority": "upstream_catalog",
+      "artifact": "prototype-catalog checker output",
+      "hash": null,
+      "observed_at_commit": "8c6dadc00554ad89040a5f36eb2df56eb9ad3c17"
+    },
+    {
+      "command": "corepack pnpm@10.32.1 check:types",
+      "status": "passed",
+      "exit_code": 0,
+      "summary": "179 docs files / 0 errors / 0 warnings / 0 hints; workspace type pass.",
+      "authority": "upstream_types",
+      "artifact": "type-check output",
+      "hash": null,
+      "observed_at_commit": "8c6dadc00554ad89040a5f36eb2df56eb9ad3c17"
+    },
+    {
+      "command": "corepack pnpm@10.32.1 test:web-conformance",
+      "status": "passed",
+      "exit_code": 0,
+      "summary": "3 files / 12 tests passed; authority is web_comparison_not_gpui.",
+      "authority": "upstream_web_comparison",
+      "artifact": "web-conformance comparison output",
+      "hash": null,
+      "observed_at_commit": "8c6dadc00554ad89040a5f36eb2df56eb9ad3c17"
+    },
+    {
+      "command": "bun install --frozen-lockfile --no-progress",
+      "status": "passed",
+      "exit_code": 0,
+      "summary": "Bun 1.4.0 install passed for the dependency-free bridge package; no bun.lock is present.",
+      "authority": "local_bundle_tool",
+      "artifact": "tools/proto-ui-bridge",
+      "hash": null,
+      "observed_at_commit": "8c6dadc00554ad89040a5f36eb2df56eb9ad3c17"
+    },
+    {
+      "command": "bun run bundle:check",
+      "status": "passed",
+      "exit_code": 0,
+      "summary": "Generated bridge bytes match the recorded bundle digest.",
+      "authority": "local_bundle_tool",
+      "artifact": "crates/proto-ui-gpui/assets/proto-ui-bridge.js",
+      "hash": "sha256:e7cbcc7e45037c7e71117a1adc93bc075fc7cb7b404621d67c70093d353d26d0",
+      "observed_at_commit": "8c6dadc00554ad89040a5f36eb2df56eb9ad3c17"
+    },
+    {
+      "command": "cargo test --offline -p proto-ui-gpui --test conformance_contract",
+      "status": "passed",
+      "exit_code": 0,
+      "summary": "13 Task 17 profile, authority-boundary, manifest-linkage, and negative-guard contracts passed.",
+      "authority": "local_workspace",
+      "artifact": "docs/proto-ui-gpui-profile.json and crates/proto-ui-gpui/tests/conformance_contract.rs",
+      "hash": null,
+      "observed_at_source": "Task 17 worktree based on Sailbreak 105503b"
+    },
+    {
+      "command": "cargo fmt --all -- --check && cargo check --locked --workspace --all-targets && cargo test --locked --workspace && cargo clippy --locked --workspace --all-targets -- -D warnings && cargo build --locked --release --workspace",
+      "status": "passed",
+      "exit_code": 0,
+      "summary": "Formatting and workspace check passed; 417 tests in 69 suites passed; clippy -D warnings passed; release workspace build passed; wall 255.45s.",
+      "authority": "local_workspace",
+      "artifact": "Sailbreak debug checks/tests and release workspace binaries",
+      "hash": null,
+      "observed_at_source": "Task 17 worktree based on Sailbreak 105503b"
+    }
+  ],
+  "matrix": [
+    {
+      "id": "identity",
+      "status": "verified_local",
+      "authority": "upstream_manifest",
+      "implementation": "upstream.json identity is consumed by QuickJsBridge and linked to the embedded bundle digest.",
+      "test": [
+        "crates/proto-ui-gpui/tests/quickjs_contract.rs",
+        "crates/proto-ui-gpui/tests/protocol_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "The source is an unreleased Proto-UI main snapshot; this identity does not imply official Adapter conformance."
+    },
+    {
+      "id": "props",
+      "status": "limited",
+      "authority": "runtime_fake_host",
+      "implementation": "Family hosts serialize props into the pinned Runtime and project typed snapshots for all eleven families.",
+      "test": [
+        "crates/proto-ui-gpui/tests/button_host_contract.rs",
+        "crates/proto-ui-gpui/tests/toggle_contract.rs",
+        "crates/proto-ui-gpui/tests/switch_contract.rs",
+        "crates/proto-ui-gpui/tests/checkbox_contract.rs",
+        "crates/proto-ui-gpui/tests/separator_contract.rs",
+        "crates/proto-ui-gpui/tests/textarea_contract.rs",
+        "crates/proto-ui-gpui/tests/tabs_contract.rs",
+        "crates/proto-ui-gpui/tests/select_contract.rs",
+        "crates/proto-ui-gpui/tests/dropdown_contract.rs",
+        "crates/proto-ui-gpui/tests/dialog_contract.rs",
+        "crates/proto-ui-gpui/tests/hover_card_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "Runtime/fake-host coverage is not native proof; facade snapshots retain acknowledged props/default fallbacks when Runtime state is absent."
+    },
+    {
+      "id": "state",
+      "status": "limited",
+      "authority": "runtime_fake_host",
+      "implementation": "Runtime state and exposed values are decoded into family snapshots and native intent.",
+      "test": [
+        "crates/proto-ui-gpui/tests/toggle_contract.rs",
+        "crates/proto-ui-gpui/tests/switch_contract.rs",
+        "crates/proto-ui-gpui/tests/checkbox_contract.rs",
+        "crates/proto-ui-gpui/tests/tabs_contract.rs",
+        "crates/proto-ui-gpui/tests/select_contract.rs",
+        "crates/proto-ui-gpui/tests/dropdown_contract.rs",
+        "crates/proto-ui-gpui/tests/dialog_contract.rs",
+        "crates/proto-ui-gpui/tests/hover_card_contract.rs",
+        "crates/proto-ui-gpui/tests/textarea_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "State remains limited: the listed component facades fall back to props/defaults for missing Runtime values, and no display-session evidence proves native state delivery."
+    },
+    {
+      "id": "expose",
+      "status": "limited",
+      "authority": "runtime_fake_host",
+      "implementation": "Exposed Runtime state maps are retained in data-only SessionSnapshot values and consumed by family hosts.",
+      "test": [
+        "crates/proto-ui-gpui/tests/quickjs_contract.rs",
+        "crates/proto-ui-gpui/tests/runtime_contract.rs",
+        "crates/proto-ui-gpui/tests/textarea_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "Expose/state assertions are Runtime/fake-host proof only; facade fallback paths are acknowledged rather than treated as native semantic truth."
+    },
+    {
+      "id": "event",
+      "status": "limited",
+      "authority": "runtime_fake_host",
+      "implementation": "Native input facts are normalized into data-only Runtime commands and semantic signals are counted once.",
+      "test": [
+        "crates/proto-ui-gpui/tests/protocol_contract.rs",
+        "crates/proto-ui-gpui/tests/quickjs_contract.rs",
+        "crates/sailbreak-gui/tests/dogfood_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "Exact-once fake-host and source-level native wiring do not prove an actual desktop event loop; semantic fallback limitations remain enumerated."
+    },
+    {
+      "id": "focus",
+      "status": "limited",
+      "authority": "host_capability",
+      "implementation": "FocusRegistry and proto_surface focus subscriptions translate opaque focus targets and input sources.",
+      "test": [
+        "crates/proto-ui-gpui/tests/runtime_contract.rs",
+        "crates/proto-ui-gpui/tests/tabs_contract.rs",
+        "crates/sailbreak-gui/tests/dogfood_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "Focus readiness and routing are host-capability contracts; no actual display smoke proves native focus delivery."
+    },
+    {
+      "id": "template",
+      "status": "limited",
+      "authority": "runtime_fake_host",
+      "implementation": "TemplateSnapshot carries anonymous containers/text, semantic IDs, and replacement pruning through the data-only dialect.",
+      "test": [
+        "crates/proto-ui-gpui/tests/template_contract.rs",
+        "crates/proto-ui-gpui/tests/quickjs_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "Template round-trip is fake-host evidence; native projection is not visually verified without a desktop run."
+    },
+    {
+      "id": "slot",
+      "status": "limited",
+      "authority": "host_capability",
+      "implementation": "SlotProjection preserves accessible content alternatives while native callers attach caller-owned Slot subtrees.",
+      "test": [
+        "crates/proto-ui-gpui/tests/template_contract.rs",
+        "crates/proto-ui-gpui/tests/hover_card_contract.rs",
+        "crates/sailbreak-gui/tests/dogfood_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "Slot data and host composition are contract evidence; visual/native child layout remains unproven in the headless environment."
+    },
+    {
+      "id": "style",
+      "status": "limited",
+      "authority": "runtime_fake_host",
+      "implementation": "Shadcn semantic tokens are translated into NativeStyle with named unsupported-token diagnostics.",
+      "test": [
+        "crates/proto-ui-gpui/tests/style_contract.rs",
+        "crates/proto-ui-gpui/tests/button_host_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "Translator tests do not establish pixel parity or native visual delivery; unsupported tokens remain diagnostics rather than hidden fallbacks."
+    },
+    {
+      "id": "svg",
+      "status": "limited",
+      "authority": "runtime_fake_host",
+      "implementation": "SVG nodes and attributes are represented in TemplateNode and projected as data for native rendering.",
+      "test": [
+        "crates/proto-ui-gpui/tests/template_contract.rs",
+        "crates/proto-ui-gpui/tests/checkbox_contract.rs",
+        "crates/proto-ui-gpui/tests/select_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "SVG structure is round-tripped and consumed by host code, but no display smoke proves its native paint result."
+    },
+    {
+      "id": "a11y",
+      "status": "limited",
+      "authority": "native_gpui",
+      "implementation": "A11ySnapshot intent is projected by proto_surface and project_a11y into the pinned GPUI AccessKit surface.",
+      "test": [
+        "crates/sailbreak-gui/tests/accessibility_contract.rs",
+        "crates/sailbreak-gui/tests/dogfood_contract.rs",
+        "crates/proto-ui-gpui/tests/dialog_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "AccessKit contracts and native source are not an actual desktop accessibility tree observation; state fallback paths also limit semantic certainty."
+    },
+    {
+      "id": "overlay",
+      "status": "limited",
+      "authority": "host_capability",
+      "implementation": "Rust-owned OverlayHost leases positioning, layer order, dismissal, presence, and stale revision checks for Select, Dropdown, Dialog, and Hover Card.",
+      "test": [
+        "crates/proto-ui-gpui/tests/overlay_contract.rs",
+        "crates/proto-ui-gpui/tests/select_contract.rs",
+        "crates/proto-ui-gpui/tests/dropdown_contract.rs",
+        "crates/proto-ui-gpui/tests/dialog_contract.rs",
+        "crates/proto-ui-gpui/tests/hover_card_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "Overlay leases and geometry are host-capability evidence; actual native stacking and placement are not display-smoke verified."
+    },
+    {
+      "id": "lifecycle",
+      "status": "limited",
+      "authority": "runtime_fake_host",
+      "implementation": "Session, family graph, overlay lease, and text-control lifecycles dispose through explicit terminal paths.",
+      "test": [
+        "crates/proto-ui-gpui/tests/runtime_contract.rs",
+        "crates/proto-ui-gpui/tests/select_contract.rs",
+        "crates/proto-ui-gpui/tests/dialog_contract.rs",
+        "crates/proto-ui-gpui/tests/hover_card_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "Lifecycle tests prove data/lease cleanup in fake hosts; they do not prove cleanup after a real native window teardown."
+    },
+    {
+      "id": "remount",
+      "status": "limited",
+      "authority": "runtime_fake_host",
+      "implementation": "Remount advances view epochs and reprojects family graphs without reusing stale native leases.",
+      "test": [
+        "crates/proto-ui-gpui/tests/runtime_contract.rs",
+        "crates/proto-ui-gpui/tests/switch_contract.rs",
+        "crates/proto-ui-gpui/tests/checkbox_contract.rs",
+        "crates/proto-ui-gpui/tests/tabs_contract.rs",
+        "crates/proto-ui-gpui/tests/select_contract.rs",
+        "crates/proto-ui-gpui/tests/dialog_contract.rs",
+        "crates/proto-ui-gpui/tests/hover_card_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "Epoch behavior is locally verified at the Runtime/host boundary; no desktop remount smoke is recorded."
+    },
+    {
+      "id": "stale_rejection",
+      "status": "verified_local",
+      "authority": "host_capability",
+      "implementation": "Session epochs, route references, commit IDs, overlay revisions, and sequences reject stale input before semantic dispatch.",
+      "test": [
+        "crates/proto-ui-gpui/tests/protocol_contract.rs",
+        "crates/proto-ui-gpui/tests/runtime_contract.rs",
+        "crates/proto-ui-gpui/tests/overlay_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "The rejection invariant is data-only/host-capability evidence and is not a claim about unobserved native hardware behavior."
+    },
+    {
+      "id": "dispose",
+      "status": "verified_local",
+      "authority": "runtime_fake_host",
+      "implementation": "Dispose is terminal and idempotent across sessions, family members, text controls, and overlay leases.",
+      "test": [
+        "crates/proto-ui-gpui/tests/runtime_contract.rs",
+        "crates/proto-ui-gpui/tests/dropdown_contract.rs",
+        "crates/proto-ui-gpui/tests/dialog_contract.rs",
+        "crates/proto-ui-gpui/tests/hover_card_contract.rs"
+      ],
+      "platform": ["linux", "windows"],
+      "limitation": "Terminal cleanup is locally exercised without a real display teardown or cross-process host restart."
+    },
+    {
+      "id": "linux",
+      "status": "limited",
+      "authority": "desktop_smoke",
+      "implementation": "Linux dashboard composition and display gating are implemented in sailbreak-gui with the same Proto family projections.",
+      "test": [
+        "crates/sailbreak-gui/src/lib.rs",
+        "crates/sailbreak-gui/tests/dogfood_contract.rs"
+      ],
+      "platform": ["linux"],
+      "limitation": "Current Linux evidence is headless only: run returns the display-channel error until DISPLAY or WAYLAND_DISPLAY is available; no visual desktop smoke is claimed."
+    },
+    {
+      "id": "windows",
+      "status": "limited",
+      "authority": "windows_ci",
+      "implementation": "The workspace and GUI sources are covered by the Windows CI build/test path.",
+      "test": [".github/workflows/ci.yml"],
+      "platform": ["windows"],
+      "limitation": "Windows CI compilation/tests are not GUI, AccessKit, display, or hardware proof; no Windows desktop smoke is recorded."
+    }
+  ],
+  "limitations": {
+    "semantic_fallback_paths": [
+      "crates/proto-ui-gpui/src/button_host.rs",
+      "crates/proto-ui-gpui/src/components/toggle.rs",
+      "crates/proto-ui-gpui/src/components/switch.rs",
+      "crates/proto-ui-gpui/src/components/checkbox.rs",
+      "crates/proto-ui-gpui/src/components/separator.rs",
+      "crates/proto-ui-gpui/src/components/textarea.rs",
+      "crates/proto-ui-gpui/src/components/tabs.rs",
+      "crates/proto-ui-gpui/src/components/select.rs",
+      "crates/proto-ui-gpui/src/components/dropdown.rs",
+      "crates/proto-ui-gpui/src/components/dialog.rs",
+      "crates/proto-ui-gpui/src/components/hover_card.rs"
+    ],
+    "semantic_fallback_policy": "These facades use props/default fallbacks only when the corresponding Runtime state value is absent. The fallback paths are acknowledged limitations; they are not evidence that Runtime state or native semantic state is complete.",
+    "native_evidence_boundary": "Native proof is limited to sailbreak-gui proto_surface.rs plus AccessKit/dogfood contracts and an actual display smoke. proto-ui-gpui tests alone are Runtime/fake-host/host-capability proof.",
+    "linux": "Headless only until an actual display session supplies visual and accessibility evidence.",
+    "windows": "CI compilation/tests do not prove GUI, AccessKit, or hardware behavior.",
+    "upstream_admission": "Any external contribution is HAL-free and maintainer-gated; no official Proto-UI GPUI Adapter claim exists before upstream review and complete native evidence."
+  },
+  "upstream_slices": [
+    {
+      "id": "host_neutral_protocol_and_leases",
+      "scope": "Bounded data-only protocol envelopes, identity/epoch validation, projection ACKs, and lease shapes.",
+      "hal_free": true,
+      "sailbreak_hardware_code": false,
+      "admission_gate": "Proto-UI maintainer review; preserve transport-neutral semantics."
+    },
+    {
+      "id": "gpui_host_capability_and_lifecycle",
+      "scope": "GPUI host capability realization, focus/overlay lifecycle, stale rejection, disposal, and reviewed AccessKit ports.",
+      "hal_free": true,
+      "sailbreak_hardware_code": false,
+      "admission_gate": "Maintainer review plus native GPUI evidence at an admitted revision."
+    },
+    {
+      "id": "template_slot_style_svg_translation",
+      "scope": "Generic Template, Slot, SVG, style-token, and unsupported-capability translation independent of Sailbreak UI.",
+      "hal_free": true,
+      "sailbreak_hardware_code": false,
+      "admission_gate": "Schema and projection review; no visual parity claim without the upstream evidence gate."
+    },
+    {
+      "id": "shadcn_adapter_family_slices",
+      "scope": "One Adapter-profile pull request per Shadcn family, with copied public semantics separated from original Rust host translation.",
+      "hal_free": true,
+      "sailbreak_hardware_code": false,
+      "admission_gate": "Maintainer admission for the exact Proto-UI HEAD and declared profile; registry presence alone is insufficient."
+    },
+    {
+      "id": "profile_metadata_and_evidence",
+      "scope": "Versioned profile metadata, omission/uncataloged declarations, authority-tiered evidence, and reproducible source/bundle identity.",
+      "hal_free": true,
+      "sailbreak_hardware_code": false,
+      "admission_gate": "Maintainer review; web comparison and dogfood evidence must not be presented as official GPUI conformance."
+    }
+  ]
+}

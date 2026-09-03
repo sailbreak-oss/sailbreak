@@ -1,8 +1,6 @@
 # Proto-UI GPUI Full Dogfood Design
 
-## Status
-
-Proposed design; the Proto-UI main-snapshot baseline and no-runtime-Node/Bun constraint are confirmed. The first Button slice is already merged into Sailbreak `main`; this document governs the remaining component and host work.
+**Final conformance status:** the full eleven-family dogfood is implemented on `work/proto-ui-full-dogfood`, and the versioned independent-dogfood profile ([`docs/proto-ui-gpui-profile.json`](../../proto-ui-gpui-profile.json), schema v1, `independent_dogfood`/`limited`, `official_proto_ui_adapter_claim: false`) records the observed result. `crates/proto-ui-gpui/tests/conformance_contract.rs` enforces the exact manifest linkage, the 18-row matrix, the 11-family/33-prototype admission sets, the authority-tiered evidence boundary, and the negative source guards.
 
 ## Goal
 
@@ -226,17 +224,28 @@ Required evidence layers:
 - actual desktop smoke tests on the available host;
 - no claim that a fake host proves a native capability.
 
-## Upstream contribution boundary
+Sailbreak remains the independent dogfood consumer. The versioned profile records the five external HAL-free candidate slices, each maintainer-gated and without Sailbreak hardware code:
 
-Sailbreak remains the independent dogfood consumer. Upstream contributions are prepared only after the corresponding slice has real evidence and no Sailbreak hardware-specific code:
-
-1. host-neutral protocol and capability shapes;
-2. GPUI host realization and lifecycle rules;
-3. generic Template/style/a11y translation;
-4. one Adapter-profile component slice per pull request;
-5. profile metadata and conformance evidence.
+1. **Host-neutral protocol and leases** — bounded data-only protocol envelopes, identity/epoch validation, projection ACKs, and lease shapes.
+2. **GPUI host capability and lifecycle** — GPUI host realization, focus/overlay lifecycle, stale rejection, disposal, and reviewed AccessKit ports.
+3. **Template/Slot/Style/SVG translation** — generic Template, Slot, SVG, style-token, and unsupported-capability translation independent of Sailbreak UI.
+4. **One Shadcn Adapter family per pull request** — one Adapter-profile component slice at a time, with copied public API semantics separated from original Rust host translation.
+5. **Profile metadata and evidence** — versioned profile metadata, omission/uncataloged declarations, authority-tiered evidence, and reproducible source/bundle identity.
 
 The first upstream contribution must explicitly disclose that Sailbreak dogfooded the implementation and must distinguish copied public API semantics from original Rust host translation. No official Proto-UI GPUI Adapter claim is made before upstream review and the complete native evidence for the declared profile.
+
+### Final observed evidence boundary
+
+The profile matrix records the observed status of every row. Key limitations remain:
+
+- Linux is `limited`/`desktop_smoke`: the available evidence is headless; an actual `DISPLAY` or `WAYLAND_DISPLAY` run has not been recorded.
+- Windows is `limited`/`windows_ci`: CI compilation/tests are not GUI, AccessKit, or hardware proof.
+- Props, state, expose, and event rows are `limited`/`runtime_fake_host`: the eleven family facades acknowledge props/default fallback paths (enumerated in the profile's `semantic_fallback_paths`) rather than claiming complete Runtime state delivery.
+- A11y is `limited`/`native_gpui`: AccessKit contracts and native source are not an actual desktop accessibility tree observation.
+- Desktop smoke paths are empty; a future display-session run is required before any `desktop_smoke` claim.
+
+Upstream admission is maintainer-gated: web comparison and dogfood evidence must not be presented as official GPUI conformance.
+
 
 ## Risks and explicit non-goals
 
