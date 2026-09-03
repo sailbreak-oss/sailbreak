@@ -17,13 +17,15 @@ use proto_ui_gpui::{
     DialogDispatchOutcome, DialogFooterProps, DialogHeaderProps, DialogMaskProps, DialogRootProps,
     DialogSnapshot, DialogTitleProps, DialogTriggerProps, DispatchOutcome, DropdownContentProps,
     DropdownDispatchOutcome, DropdownItemProps, DropdownRootProps, DropdownSnapshot,
-    DropdownTriggerProps, FocusOperationResult, InputKind, InputSource, ProtoButtonHost,
-    ProtoButtonState, ProtoDialogHost, ProtoDropdownHost, ProtoSelectHost, ProtoSelectSnapshot,
-    ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoTabsHost, ProtoTextareaHost,
-    ProtoTextareaSnapshot, ProtoToggleHost, ProtoToggleSnapshot, SelectContentProps,
-    SelectDispatchOutcome, SelectItemProps, SelectRootProps, SelectTriggerProps, SelectValueProps,
-    SeparatorProps, ShadcnButtonSize, ShadcnButtonVariant, TabsActivationMode, TabsContentProps,
-    TabsListProps, TabsOrientation, TabsRootProps, TabsSnapshot, TabsTriggerProps, TextareaProps,
+    DropdownTriggerProps, FocusOperationResult, HoverCardContentProps, HoverCardDispatchOutcome,
+    HoverCardRootProps, HoverCardSnapshot, HoverCardTriggerProps, InputKind, InputSource,
+    OverlayRect, ProtoButtonHost, ProtoButtonState, ProtoDialogHost, ProtoDropdownHost,
+    ProtoHoverCardHost, ProtoSelectHost, ProtoSelectSnapshot, ProtoSeparatorHost,
+    ProtoSeparatorSnapshot, ProtoTabsHost, ProtoTextareaHost, ProtoTextareaSnapshot,
+    ProtoToggleHost, ProtoToggleSnapshot, SelectContentProps, SelectDispatchOutcome,
+    SelectItemProps, SelectRootProps, SelectTriggerProps, SelectValueProps, SeparatorProps,
+    ShadcnButtonSize, ShadcnButtonVariant, TabsActivationMode, TabsContentProps, TabsListProps,
+    TabsOrientation, TabsRootProps, TabsSnapshot, TabsTriggerProps, TextareaProps,
     ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
 };
 
@@ -32,8 +34,9 @@ pub use proto_surface::{
     AccessibleProjection, dialog_close_element, dialog_content_element, dialog_description_element,
     dialog_footer_element, dialog_header_element, dialog_mask_element, dialog_title_element,
     dialog_trigger_element, dropdown_content_element, dropdown_item_element,
-    dropdown_trigger_element, overlay_surface_element, project_a11y, select_content_element,
-    select_item_element, select_value_element,
+    dropdown_trigger_element, hover_card_content_element, hover_card_trigger_element,
+    overlay_surface_element, project_a11y, select_content_element, select_item_element,
+    select_value_element,
 };
 
 // Palette tokens: a cool instrument-panel base, with one signal color and one
@@ -349,6 +352,14 @@ const SYSTEM_ACTION_SPECS: [DropdownActionSpec; 3] = [
     },
 ];
 
+fn capability_available(capabilities: &CapabilitySet, capability: Option<&str>) -> bool {
+    capability.is_none_or(|id| {
+        capabilities
+            .get(id)
+            .is_some_and(|entry| entry.availability != Availability::Unavailable)
+    })
+}
+
 fn unavailable_select_root_props() -> SelectRootProps {
     SelectRootProps {
         disabled: true,
@@ -375,10 +386,18 @@ fn performance_preview_props(active: bool) -> ToggleProps {
     }
 }
 
+type HoverCardRegistry = (
+    BTreeMap<String, ProtoHoverCardHost>,
+    BTreeMap<String, HoverCardSnapshot>,
+);
+
 struct ProtoUiState {
     host: Option<ProtoButtonHost>,
     toggle_host: Option<ProtoToggleHost>,
     separator_host: Option<ProtoSeparatorHost>,
+    hover_card_hosts: BTreeMap<String, ProtoHoverCardHost>,
+    hover_card_snapshots: BTreeMap<String, HoverCardSnapshot>,
+    hover_card_error: Option<String>,
     textarea_host: Option<ProtoTextareaHost>,
     textarea_snapshot: Option<ProtoTextareaSnapshot>,
     textarea_error: Option<String>,
@@ -415,6 +434,9 @@ impl ProtoUiState {
                     host: None,
                     toggle_host: None,
                     separator_host: None,
+                    hover_card_hosts: BTreeMap::new(),
+                    hover_card_snapshots: BTreeMap::new(),
+                    hover_card_error: None,
                     textarea_host: None,
                     textarea_snapshot: None,
                     textarea_error: None,
@@ -481,10 +503,18 @@ impl ProtoUiState {
                 Ok((host, snapshot)) => (Some(host), Some(snapshot), None),
                 Err(error) => (None, None, Some(error.to_string())),
             };
+        let (hover_card_hosts, hover_card_snapshots, hover_card_error) =
+            match Self::build_hover_card(capabilities) {
+                Ok((hosts, snapshots)) => (hosts, snapshots, None),
+                Err(error) => (BTreeMap::new(), BTreeMap::new(), Some(error.to_string())),
+            };
         Self {
             host: Some(host),
             toggle_host: Some(toggle_host),
             separator_host: Some(separator_host),
+            hover_card_hosts,
+            hover_card_snapshots,
+            hover_card_error,
             textarea_host,
             textarea_snapshot,
             textarea_error,
@@ -1015,6 +1045,44 @@ impl ProtoUiState {
         Ok((host, snapshot))
     }
 
+    fn build_hover_card(
+        capabilities: &CapabilitySet,
+    ) -> std::result::Result<HoverCardRegistry, BridgeError> {
+        if capabilities.features.is_empty() {
+            return Err(BridgeError::InvalidIdentity {
+                kind: "hover card graph requires a capability detail".to_owned(),
+            });
+        }
+        let mut hosts = BTreeMap::new();
+        let mut snapshots = BTreeMap::new();
+        for (feature, capability) in &capabilities.features {
+            let mut host = ProtoHoverCardHost::new()?;
+            let root = format!("hover-card:{feature}");
+            host.register_root(
+                root.clone(),
+                feature.clone(),
+                HoverCardRootProps::default().with_delays(400, 200),
+            )?;
+            host.register_trigger(
+                format!("{root}-trigger"),
+                &root,
+                HoverCardTriggerProps::default(),
+            )?;
+            let accessible = capability_detail_accessibility(capability);
+            host.register_content_with_slot(
+                format!("{root}-content"),
+                &root,
+                accessible,
+                HoverCardContentProps::default(),
+            )?;
+            host.setup()?;
+            let snapshot = host.snapshot()?;
+            hosts.insert(feature.clone(), host);
+            snapshots.insert(feature.clone(), snapshot);
+        }
+        Ok((hosts, snapshots))
+    }
+
     fn build_textarea()
     -> std::result::Result<(ProtoTextareaHost, ProtoTextareaSnapshot), BridgeError> {
         let mut textarea_host = ProtoTextareaHost::new()?;
@@ -1523,6 +1591,144 @@ impl ProtoUiState {
         Ok(outcome)
     }
 
+    fn hover_card_trigger_id(&self, feature: &str) -> String {
+        format!("hover-card:{feature}-trigger")
+    }
+
+    fn hover_card_content_id(&self, feature: &str) -> String {
+        format!("hover-card:{feature}-content")
+    }
+
+    fn hover_card_snapshot_for(&self, feature: &str) -> Option<&HoverCardSnapshot> {
+        self.hover_card_snapshots.get(feature)
+    }
+
+    fn dispatch_hover_card(
+        &mut self,
+        feature: &str,
+        kind: InputKind,
+        source: InputSource,
+    ) -> std::result::Result<HoverCardDispatchOutcome, BridgeError> {
+        let unavailable = self.hover_card_unavailable_error();
+        let trigger_id = self.hover_card_trigger_id(feature);
+        let Some(host) = self.hover_card_hosts.get_mut(feature) else {
+            return Err(unavailable);
+        };
+        let outcome = host.dispatch(&trigger_id, kind, source, None)?;
+        self.refresh_hover_card(feature)?;
+        Ok(outcome)
+    }
+
+    fn set_hover_card_geometry(
+        &mut self,
+        feature: &str,
+        anchor_rect: OverlayRect,
+        floating_size: (f32, f32),
+        viewport: OverlayRect,
+    ) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.hover_card_unavailable_error();
+        let Some(host) = self.hover_card_hosts.get_mut(feature) else {
+            return Err(unavailable);
+        };
+        host.set_anchor_geometry(anchor_rect, floating_size, viewport)?;
+        self.hover_card_snapshots
+            .insert(feature.to_owned(), host.snapshot()?);
+        Ok(())
+    }
+
+    fn advance_all_hover_cards(
+        &mut self,
+        milliseconds: u64,
+    ) -> std::result::Result<(), BridgeError> {
+        if milliseconds == 0 {
+            return Ok(());
+        }
+        let features: Vec<String> = self.hover_card_hosts.keys().cloned().collect();
+        for feature in features {
+            let unavailable = self.hover_card_unavailable_error();
+            let Some(host) = self.hover_card_hosts.get_mut(&feature) else {
+                return Err(unavailable);
+            };
+            host.advance_time(milliseconds)?;
+            self.hover_card_snapshots.insert(feature, host.snapshot()?);
+        }
+        Ok(())
+    }
+
+    fn set_hover_focus_ready(
+        &mut self,
+        feature: &str,
+        ready: bool,
+    ) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.hover_card_unavailable_error();
+        let trigger_id = self.hover_card_trigger_id(feature);
+        let Some(host) = self.hover_card_hosts.get_mut(feature) else {
+            return Err(unavailable);
+        };
+        host.set_focus_ready(&trigger_id, ready)
+    }
+
+    fn focus_hover_card(
+        &mut self,
+        feature: &str,
+        source: InputSource,
+    ) -> std::result::Result<FocusOperationResult, BridgeError> {
+        let unavailable = self.hover_card_unavailable_error();
+        let trigger_id = self.hover_card_trigger_id(feature);
+        let Some(host) = self.hover_card_hosts.get_mut(feature) else {
+            return Err(unavailable);
+        };
+        let result = host.focus_with_source(&trigger_id, source)?;
+        self.refresh_hover_card(feature)?;
+        Ok(result)
+    }
+
+    fn blur_hover_card(&mut self, feature: &str) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.hover_card_unavailable_error();
+        let trigger_id = self.hover_card_trigger_id(feature);
+        let Some(host) = self.hover_card_hosts.get_mut(feature) else {
+            return Err(unavailable);
+        };
+        host.blur(&trigger_id, InputSource::Programmatic)?;
+        self.refresh_hover_card(feature)
+    }
+
+    /// Any capability card currently interacting (Proto-owned hover/focus
+    /// facts). The GUI frame pump advances the virtual clock only while at
+    /// least one card is interacting, so the bridge delays evaluate against
+    /// real time without any Rust semantic timer or show/hide state.
+    fn hover_interacting(&self) -> bool {
+        self.hover_card_snapshots.values().any(|snapshot| {
+            snapshot
+                .trigger
+                .as_ref()
+                .is_some_and(|trigger| trigger.hovered || trigger.focused)
+                || snapshot
+                    .content
+                    .as_ref()
+                    .is_some_and(|content| content.open || content.present)
+        })
+    }
+
+    fn hover_card_unavailable_error(&self) -> BridgeError {
+        BridgeError::Runtime {
+            detail: self
+                .hover_card_error
+                .clone()
+                .unwrap_or_else(|| "Proto UI Hover Card host is unavailable".to_owned()),
+        }
+    }
+
+    fn refresh_hover_card(&mut self, feature: &str) -> std::result::Result<(), BridgeError> {
+        let unavailable = self.hover_card_unavailable_error();
+        let Some(host) = self.hover_card_hosts.get_mut(feature) else {
+            return Err(unavailable);
+        };
+        self.hover_card_snapshots
+            .insert(feature.to_owned(), host.snapshot()?);
+        Ok(())
+    }
+
     fn dispatch(
         &mut self,
         id: &str,
@@ -1618,10 +1824,21 @@ const POWER_SCHEMES_COMMAND: &[&str] = &["power", "scheme", "list"];
 const DIAGNOSTICS_COMMAND: &[&str] = &["scan", "list"];
 const MAGICBAY_COMMAND: &[&str] = &["magicbay", "detect"];
 
-fn capability_available(capabilities: &CapabilitySet, feature: Option<&str>) -> bool {
-    feature
-        .and_then(|id| capabilities.get(id))
-        .is_none_or(|capability| capability.availability != Availability::Unavailable)
+fn capability_detail_accessibility(capability: &lctrl_core::Capability) -> String {
+    match capability.availability {
+        Availability::Available => capability
+            .detail
+            .clone()
+            .unwrap_or_else(|| "Capability is available on this platform".to_owned()),
+        Availability::Limited => capability
+            .detail
+            .clone()
+            .unwrap_or_else(|| "Capability is limited on this platform".to_owned()),
+        Availability::Unavailable => capability
+            .detail
+            .clone()
+            .unwrap_or_else(|| "Capability is unavailable on this platform".to_owned()),
+    }
 }
 
 const SECTION_NAMES: [(&str, &str); 7] = [
@@ -2632,6 +2849,9 @@ pub struct Dashboard {
     dropdown_focus_subscriptions: Vec<Subscription>,
     dialog_focus_handles: BTreeMap<&'static str, FocusHandle>,
     dialog_focus_subscriptions: Vec<Subscription>,
+    hover_card_focus_handles: BTreeMap<String, FocusHandle>,
+    hover_card_focus_subscriptions: Vec<Subscription>,
+    hover_clock_last: Option<std::time::Instant>,
 }
 
 impl Dashboard {
@@ -2669,6 +2889,9 @@ impl Dashboard {
             dropdown_focus_subscriptions: Vec::new(),
             dialog_focus_handles: BTreeMap::new(),
             dialog_focus_subscriptions: Vec::new(),
+            hover_card_focus_handles: BTreeMap::new(),
+            hover_card_focus_subscriptions: Vec::new(),
+            hover_clock_last: None,
         }
     }
 
@@ -2779,6 +3002,119 @@ impl Dashboard {
             self.dialog_focus_handles.insert(id, handle);
             self.dialog_focus_subscriptions.push(focus_subscription);
             self.dialog_focus_subscriptions.push(blur_subscription);
+        }
+    }
+
+    fn ensure_hover_card_focus_handles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.proto.hover_card_error.is_some() {
+            return;
+        }
+        let features: Vec<String> = self
+            .snapshot
+            .capabilities
+            .features
+            .keys()
+            .cloned()
+            .collect();
+        for feature in features {
+            if self.hover_card_focus_handles.contains_key(&feature) {
+                continue;
+            }
+            let handle = cx.focus_handle();
+            let focus_feature = feature.clone();
+            let focus_subscription = cx.on_focus(&handle, window, move |this, window, cx| {
+                let source = if window.last_input_was_keyboard() {
+                    InputSource::Keyboard
+                } else {
+                    InputSource::Mouse
+                };
+                this.handle_hover_focus(&focus_feature, source);
+                cx.notify();
+            });
+            let blur_feature = feature.clone();
+            let blur_subscription = cx.on_blur(&handle, window, move |this, _, cx| {
+                this.handle_hover_blur(&blur_feature);
+                cx.notify();
+            });
+            if let Err(error) = self.proto.set_hover_focus_ready(&feature, true) {
+                self.snapshot.status_message =
+                    format!("Proto UI Hover Card focus unavailable: {error}");
+            }
+            self.hover_card_focus_handles.insert(feature, handle);
+            self.hover_card_focus_subscriptions.push(focus_subscription);
+            self.hover_card_focus_subscriptions.push(blur_subscription);
+        }
+    }
+
+    /// Pump the Proto Hover Card virtual clock with real frame deltas while
+    /// any capability card is interacting. The pump only transports wall time
+    /// into the existing bridge scheduler; Proto owns every open/close
+    /// decision and the host installs no native semantic timer.
+    fn pump_hover_card_clocks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let now = std::time::Instant::now();
+        if let Some(last) = self.hover_clock_last
+            && let Some(delta) = now.checked_duration_since(last)
+        {
+            let millis = u64::try_from(delta.as_millis()).unwrap_or(u64::MAX);
+            if millis > 0
+                && let Err(error) = self.proto.advance_all_hover_cards(millis)
+            {
+                self.snapshot.status_message = format!("Proto UI Hover Card clock failed: {error}");
+            }
+        }
+        if !self.proto.hover_interacting() {
+            self.hover_clock_last = None;
+            return;
+        }
+        self.hover_clock_last = Some(now);
+        let weak = cx.entity().downgrade();
+        window.on_next_frame(move |window, cx| {
+            if let Some(entity) = weak.upgrade() {
+                entity.update(cx, |this, cx| {
+                    this.pump_hover_card_clocks(window, cx);
+                    cx.notify();
+                });
+            }
+        });
+    }
+
+    fn handle_hover_pointer(&mut self, feature: &str, hovered: bool) {
+        let kind = if hovered {
+            InputKind::PointerEnter
+        } else {
+            InputKind::PointerLeave
+        };
+        if let Err(error) = self
+            .proto
+            .dispatch_hover_card(feature, kind, InputSource::Mouse)
+        {
+            self.snapshot.status_message = format!("Proto UI Hover Card pointer failed: {error}");
+        }
+    }
+
+    fn handle_hover_focus(&mut self, feature: &str, source: InputSource) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
+        match self.proto.focus_hover_card(feature, source) {
+            Ok(FocusOperationResult::Accepted) => {}
+            Ok(FocusOperationResult::NotReady) => {
+                self.snapshot.status_message =
+                    format!("Proto UI Hover Card focus is not ready: {feature}");
+            }
+            Ok(FocusOperationResult::Rejected) => {
+                self.snapshot.status_message =
+                    format!("Proto UI Hover Card focus was rejected: {feature}");
+            }
+            Err(error) => {
+                self.snapshot.status_message = format!("Proto UI Hover Card focus failed: {error}");
+            }
+        }
+    }
+
+    fn handle_hover_blur(&mut self, feature: &str) {
+        if let Err(error) = self.proto.blur_hover_card(feature) {
+            self.snapshot.status_message = format!("Proto UI Hover Card blur failed: {error}");
         }
     }
 
@@ -3447,7 +3783,7 @@ fn section_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Stateful
         panel = panel.child(bios_panel(dashboard, cx));
     } else {
         panel = panel
-            .child(capability_matrix(&dashboard.snapshot.capabilities))
+            .child(capability_matrix(dashboard, cx))
             .child(telemetry_panel(&dashboard.snapshot));
     }
     panel
@@ -3458,6 +3794,8 @@ impl Render for Dashboard {
         self.ensure_tab_focus_handles(window, cx);
         self.ensure_dropdown_focus_handles(window, cx);
         self.ensure_dialog_focus_handles(window, cx);
+        self.ensure_hover_card_focus_handles(window, cx);
+        self.pump_hover_card_clocks(window, cx);
         if self.active_section == TUNING_SECTION_INDEX {
             self.ensure_textarea_input(window, cx);
         }
@@ -3660,47 +3998,202 @@ fn safety_banner(status_message: &str) -> impl IntoElement {
         )
 }
 
-fn capability_matrix(capabilities: &CapabilitySet) -> impl IntoElement {
-    let rows = capabilities.features.iter().map(|(feature, capability)| {
-        let (label, color) = availability_presentation(capability.availability);
-        let detail = capability
-            .detail
-            .as_deref()
-            .unwrap_or("No additional detail reported");
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_3()
-            .border_b_1()
-            .border_color(rgb(RULE))
-            .child(div().w(px(MARKER_SIZE)).h(px(MARKER_SIZE)).bg(color))
-            .child(
-                div()
-                    .w(px(FEATURE_COLUMN_WIDTH))
-                    .flex_none()
-                    .text_sm()
-                    .child(feature.clone()),
-            )
-            .child(
-                div()
-                    .w(px(AVAILABILITY_COLUMN_WIDTH))
-                    .flex_none()
-                    .text_xs()
-                    .text_color(color)
-                    .child(label),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .text_xs()
-                    .text_color(rgb(MUTED))
-                    .child(detail.to_string()),
-            )
-    });
+fn capability_row_unavailable(
+    feature: &str,
+    label: &str,
+    color: gpui::Hsla,
+    detail: &str,
+) -> Stateful<Div> {
+    div()
+        .id(format!("capability-row-{feature}"))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .px_3()
+        .py_3()
+        .border_b_1()
+        .border_color(rgb(RULE))
+        .child(div().w(px(MARKER_SIZE)).h(px(MARKER_SIZE)).bg(color))
+        .child(
+            div()
+                .w(px(FEATURE_COLUMN_WIDTH))
+                .flex_none()
+                .text_sm()
+                .child(feature.to_string()),
+        )
+        .child(
+            div()
+                .w(px(AVAILABILITY_COLUMN_WIDTH))
+                .flex_none()
+                .text_xs()
+                .text_color(color)
+                .child(label.to_string()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .text_xs()
+                .text_color(rgb(MUTED))
+                .child(detail.to_string()),
+        )
+}
 
+/// Capability rows use a Shadcn Hover Card for detail and evidence content.
+///
+/// The content remains a Rust-owned Slot subtree: the trigger, availability
+/// marker, and the detail/evidence text are all projected through the Proto
+/// snapshot, while the caller attaches the native Slot children to the content
+/// portal. When the Hover Card host is unavailable the row keeps its plain
+/// Rust text — an explicit unavailable state, never a local interactive
+/// fallback.
+fn capability_matrix(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoElement {
+    let rows = dashboard
+        .snapshot
+        .capabilities
+        .features
+        .iter()
+        .map(|(feature, capability)| {
+            let (label, color) = availability_presentation(capability.availability);
+            let detail = capability
+                .detail
+                .as_deref()
+                .unwrap_or("No additional detail reported");
+            let Some(trigger_snapshot) = dashboard
+                .proto
+                .hover_card_snapshot_for(feature)
+                .and_then(|snapshot| snapshot.trigger.as_ref())
+            else {
+                return capability_row_unavailable(feature, label, color, detail);
+            };
+            let Some(content_snapshot) = dashboard
+                .proto
+                .hover_card_snapshot_for(feature)
+                .and_then(|snapshot| snapshot.content.as_ref())
+            else {
+                return capability_row_unavailable(feature, label, color, detail);
+            };
+            let Some(focus_handle) = dashboard.hover_card_focus_handles.get(feature).cloned()
+            else {
+                return capability_row_unavailable(feature, label, color, detail);
+            };
+
+            let trigger_id = dashboard.proto.hover_card_trigger_id(feature);
+            let content_id = dashboard.proto.hover_card_content_id(feature);
+            let hover_feature = feature.clone();
+            let geometry_feature = feature.clone();
+            let press_focus = focus_handle.clone();
+            let key_focus = focus_handle.clone();
+            let trigger = proto_surface::hover_card_trigger_element(
+                trigger_id,
+                feature.clone(),
+                trigger_snapshot,
+                Some(&focus_handle),
+                |_, _, _| {},
+            )
+            .on_hover(cx.listener(move |this, hovered, _, cx| {
+                this.handle_hover_pointer(&hover_feature, *hovered);
+                cx.notify();
+            }))
+            .on_mouse_move(
+                cx.listener(move |this, event: &gpui::MouseMoveEvent, window, cx| {
+                    let viewport = window.viewport_size();
+                    let anchor = OverlayRect::new(
+                        f32::from(event.position.x),
+                        f32::from(event.position.y),
+                        1.0,
+                        1.0,
+                    );
+                    let viewport = OverlayRect::new(
+                        0.0,
+                        0.0,
+                        f32::from(viewport.width),
+                        f32::from(viewport.height),
+                    );
+                    if let Err(error) = this.proto.set_hover_card_geometry(
+                        &geometry_feature,
+                        anchor,
+                        (320.0, 120.0),
+                        viewport,
+                    ) {
+                        this.snapshot.status_message =
+                            format!("Proto UI Hover Card placement failed: {error}");
+                    }
+                    cx.notify();
+                }),
+            )
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |_this, _, window, cx| {
+                    window.focus(&press_focus, cx);
+                    cx.notify();
+                }),
+            )
+            .on_key_down(cx.listener(
+                move |_this, event: &gpui::KeyDownEvent, window, cx| {
+                    if matches!(
+                        event.keystroke.key.as_ref(),
+                        "Tab" | "Shift-Tab" | "Enter" | "Space"
+                    ) {
+                        window.focus(&key_focus, cx);
+                    }
+                    cx.notify();
+                },
+            ));
+
+            let slot_subtree = div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(rgb(TEXT))
+                        .child(feature.clone()),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(MUTED))
+                        .child(detail.to_string()),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(color)
+                        .child(format!("STATE  {label}")),
+                );
+
+            let content = proto_surface::hover_card_content_element(content_id, content_snapshot)
+                .child(slot_subtree);
+            let content_present = content_snapshot.present;
+
+            div()
+                .id(format!("capability-row-{feature}"))
+                .relative()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .px_3()
+                .py_3()
+                .border_b_1()
+                .border_color(rgb(RULE))
+                .child(div().w(px(MARKER_SIZE)).h(px(MARKER_SIZE)).bg(color))
+                .child(trigger)
+                .child(
+                    div()
+                        .w(px(AVAILABILITY_COLUMN_WIDTH))
+                        .flex_none()
+                        .text_xs()
+                        .text_color(color)
+                        .child(label),
+                )
+                .when(content_present, |row| row.child(content))
+        });
+
+    let feature_count = dashboard.snapshot.capabilities.features.len();
     div()
         .flex()
         .flex_col()
@@ -3727,22 +4220,25 @@ fn capability_matrix(capabilities: &CapabilitySet) -> impl IntoElement {
                     div()
                         .text_xs()
                         .text_color(rgb(MUTED))
-                        .child(format!("{} SIGNALS", capabilities.features.len())),
+                        .child(format!("{feature_count} SIGNALS")),
                 ),
         )
-        .child(div().flex().flex_col().children(rows).when(
-            capabilities.features.is_empty(),
-            |this| {
-                this.child(
-                    div()
-                        .px_3()
-                        .py_4()
-                        .text_sm()
-                        .text_color(rgb(UNAVAILABLE))
-                        .child("No capability claims available; awaiting a platform HAL."),
-                )
-            },
-        ))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .children(rows)
+                .when(feature_count == 0, |this| {
+                    this.child(
+                        div()
+                            .px_3()
+                            .py_4()
+                            .text_sm()
+                            .text_color(rgb(UNAVAILABLE))
+                            .child("No capability claims available; awaiting a platform HAL."),
+                    )
+                }),
+        )
 }
 
 fn telemetry_panel(snapshot: &DashboardSnapshot) -> impl IntoElement {
@@ -4375,5 +4871,130 @@ mod tests {
                 .as_deref()
                 .is_some_and(|error| error.contains("readback") || error.contains("unsupported"))
         );
+    }
+
+    #[test]
+    fn capability_hover_card_drives_delay_presence_and_detail_via_slot_projection() {
+        let mut capabilities = CapabilitySet::new(Platform::Linux);
+        capabilities
+            .record(
+                "battery.status",
+                Availability::Available,
+                Some("battery telemetry is live".into()),
+            )
+            .expect("battery capability");
+        capabilities
+            .record(
+                "perf.temp",
+                Availability::Unavailable,
+                Some("temperature channel is unavailable".into()),
+            )
+            .expect("temperature capability");
+        let snapshot = DashboardSnapshot {
+            platform: Platform::Linux,
+            hardware: HardwareInfo {
+                product_name: Some("Test".into()),
+                family: Some("Test".into()),
+                bios_version: Some("0.1".into()),
+            },
+            capabilities,
+            status_message: "test".into(),
+        };
+        let mut dashboard =
+            Dashboard::with_controller(snapshot.clone(), Arc::new(StaticController { snapshot }));
+
+        assert!(
+            dashboard.proto.hover_card_error.is_none(),
+            "hover card host should be available: {:?}",
+            dashboard.proto.hover_card_error
+        );
+
+        // Dispatch pointer enter and advance the virtual clock by the
+        // configured open delay (400 ms) — Proto owns the semantics.
+        dashboard
+            .proto
+            .dispatch_hover_card(
+                "battery.status",
+                InputKind::PointerEnter,
+                InputSource::Mouse,
+            )
+            .expect("pointer enter");
+        dashboard
+            .proto
+            .advance_all_hover_cards(400)
+            .expect("time advance");
+
+        let battery = dashboard
+            .proto
+            .hover_card_snapshots
+            .get("battery.status")
+            .expect("battery snapshot");
+        assert!(
+            battery.content.as_ref().expect("battery content").present,
+            "battery hover card is present after delay"
+        );
+        assert!(
+            battery
+                .content
+                .as_ref()
+                .expect("battery content")
+                .slot
+                .accessible_name
+                .contains("battery telemetry is live"),
+            "slot accessible_name carries the available detail text"
+        );
+
+        // The unavailable card is NOT open and its slot keeps honest text.
+        let temp = dashboard
+            .proto
+            .hover_card_snapshots
+            .get("perf.temp")
+            .expect("perf.temp snapshot");
+        assert!(
+            !temp.content.as_ref().expect("temp content").present,
+            "unavailable feature card is not open"
+        );
+        assert!(
+            temp.content
+                .as_ref()
+                .expect("temp content")
+                .slot
+                .accessible_name
+                .contains("unavailable"),
+            "unavailable detail stays explicit"
+        );
+
+        dashboard
+            .proto
+            .dispatch_hover_card(
+                "battery.status",
+                InputKind::PointerLeave,
+                InputSource::Mouse,
+            )
+            .expect("pointer leave");
+        assert!(dashboard.proto.hover_interacting());
+        dashboard
+            .proto
+            .advance_all_hover_cards(199)
+            .expect("close delay before boundary");
+        assert!(
+            dashboard.proto.hover_card_snapshots["battery.status"]
+                .content
+                .as_ref()
+                .expect("battery content")
+                .present
+        );
+        dashboard
+            .proto
+            .advance_all_hover_cards(1)
+            .expect("close delay boundary");
+        assert!(
+            !dashboard.proto.hover_card_snapshots["battery.status"]
+                .content
+                .as_ref()
+                .expect("battery content")
+                .present
+        );
+        assert!(!dashboard.proto.hover_interacting());
     }
 }

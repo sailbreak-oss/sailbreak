@@ -2,6 +2,7 @@ mod adapter;
 mod checkbox;
 mod dialog;
 mod dropdown;
+mod hover_card;
 mod select;
 mod separator;
 mod switch;
@@ -13,6 +14,11 @@ pub use adapter::{AdapterDispatchOutcome, AdapterSnapshot, ProtoAdapter, Prototy
 pub use checkbox::{
     CheckboxDispatchOutcome, CheckboxIndicatorSnapshot, CheckboxProps, CheckboxRootSnapshot,
     ProtoCheckboxHost, ProtoCheckboxSnapshot,
+};
+pub use hover_card::{
+    HoverCardContentProps, HoverCardContentSnapshot, HoverCardDispatchOutcome, HoverCardRootProps,
+    HoverCardRootSnapshot, HoverCardSnapshot, HoverCardTriggerProps, HoverCardTriggerSnapshot,
+    ProtoHoverCardHost, ProtoHoverCardSnapshot,
 };
 
 pub use separator::{

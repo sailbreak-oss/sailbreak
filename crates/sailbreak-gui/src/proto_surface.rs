@@ -13,11 +13,12 @@ use proto_ui_gpui::{
     A11ySnapshot, ButtonStyle, ColorValue, DialogCloseSnapshot, DialogContentSnapshot,
     DialogDescriptionSnapshot, DialogFooterSnapshot, DialogHeaderSnapshot, DialogMaskSnapshot,
     DialogTitleSnapshot, DialogTriggerSnapshot, DropdownContentSnapshot, DropdownItemSnapshot,
-    DropdownTriggerSnapshot, PlacementSnapshot, ProtoButtonState, ProtoSeparatorSnapshot,
-    ProtoTextareaSnapshot, ProtoToggleSnapshot, SelectContentSnapshot, SelectItemSnapshot,
-    SelectTriggerSnapshot, SelectValueSnapshot, SeparatorOrientation, TabsContentSnapshot,
-    TabsListSnapshot, TabsTriggerSnapshot, TextControlEvent, TextControlEventType,
-    TextControlSelection, TextControlSelectionDirection, ViewEpoch,
+    DropdownTriggerSnapshot, HoverCardContentSnapshot, HoverCardTriggerSnapshot, PlacementSnapshot,
+    ProtoButtonState, ProtoSeparatorSnapshot, ProtoTextareaSnapshot, ProtoToggleSnapshot,
+    SelectContentSnapshot, SelectItemSnapshot, SelectTriggerSnapshot, SelectValueSnapshot,
+    SeparatorOrientation, TabsContentSnapshot, TabsListSnapshot, TabsTriggerSnapshot,
+    TextControlEvent, TextControlEventType, TextControlSelection, TextControlSelectionDirection,
+    ViewEpoch,
 };
 
 /// Project a Proto UI Button snapshot into the native GPUI surface.
@@ -167,6 +168,59 @@ pub fn dropdown_content_element(
         || div().id(id).debug_selector(move || id.to_owned()),
         |placement| overlay_surface_element(id, placement),
     );
+    if let Some(a11y) = state.a11y.as_ref() {
+        element = apply_a11y(element, a11y, |_, _, _| {});
+    }
+    if !state.present {
+        element = element.opacity(0.0);
+    }
+    element
+}
+
+/// Project a Hover Card Trigger through the caller-owned native focus handle.
+/// Pointer and focus facts are forwarded by the dashboard; Proto remains the
+/// owner of delayed open/close semantics.
+pub fn hover_card_trigger_element(
+    id: impl Into<String>,
+    label: impl IntoElement,
+    state: &HoverCardTriggerSnapshot,
+    focus_handle: Option<&FocusHandle>,
+    on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    action_element(
+        id,
+        label,
+        &state.resolved_style,
+        state.a11y.as_ref(),
+        focus_handle,
+        on_a11y_click,
+    )
+}
+
+/// Project Hover Card Content from the last Rust-owned overlay placement.
+/// Caller-owned children are the native Slot subtree; no layout or paint
+/// callback calls JavaScript.
+pub fn hover_card_content_element(
+    id: impl Into<String>,
+    state: &HoverCardContentSnapshot,
+) -> Stateful<Div> {
+    let id = id.into();
+    let mut element = state.placement.as_ref().map_or_else(
+        || {
+            let selector = id.clone();
+            div()
+                .id(id.clone())
+                .debug_selector(move || selector.clone())
+        },
+        |placement| overlay_surface_element(id.clone(), placement),
+    );
+    element = element
+        .rounded(px(state.resolved_style.radius))
+        .border_1()
+        .border_color(to_hsla(state.resolved_style.border))
+        .bg(to_hsla(state.resolved_style.background))
+        .text_color(to_hsla(state.resolved_style.foreground))
+        .p_4();
     if let Some(a11y) = state.a11y.as_ref() {
         element = apply_a11y(element, a11y, |_, _, _| {});
     }
@@ -363,11 +417,16 @@ pub fn separator_element(id: &'static str, state: &ProtoSeparatorSnapshot) -> St
 /// Materialize a precomputed Rust overlay placement in GPUI's absolute layer.
 /// Callers order siblings by `OverlayHost::layer_order_of`; no JavaScript runs
 /// during layout, prepaint, or paint.
-pub fn overlay_surface_element(id: &'static str, placement: &PlacementSnapshot) -> Stateful<Div> {
+pub fn overlay_surface_element(
+    id: impl Into<String>,
+    placement: &PlacementSnapshot,
+) -> Stateful<Div> {
+    let id = id.into();
+    let selector = id.clone();
     let rect = placement.floating_rect;
     div()
         .id(id)
-        .debug_selector(move || id.to_owned())
+        .debug_selector(move || selector.clone())
         .absolute()
         .left(px(rect.x))
         .top(px(rect.y))
@@ -376,16 +435,18 @@ pub fn overlay_surface_element(id: &'static str, placement: &PlacementSnapshot) 
 }
 
 fn action_element(
-    id: &'static str,
+    id: impl Into<String>,
     label: impl IntoElement,
     style: &ButtonStyle,
     a11y: Option<&A11ySnapshot>,
     focus_handle: Option<&FocusHandle>,
     on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
+    let id = id.into();
+    let selector = id.clone();
     let mut element = div()
         .id(id)
-        .debug_selector(move || id.to_owned())
+        .debug_selector(move || selector.clone())
         .flex()
         .flex_row()
         .items_center()

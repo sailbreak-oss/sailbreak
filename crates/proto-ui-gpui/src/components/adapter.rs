@@ -180,6 +180,17 @@ impl ProtoAdapter {
         let outcome = session.host.input(InputRequest::new(input, detail))?;
         Ok(adapter_dispatch_outcome(outcome))
     }
+    /// Advance the Runtime's virtual scheduler for one managed session.
+    ///
+    /// The adapter deliberately exposes no native timer; callers choose the
+    /// session whose Proto scheduler should advance and reconcile any emitted
+    /// bridge events through the normal session host.
+    pub fn advance_time(&mut self, id: &str, milliseconds: u64) -> Result<AdapterDispatchOutcome> {
+        let session = self.session_mut(id)?;
+        prepare_session(&mut session.host)?;
+        let outcome = session.host.advance_time(milliseconds)?;
+        Ok(adapter_dispatch_outcome(outcome))
+    }
 
     pub fn drain(&mut self, id: &str) -> Result<AdapterDispatchOutcome> {
         let session = self.session_mut(id)?;
