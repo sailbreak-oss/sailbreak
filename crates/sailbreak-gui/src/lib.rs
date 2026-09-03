@@ -4,7 +4,13 @@
 //! reported by [`lctrl_hal::Hal`] and marks every capability according to the
 //! core availability value, including its explanation.
 
-use std::{cell::RefCell, collections::BTreeMap, env, rc::Rc, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    env,
+    rc::Rc,
+    sync::Arc,
+};
 
 use gpui::{
     App, Bounds, Context, Div, Entity, FocusHandle, IntoElement, Render, Stateful, Subscription,
@@ -13,20 +19,21 @@ use gpui::{
 use lctrl_core::{Availability, CapabilitySet, HardwareInfo, LctrlError, Platform, Result};
 use lctrl_hal::Hal;
 use proto_ui_gpui::{
-    BridgeError, DialogCloseProps, DialogContentProps, DialogDescriptionProps,
+    BridgeError, CheckboxProps, DialogCloseProps, DialogContentProps, DialogDescriptionProps,
     DialogDispatchOutcome, DialogFooterProps, DialogHeaderProps, DialogMaskProps, DialogRootProps,
     DialogSnapshot, DialogTitleProps, DialogTriggerProps, DispatchOutcome, DropdownContentProps,
     DropdownDispatchOutcome, DropdownItemProps, DropdownRootProps, DropdownSnapshot,
     DropdownTriggerProps, FocusOperationResult, HoverCardContentProps, HoverCardDispatchOutcome,
     HoverCardRootProps, HoverCardSnapshot, HoverCardTriggerProps, InputKind, InputSource,
-    OverlayRect, ProtoButtonHost, ProtoButtonState, ProtoDialogHost, ProtoDropdownHost,
-    ProtoHoverCardHost, ProtoSelectHost, ProtoSelectSnapshot, ProtoSeparatorHost,
-    ProtoSeparatorSnapshot, ProtoTabsHost, ProtoTextareaHost, ProtoTextareaSnapshot,
-    ProtoToggleHost, ProtoToggleSnapshot, SelectContentProps, SelectDispatchOutcome,
-    SelectItemProps, SelectRootProps, SelectTriggerProps, SelectValueProps, SeparatorProps,
-    ShadcnButtonSize, ShadcnButtonVariant, TabsActivationMode, TabsContentProps, TabsListProps,
-    TabsOrientation, TabsRootProps, TabsSnapshot, TabsTriggerProps, TextareaProps,
-    ToggleDispatchOutcome, ToggleProps, ToggleSize, ToggleVariant,
+    OverlayRect, ProtoButtonHost, ProtoButtonState, ProtoCheckboxHost, ProtoCheckboxSnapshot,
+    ProtoDialogHost, ProtoDropdownHost, ProtoHoverCardHost, ProtoSelectHost, ProtoSelectSnapshot,
+    ProtoSeparatorHost, ProtoSeparatorSnapshot, ProtoSwitchHost, ProtoSwitchSnapshot,
+    ProtoTabsHost, ProtoTextareaHost, ProtoTextareaSnapshot, ProtoToggleHost, ProtoToggleSnapshot,
+    SelectContentProps, SelectDispatchOutcome, SelectItemProps, SelectRootProps,
+    SelectTriggerProps, SelectValueProps, SeparatorProps, ShadcnButtonSize, ShadcnButtonVariant,
+    SwitchProps, TabsActivationMode, TabsContentProps, TabsListProps, TabsOrientation,
+    TabsRootProps, TabsSnapshot, TabsTriggerProps, TextareaProps, ToggleDispatchOutcome,
+    ToggleProps, ToggleSize, ToggleVariant,
 };
 
 mod proto_surface;
@@ -190,50 +197,12 @@ const SECTION_VALUES: [&str; 7] = [
 const SIDEBAR_TABS_ROOT_ID: &str = "sidebar-tabs-root";
 const SIDEBAR_TABS_LIST_ID: &str = "sidebar-tabs-list";
 
-const ACTION_BUTTONS: [(&str, &str, ShadcnButtonVariant, ShadcnButtonSize); 7] = [
-    (
-        "refresh-status",
-        "REFRESH STATUS",
-        ShadcnButtonVariant::Default,
-        ShadcnButtonSize::Sm,
-    ),
-    (
-        "daemon-status",
-        "DAEMON STATUS",
-        ShadcnButtonVariant::Outline,
-        ShadcnButtonSize::Sm,
-    ),
-    (
-        "battery-status",
-        "BATTERY STATUS",
-        ShadcnButtonVariant::Secondary,
-        ShadcnButtonSize::Sm,
-    ),
-    (
-        "thermal-sensors",
-        "THERMAL SENSORS",
-        ShadcnButtonVariant::Secondary,
-        ShadcnButtonSize::Sm,
-    ),
-    (
-        "power-schemes",
-        "POWER SCHEMES",
-        ShadcnButtonVariant::Secondary,
-        ShadcnButtonSize::Sm,
-    ),
-    (
-        "diagnostics",
-        "DIAGNOSTICS",
-        ShadcnButtonVariant::Destructive,
-        ShadcnButtonSize::Sm,
-    ),
-    (
-        "magicbay-detect",
-        "MAGICBAY DETECT",
-        ShadcnButtonVariant::Destructive,
-        ShadcnButtonSize::Sm,
-    ),
-];
+const CAPABILITY_SWITCH_ID: &str = "capability-readback-switch";
+const CAPABILITY_CHECKBOX_ID: &str = "capability-readback-checkbox";
+const CAPABILITY_SWITCH_LABEL: &str = "SWITCH / READBACK UNAVAILABLE";
+const CAPABILITY_CHECKBOX_LABEL: &str = "CHECKBOX / READBACK UNAVAILABLE";
+const EMPTY_HOVER_CARD_FEATURE_ID: &str = "capability-detail-unavailable";
+
 const PERFORMANCE_PREVIEW_TOGGLE_ID: &str = "performance-preview";
 const TUNING_SECTION_INDEX: usize = 5;
 const TUNING_PROFILE_EDITOR_ID: &str = "tuning-profile-editor";
@@ -394,6 +363,10 @@ type HoverCardRegistry = (
 struct ProtoUiState {
     host: Option<ProtoButtonHost>,
     toggle_host: Option<ProtoToggleHost>,
+    switch_host: Option<ProtoSwitchHost>,
+    switch_snapshot: Option<ProtoSwitchSnapshot>,
+    checkbox_host: Option<ProtoCheckboxHost>,
+    checkbox_snapshot: Option<ProtoCheckboxSnapshot>,
     separator_host: Option<ProtoSeparatorHost>,
     hover_card_hosts: BTreeMap<String, ProtoHoverCardHost>,
     hover_card_snapshots: BTreeMap<String, HoverCardSnapshot>,
@@ -425,47 +398,55 @@ struct ProtoUiState {
     dropdown_error: Option<String>,
     error: Option<String>,
 }
+
 impl ProtoUiState {
     fn new(capabilities: &CapabilitySet) -> Self {
-        let (host, toggle_host, separator_host) = match Self::build_core() {
-            Ok(hosts) => hosts,
-            Err(error) => {
-                return Self {
-                    host: None,
-                    toggle_host: None,
-                    separator_host: None,
-                    hover_card_hosts: BTreeMap::new(),
-                    hover_card_snapshots: BTreeMap::new(),
-                    hover_card_error: None,
-                    textarea_host: None,
-                    textarea_snapshot: None,
-                    textarea_error: None,
-                    tabs_host: None,
-                    tabs_snapshot: None,
-                    tabs_error: None,
-                    performance_select_host: None,
-                    performance_select_snapshot: None,
-                    tuning_select_host: None,
-                    tuning_select_snapshot: None,
-                    power_select_host: None,
-                    power_select_snapshot: None,
-                    status_dropdown_host: None,
-                    status_dropdown_snapshot: None,
-                    system_dropdown_host: None,
-                    system_dropdown_snapshot: None,
-                    profile_dialog_host: None,
-                    profile_dialog_snapshot: None,
-                    profile_dialog_error: None,
-                    bios_dialog_host: None,
-                    bios_dialog_snapshot: None,
-                    bios_dialog_error: None,
-                    bios_write_request: None,
-                    select_error: None,
-                    dropdown_error: None,
-                    error: Some(error.to_string()),
-                };
-            }
-        };
+        let (host, toggle_host, mut switch_host, mut checkbox_host, separator_host) =
+            match Self::build_core() {
+                Ok(hosts) => hosts,
+                Err(error) => {
+                    return Self {
+                        host: None,
+                        toggle_host: None,
+                        switch_host: None,
+                        switch_snapshot: None,
+                        checkbox_host: None,
+                        checkbox_snapshot: None,
+                        separator_host: None,
+                        hover_card_hosts: BTreeMap::new(),
+                        hover_card_snapshots: BTreeMap::new(),
+                        hover_card_error: None,
+                        textarea_host: None,
+                        textarea_snapshot: None,
+                        textarea_error: None,
+                        tabs_host: None,
+                        tabs_snapshot: None,
+                        tabs_error: None,
+                        performance_select_host: None,
+                        performance_select_snapshot: None,
+                        tuning_select_host: None,
+                        tuning_select_snapshot: None,
+                        power_select_host: None,
+                        power_select_snapshot: None,
+                        status_dropdown_host: None,
+                        status_dropdown_snapshot: None,
+                        system_dropdown_host: None,
+                        system_dropdown_snapshot: None,
+                        profile_dialog_host: None,
+                        profile_dialog_snapshot: None,
+                        profile_dialog_error: None,
+                        bios_dialog_host: None,
+                        bios_dialog_snapshot: None,
+                        bios_dialog_error: None,
+                        bios_write_request: None,
+                        select_error: None,
+                        dropdown_error: None,
+                        error: Some(error.to_string()),
+                    };
+                }
+            };
+        let switch_snapshot = switch_host.snapshot(CAPABILITY_SWITCH_ID).ok();
+        let checkbox_snapshot = checkbox_host.snapshot(CAPABILITY_CHECKBOX_ID).ok();
         let (textarea_host, textarea_snapshot, textarea_error) = match Self::build_textarea() {
             Ok((host, snapshot)) => (Some(host), Some(snapshot), None),
             Err(error) => (None, None, Some(error.to_string())),
@@ -511,6 +492,10 @@ impl ProtoUiState {
         Self {
             host: Some(host),
             toggle_host: Some(toggle_host),
+            switch_host: Some(switch_host),
+            switch_snapshot,
+            checkbox_host: Some(checkbox_host),
+            checkbox_snapshot,
             separator_host: Some(separator_host),
             hover_card_hosts,
             hover_card_snapshots,
@@ -932,6 +917,27 @@ impl ProtoUiState {
         Ok(outcome)
     }
 
+    fn dispatch_dialog_input(
+        &mut self,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) -> std::result::Result<DialogDispatchOutcome, BridgeError> {
+        let Some(host) = self.dialog_host_mut(id) else {
+            return Err(BridgeError::Runtime {
+                detail: format!("Dialog input target unavailable: {id}"),
+            });
+        };
+        let outcome = host.dispatch(id, kind, source, detail)?;
+        if id.starts_with("bios-") {
+            self.refresh_bios_dialog()?;
+        } else {
+            self.refresh_profile_dialog()?;
+        }
+        Ok(outcome)
+    }
+
     fn press_bios_close(
         &mut self,
         id: &str,
@@ -951,13 +957,23 @@ impl ProtoUiState {
         Ok(outcome)
     }
 
-    fn build_core()
-    -> std::result::Result<(ProtoButtonHost, ProtoToggleHost, ProtoSeparatorHost), BridgeError>
-    {
+    fn build_core() -> std::result::Result<
+        (
+            ProtoButtonHost,
+            ProtoToggleHost,
+            ProtoSwitchHost,
+            ProtoCheckboxHost,
+            ProtoSeparatorHost,
+        ),
+        BridgeError,
+    > {
         let mut host = ProtoButtonHost::new()?;
-        for (id, label, variant, size) in ACTION_BUTTONS {
-            host.register_button(id, label, variant, size)?;
-        }
+        host.register_button(
+            "refresh-status",
+            "REFRESH STATUS",
+            ShadcnButtonVariant::Default,
+            ShadcnButtonSize::Sm,
+        )?;
         host.register_button(
             TUNING_PROFILE_SAVE_ID,
             "SAVE PROFILE",
@@ -971,6 +987,39 @@ impl ProtoUiState {
             "PERFORMANCE PREVIEW",
             performance_preview_props(false),
         )?;
+
+        let mut switch_host = ProtoSwitchHost::new()?;
+        switch_host.register_root(
+            CAPABILITY_SWITCH_ID,
+            CAPABILITY_SWITCH_LABEL,
+            SwitchProps {
+                checked: None,
+                default_checked: false,
+                disabled: true,
+            },
+        )?;
+        switch_host.register_thumb(
+            format!("{CAPABILITY_SWITCH_ID}-thumb"),
+            CAPABILITY_SWITCH_ID,
+        )?;
+
+        let mut checkbox_host = ProtoCheckboxHost::new()?;
+        checkbox_host.register_root(
+            CAPABILITY_CHECKBOX_ID,
+            CAPABILITY_CHECKBOX_LABEL,
+            CheckboxProps {
+                checked: None,
+                default_checked: false,
+                disabled: true,
+                indeterminate: None,
+                default_indeterminate: false,
+            },
+        )?;
+        checkbox_host.register_indicator(
+            format!("{CAPABILITY_CHECKBOX_ID}-indicator"),
+            CAPABILITY_CHECKBOX_ID,
+        )?;
+
         let mut separator_host = ProtoSeparatorHost::new()?;
         for id in [
             MAIN_HEADER_SEPARATOR_ID,
@@ -979,7 +1028,13 @@ impl ProtoUiState {
         ] {
             separator_host.register(id, SeparatorProps::default())?;
         }
-        Ok((host, toggle_host, separator_host))
+        Ok((
+            host,
+            toggle_host,
+            switch_host,
+            checkbox_host,
+            separator_host,
+        ))
     }
 
     fn build_status_dropdown(
@@ -1302,6 +1357,42 @@ impl ProtoUiState {
             .as_ref()
             .ok_or_else(|| self.unavailable_error())?
             .snapshot(id)
+    }
+
+    fn switch_snapshot(&self) -> Option<&ProtoSwitchSnapshot> {
+        self.switch_snapshot.as_ref()
+    }
+
+    fn checkbox_snapshot(&self) -> Option<&ProtoCheckboxSnapshot> {
+        self.checkbox_snapshot.as_ref()
+    }
+
+    fn dispatch_switch(
+        &mut self,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) -> std::result::Result<proto_ui_gpui::SwitchDispatchOutcome, BridgeError> {
+        let unavailable = self.unavailable_error();
+        let host = self.switch_host.as_mut().ok_or(unavailable)?;
+        let outcome = host.dispatch(id, kind, source, detail)?;
+        self.switch_snapshot = Some(host.snapshot(id)?);
+        Ok(outcome)
+    }
+
+    fn dispatch_checkbox(
+        &mut self,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) -> std::result::Result<proto_ui_gpui::CheckboxDispatchOutcome, BridgeError> {
+        let unavailable = self.unavailable_error();
+        let host = self.checkbox_host.as_mut().ok_or(unavailable)?;
+        let outcome = host.dispatch(id, kind, source, detail)?;
+        self.checkbox_snapshot = Some(host.snapshot(id)?);
+        Ok(outcome)
     }
 
     fn textarea_snapshot(&self) -> Option<&ProtoTextareaSnapshot> {
@@ -1841,6 +1932,13 @@ fn capability_detail_accessibility(capability: &lctrl_core::Capability) -> Strin
     }
 }
 
+fn button_action(id: &str) -> Option<DashboardAction> {
+    match id {
+        "refresh-status" => Some(DashboardAction::Refresh),
+        TUNING_PROFILE_SAVE_ID => Some(DashboardAction::SaveProfile),
+        _ => None,
+    }
+}
 const SECTION_NAMES: [(&str, &str); 7] = [
     ("01", "OVERVIEW"),
     ("02", "POWER"),
@@ -1870,68 +1968,17 @@ fn action_button(
     let Some(state) = dashboard.proto.button(id) else {
         return unavailable_button(id, label);
     };
-
-    let dashboard_entity = cx.entity().downgrade();
-    proto_surface::button_element(id, label, state, move |_, _, cx| {
-        dashboard_entity
-            .update(cx, |this, cx| {
-                this.handle_accessible_proto_click(id, action);
-                cx.notify();
-            })
-            .ok();
-    })
-    .on_hover(cx.listener(move |this, hovered, _, cx| {
-        let kind = if *hovered {
-            InputKind::PointerEnter
-        } else {
-            InputKind::PointerLeave
-        };
-        this.dispatch_proto(id, kind, InputSource::Mouse);
-        cx.notify();
-    }))
-    .on_mouse_down(
-        gpui::MouseButton::Left,
-        cx.listener(move |this, _, _, cx| {
-            this.dispatch_proto(id, InputKind::Focus, InputSource::Mouse);
-            this.dispatch_proto(id, InputKind::PointerDown, InputSource::Mouse);
-            cx.notify();
-        }),
+    proto_surface::button_surface(
+        id,
+        label,
+        state,
+        None,
+        cx,
+        move |this, kind, source, detail| {
+            this.dispatch_proto_with_detail(id, kind, source, detail);
+        },
+        move |this, source| this.handle_proto_click(id, action, source),
     )
-    .on_mouse_up(
-        gpui::MouseButton::Left,
-        cx.listener(move |this, _, _, cx| {
-            this.dispatch_proto(id, InputKind::PointerUp, InputSource::Mouse);
-            cx.notify();
-        }),
-    )
-    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
-        this.dispatch_proto(id, InputKind::Focus, InputSource::Keyboard);
-        this.dispatch_proto_with_detail(
-            id,
-            InputKind::KeyDown,
-            InputSource::Keyboard,
-            Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
-        );
-        cx.notify();
-    }))
-    .on_key_up(cx.listener(move |this, event: &gpui::KeyUpEvent, _, cx| {
-        this.dispatch_proto_with_detail(
-            id,
-            InputKind::KeyUp,
-            InputSource::Keyboard,
-            Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
-        );
-        cx.notify();
-    }))
-    .on_click(cx.listener(move |this, event, _, cx| {
-        let source = match event {
-            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
-            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
-            gpui::ClickEvent::Touch(_) => InputSource::Touch,
-        };
-        this.handle_proto_click(id, action, source);
-        cx.notify();
-    }))
 }
 
 fn toggle_action(
@@ -1944,67 +1991,19 @@ fn toggle_action(
     let Ok(state) = dashboard.proto.toggle(id) else {
         return unavailable_button(id, label);
     };
-    let dashboard_entity = cx.entity().downgrade();
-    proto_surface::toggle_element(id, label, &state, move |_, _, cx| {
-        dashboard_entity
-            .update(cx, |this, cx| {
-                this.handle_accessible_proto_toggle(id, action);
-                cx.notify();
-            })
-            .ok();
-    })
-    .on_hover(cx.listener(move |this, hovered, _, cx| {
-        let kind = if *hovered {
-            InputKind::PointerEnter
-        } else {
-            InputKind::PointerLeave
-        };
-        this.dispatch_proto_toggle(id, kind, InputSource::Mouse, None);
-        cx.notify();
-    }))
-    .on_mouse_down(
-        gpui::MouseButton::Left,
-        cx.listener(move |this, _, _, cx| {
-            this.dispatch_proto_toggle(id, InputKind::Focus, InputSource::Mouse, None);
-            this.dispatch_proto_toggle(id, InputKind::PointerDown, InputSource::Mouse, None);
-            cx.notify();
-        }),
+    proto_surface::toggle_surface(
+        id,
+        label,
+        &state,
+        None,
+        cx,
+        move |this, kind, source, detail| {
+            this.dispatch_proto_toggle(id, kind, source, detail);
+        },
+        move |this, source| {
+            this.handle_proto_toggle(id, action, source);
+        },
     )
-    .on_mouse_up(
-        gpui::MouseButton::Left,
-        cx.listener(move |this, _, _, cx| {
-            this.dispatch_proto_toggle(id, InputKind::PointerUp, InputSource::Mouse, None);
-            cx.notify();
-        }),
-    )
-    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
-        this.dispatch_proto_toggle(id, InputKind::Focus, InputSource::Keyboard, None);
-        this.dispatch_proto_toggle(
-            id,
-            InputKind::KeyDown,
-            InputSource::Keyboard,
-            Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
-        );
-        cx.notify();
-    }))
-    .on_key_up(cx.listener(move |this, event: &gpui::KeyUpEvent, _, cx| {
-        this.dispatch_proto_toggle(
-            id,
-            InputKind::KeyUp,
-            InputSource::Keyboard,
-            Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
-        );
-        cx.notify();
-    }))
-    .on_click(cx.listener(move |this, event, _, cx| {
-        let source = match event {
-            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
-            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
-            gpui::ClickEvent::Touch(_) => InputSource::Touch,
-        };
-        this.handle_proto_toggle(id, action, source);
-        cx.notify();
-    }))
 }
 
 fn separator_view(dashboard: &Dashboard, id: &'static str) -> Stateful<Div> {
@@ -2048,6 +2047,14 @@ fn dropdown_content_id(root_id: &str) -> Option<&'static str> {
     }
 }
 
+fn dropdown_trigger_id(root_id: &str) -> Option<&'static str> {
+    match root_id {
+        STATUS_ACTIONS_DROPDOWN_ROOT_ID => Some(STATUS_ACTIONS_DROPDOWN_TRIGGER_ID),
+        SYSTEM_ACTIONS_DROPDOWN_ROOT_ID => Some(SYSTEM_ACTIONS_DROPDOWN_TRIGGER_ID),
+        _ => None,
+    }
+}
+
 fn dropdown_trigger_view(
     dashboard: &Dashboard,
     cx: &mut Context<Dashboard>,
@@ -2065,102 +2072,17 @@ fn dropdown_trigger_view(
     let Some(focus_handle) = dashboard.dropdown_focus_handles.get(trigger_id).cloned() else {
         return unavailable_button(trigger_id, label);
     };
-    let disabled = snapshot.disabled;
-    let dashboard_entity = cx.entity().downgrade();
-    let mouse_focus = focus_handle.clone();
-    proto_surface::dropdown_trigger_element(
+    proto_surface::dropdown_trigger_surface(
         trigger_id,
         label,
         snapshot,
-        Some(&focus_handle),
-        move |_, _, cx| {
-            dashboard_entity
-                .update(cx, |this, cx| {
-                    this.handle_dropdown_trigger(root_id, trigger_id, InputSource::Accessibility);
-                    cx.notify();
-                })
-                .ok();
+        focus_handle,
+        cx,
+        move |this, kind, source, detail| {
+            this.forward_dropdown_input(root_id, trigger_id, kind, source, detail);
         },
+        move |this, source| this.handle_dropdown_trigger(root_id, trigger_id, source),
     )
-    .on_hover(cx.listener(move |this, hovered, _, cx| {
-        let kind = if *hovered {
-            InputKind::PointerEnter
-        } else {
-            InputKind::PointerLeave
-        };
-        if let Err(error) =
-            this.proto
-                .dispatch_dropdown(root_id, trigger_id, kind, InputSource::Mouse, None)
-        {
-            this.snapshot.status_message = format!("Proto UI Dropdown hover failed: {error}");
-        }
-        cx.notify();
-    }))
-    .on_mouse_down(
-        gpui::MouseButton::Left,
-        cx.listener(move |this, _, window, cx| {
-            if !disabled {
-                window.focus(&mouse_focus, cx);
-            }
-            if let Err(error) = this.proto.dispatch_dropdown(
-                root_id,
-                trigger_id,
-                InputKind::PointerDown,
-                InputSource::Mouse,
-                None,
-            ) {
-                this.snapshot.status_message =
-                    format!("Proto UI Dropdown trigger press failed: {error}");
-            }
-            cx.notify();
-        }),
-    )
-    .on_mouse_up(
-        gpui::MouseButton::Left,
-        cx.listener(move |this, _, _, cx| {
-            if let Err(error) = this.proto.dispatch_dropdown(
-                root_id,
-                trigger_id,
-                InputKind::PointerUp,
-                InputSource::Mouse,
-                None,
-            ) {
-                this.snapshot.status_message =
-                    format!("Proto UI Dropdown trigger release failed: {error}");
-            }
-            cx.notify();
-        }),
-    )
-    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
-        if let Err(error) = this.proto.dispatch_dropdown(
-            root_id,
-            trigger_id,
-            InputKind::Focus,
-            InputSource::Keyboard,
-            None,
-        ) {
-            this.snapshot.status_message = format!("Proto UI Dropdown focus failed: {error}");
-        }
-        if let Err(error) = this.proto.dispatch_dropdown(
-            root_id,
-            trigger_id,
-            InputKind::KeyDown,
-            InputSource::Keyboard,
-            Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
-        ) {
-            this.snapshot.status_message = format!("Proto UI Dropdown key failed: {error}");
-        }
-        cx.notify();
-    }))
-    .on_click(cx.listener(move |this, event, _, cx| {
-        let source = match event {
-            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
-            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
-            gpui::ClickEvent::Touch(_) => InputSource::Touch,
-        };
-        this.handle_dropdown_trigger(root_id, trigger_id, source);
-        cx.notify();
-    }))
 }
 
 fn dropdown_item_view(
@@ -2177,84 +2099,18 @@ fn dropdown_item_view(
     else {
         return unavailable_button(item_id, item_id);
     };
-    let dashboard_entity = cx.entity().downgrade();
-    proto_surface::dropdown_item_element(item_id, item, move |_, _, cx| {
-        dashboard_entity
-            .update(cx, |this, cx| {
-                this.handle_dropdown_item(root_id, item_id, action, InputSource::Accessibility);
-                cx.notify();
-            })
-            .ok();
-    })
-    .on_hover(cx.listener(move |this, hovered, _, cx| {
-        let kind = if *hovered {
-            InputKind::PointerEnter
-        } else {
-            InputKind::PointerLeave
-        };
-        if let Err(error) =
-            this.proto
-                .dispatch_dropdown(root_id, item_id, kind, InputSource::Mouse, None)
-        {
-            this.snapshot.status_message = format!("Proto UI Dropdown item hover failed: {error}");
-        }
-        cx.notify();
-    }))
-    .on_mouse_down(
-        gpui::MouseButton::Left,
-        cx.listener(move |this, _, _, cx| {
-            if let Err(error) = this.proto.dispatch_dropdown(
-                root_id,
-                item_id,
-                InputKind::Focus,
-                InputSource::Mouse,
-                None,
-            ) {
-                this.snapshot.status_message =
-                    format!("Proto UI Dropdown item focus failed: {error}");
-            }
-            if let Err(error) = this.proto.dispatch_dropdown(
-                root_id,
-                item_id,
-                InputKind::PointerDown,
-                InputSource::Mouse,
-                None,
-            ) {
-                this.snapshot.status_message =
-                    format!("Proto UI Dropdown item press failed: {error}");
-            }
-            cx.notify();
-        }),
+    proto_surface::dropdown_item_surface(
+        item_id,
+        item,
+        cx,
+        move |this, kind, source, detail| {
+            this.forward_dropdown_input(root_id, item_id, kind, source, detail);
+        },
+        move |this, source| {
+            this.handle_dropdown_item(root_id, item_id, action, source);
+        },
+        move |this, key, _, _| this.handle_dropdown_key(root_id, key),
     )
-    .on_mouse_up(
-        gpui::MouseButton::Left,
-        cx.listener(move |this, _, _, cx| {
-            if let Err(error) = this.proto.dispatch_dropdown(
-                root_id,
-                item_id,
-                InputKind::PointerUp,
-                InputSource::Mouse,
-                None,
-            ) {
-                this.snapshot.status_message =
-                    format!("Proto UI Dropdown item release failed: {error}");
-            }
-            cx.notify();
-        }),
-    )
-    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
-        this.handle_dropdown_key(root_id, &event.keystroke.key);
-        cx.notify();
-    }))
-    .on_click(cx.listener(move |this, event, _, cx| {
-        let source = match event {
-            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
-            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
-            gpui::ClickEvent::Touch(_) => InputSource::Touch,
-        };
-        this.handle_dropdown_item(root_id, item_id, action, source);
-        cx.notify();
-    }))
 }
 
 fn dropdown_group_view(
@@ -2355,37 +2211,72 @@ fn selector_trigger_view(
     else {
         return unavailable_button(trigger_id, label);
     };
-    let dashboard_entity = cx.entity().downgrade();
-    proto_surface::select_trigger_element(trigger_id, label, snapshot, None, move |_, _, cx| {
-        dashboard_entity
-            .update(cx, |this, cx| {
-                if let Err(error) = this.proto.dispatch_select(
+    proto_surface::select_trigger_surface(
+        trigger_id,
+        label,
+        snapshot,
+        cx,
+        move |this, kind, source, detail| {
+            this.forward_select_input(root_id, trigger_id, kind, source, detail);
+        },
+        move |this, source| this.handle_select_trigger(root_id, trigger_id, source),
+    )
+}
+
+fn selector_group_view(
+    dashboard: &Dashboard,
+    cx: &mut Context<Dashboard>,
+    root_id: &'static str,
+    trigger_id: &'static str,
+    value_id: &'static str,
+    content_id: &'static str,
+    label: &'static str,
+) -> Stateful<Div> {
+    let trigger = selector_trigger_view(dashboard, cx, root_id, trigger_id, label);
+    let Some(snapshot) = dashboard.proto.select_snapshot(root_id) else {
+        return trigger;
+    };
+    let value = snapshot
+        .value
+        .as_ref()
+        .map(|value| proto_surface::select_value_element(value_id, value));
+    let mut content = snapshot.content.as_ref().map_or_else(
+        || div().id(content_id),
+        |state| proto_surface::select_content_element(content_id, state),
+    );
+    let items = snapshot.items.iter().map(|item| {
+        let item_id = item.id.clone();
+        let dispatch_id = item_id.clone();
+        let commit_id = item_id.clone();
+        proto_surface::select_item_surface(
+            item_id,
+            item,
+            cx,
+            move |this, kind, source, detail| {
+                this.forward_select_input(root_id, &dispatch_id, kind, source, detail);
+            },
+            move |this, source| {
+                this.forward_select_input(
                     root_id,
-                    trigger_id,
+                    &commit_id,
                     InputKind::PressCommit,
-                    InputSource::Accessibility,
+                    source,
                     None,
-                ) {
-                    this.snapshot.status_message = format!("Proto UI Select failed: {error}");
-                }
-                cx.notify();
-            })
-            .ok();
-    })
-    .on_click(cx.listener(move |this, event, _, cx| {
-        let source = match event {
-            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
-            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
-            gpui::ClickEvent::Touch(_) => InputSource::Touch,
-        };
-        if let Err(error) =
-            this.proto
-                .dispatch_select(root_id, trigger_id, InputKind::PressCommit, source, None)
-        {
-            this.snapshot.status_message = format!("Proto UI Select failed: {error}");
-        }
-        cx.notify();
-    }))
+                );
+            },
+        )
+    });
+    content = content.children(items);
+    let mut group = div()
+        .id(format!("{trigger_id}-group"))
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(trigger);
+    if let Some(value) = value {
+        group = group.child(value);
+    }
+    group.child(content)
 }
 
 /// Disabled Select surfaces for performance mode, tuning profile, and power
@@ -2394,25 +2285,31 @@ fn selector_trigger_view(
 /// inventing state; enabling them is the final-composition migration.
 fn selectors_strip(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoElement {
     div().flex().flex_row().flex_wrap().gap_2().children([
-        selector_trigger_view(
+        selector_group_view(
             dashboard,
             cx,
             PERFORMANCE_MODE_SELECT_ROOT_ID,
             PERFORMANCE_MODE_SELECT_TRIGGER_ID,
+            PERFORMANCE_MODE_SELECT_VALUE_ID,
+            PERFORMANCE_MODE_SELECT_CONTENT_ID,
             "Performance mode",
         ),
-        selector_trigger_view(
+        selector_group_view(
             dashboard,
             cx,
             TUNING_PROFILE_SELECT_ROOT_ID,
             TUNING_PROFILE_SELECT_TRIGGER_ID,
+            TUNING_PROFILE_SELECT_VALUE_ID,
+            TUNING_PROFILE_SELECT_CONTENT_ID,
             "Tuning profile",
         ),
-        selector_trigger_view(
+        selector_group_view(
             dashboard,
             cx,
             POWER_SCHEME_SELECT_ROOT_ID,
             POWER_SCHEME_SELECT_TRIGGER_ID,
+            POWER_SCHEME_SELECT_VALUE_ID,
+            POWER_SCHEME_SELECT_CONTENT_ID,
             "Power scheme",
         ),
     ])
@@ -2435,47 +2332,23 @@ fn profile_dialog_trigger_view(
     else {
         return unavailable_button(TUNING_PROFILE_APPLY_ID, "APPLY PROFILE UNAVAILABLE");
     };
-    let disabled = trigger.disabled;
-    let dashboard_entity = cx.entity().downgrade();
-    let mouse_focus = focus_handle.clone();
-    proto_surface::dialog_trigger_element(
+    proto_surface::dialog_trigger_surface(
         TUNING_PROFILE_APPLY_ID,
-        "APPLY PROFILE",
         trigger,
-        Some(&focus_handle),
-        move |_, _, cx| {
-            dashboard_entity
-                .update(cx, |this, cx| {
-                    this.open_profile_dialog(InputSource::Accessibility);
-                    cx.notify();
-                })
-                .ok();
+        focus_handle,
+        cx,
+        move |this, kind, source, detail| {
+            this.forward_dialog_input(TUNING_PROFILE_APPLY_ID, kind, source, detail);
+        },
+        move |this, source| {
+            this.open_profile_dialog(source);
+        },
+        move |this, key, _, _| {
+            if key.eq_ignore_ascii_case("escape") {
+                this.handle_dialog_key(PROFILE_DIALOG_CONTENT_ID, "Escape");
+            }
         },
     )
-    .on_mouse_down(
-        gpui::MouseButton::Left,
-        cx.listener(move |_this, _, window, cx| {
-            if !disabled {
-                window.focus(&mouse_focus, cx);
-            }
-            cx.notify();
-        }),
-    )
-    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
-        if event.keystroke.key.eq_ignore_ascii_case("escape") {
-            this.handle_dialog_key(PROFILE_DIALOG_CONTENT_ID, "Escape");
-            cx.notify();
-        }
-    }))
-    .on_click(cx.listener(move |this, event, _, cx| {
-        let source = match event {
-            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
-            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
-            gpui::ClickEvent::Touch(_) => InputSource::Touch,
-        };
-        this.open_profile_dialog(source);
-        cx.notify();
-    }))
 }
 
 fn bios_dialog_trigger_view(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Stateful<Div> {
@@ -2492,49 +2365,24 @@ fn bios_dialog_trigger_view(dashboard: &Dashboard, cx: &mut Context<Dashboard>) 
     else {
         return unavailable_button(BIOS_DIALOG_TRIGGER_ID, "BIOS WRITE UNAVAILABLE");
     };
-    let disabled = trigger.disabled;
-    let dashboard_entity = cx.entity().downgrade();
-    let mouse_focus = focus_handle.clone();
-    proto_surface::dialog_trigger_element(
+    proto_surface::dialog_trigger_surface(
         BIOS_DIALOG_TRIGGER_ID,
-        "WRITE BIOS SETTING",
         trigger,
-        Some(&focus_handle),
-        move |_, _, cx| {
-            dashboard_entity
-                .update(cx, |this, cx| {
-                    this.open_bios_dialog(InputSource::Accessibility);
-                    cx.notify();
-                })
-                .ok();
+        focus_handle,
+        cx,
+        move |this, kind, source, detail| {
+            this.forward_dialog_input(BIOS_DIALOG_TRIGGER_ID, kind, source, detail);
+        },
+        move |this, source| {
+            this.open_bios_dialog(source);
+        },
+        move |this, key, _, _| {
+            if key.eq_ignore_ascii_case("escape") {
+                this.handle_dialog_key(BIOS_DIALOG_CONTENT_ID, "Escape");
+            }
         },
     )
-    .on_mouse_down(
-        gpui::MouseButton::Left,
-        cx.listener(move |_this, _, window, cx| {
-            if !disabled {
-                window.focus(&mouse_focus, cx);
-            }
-            cx.notify();
-        }),
-    )
-    .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
-        if event.keystroke.key.eq_ignore_ascii_case("escape") {
-            this.handle_dialog_key(BIOS_DIALOG_CONTENT_ID, "Escape");
-            cx.notify();
-        }
-    }))
-    .on_click(cx.listener(move |this, event, _, cx| {
-        let source = match event {
-            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
-            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
-            gpui::ClickEvent::Touch(_) => InputSource::Touch,
-        };
-        this.open_bios_dialog(source);
-        cx.notify();
-    }))
 }
-
 fn dialog_close_view(
     dashboard: &Dashboard,
     cx: &mut Context<Dashboard>,
@@ -2547,46 +2395,28 @@ fn dialog_close_view(
         return unavailable_button(id, "UNAVAILABLE");
     };
     let focus_handle = dashboard.dialog_focus_handles.get(id).cloned();
-    let dashboard_entity = cx.entity().downgrade();
-    let a11y_entity = dashboard_entity.clone();
-    let element =
-        proto_surface::dialog_close_element(id, close, focus_handle.as_ref(), move |_, _, cx| {
-            a11y_entity
-                .update(cx, |this, cx| {
-                    if bios {
-                        if confirm {
-                            this.confirm_bios_dialog();
-                        } else {
-                            this.cancel_bios_dialog();
-                        }
-                    } else if confirm {
-                        this.confirm_profile_dialog();
-                    } else {
-                        this.cancel_profile_dialog();
-                    }
-                    cx.notify();
-                })
-                .ok();
-        });
-    element.on_click(cx.listener(move |this, event, _, cx| {
-        let _source = match event {
-            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
-            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
-            gpui::ClickEvent::Touch(_) => InputSource::Touch,
-        };
-        if bios {
-            if confirm {
-                this.confirm_bios_dialog();
+    proto_surface::dialog_close_surface(
+        id,
+        close,
+        focus_handle,
+        cx,
+        move |this, kind, source, detail| {
+            this.forward_dialog_input(id, kind, source, detail);
+        },
+        move |this, _source| {
+            if bios {
+                if confirm {
+                    this.confirm_bios_dialog();
+                } else {
+                    this.cancel_bios_dialog();
+                }
+            } else if confirm {
+                this.confirm_profile_dialog();
             } else {
-                this.cancel_bios_dialog();
+                this.cancel_profile_dialog();
             }
-        } else if confirm {
-            this.confirm_profile_dialog();
-        } else {
-            this.cancel_profile_dialog();
-        }
-        cx.notify();
-    }))
+        },
+    )
 }
 
 fn dialog_surface_view(
@@ -2625,15 +2455,14 @@ fn dialog_surface_view(
         proto_surface::dialog_content_element(content_id, content, focus_handle);
     let route_id = content_id;
     content_element =
-        content_element.on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
-            let key = if event.keystroke.key.eq_ignore_ascii_case("escape") {
+        proto_surface::dialog_content_key_surface(content_element, cx, move |this, key, _, _| {
+            let key = if key.eq_ignore_ascii_case("escape") {
                 "Escape"
             } else {
-                event.keystroke.key.as_str()
+                key
             };
             this.handle_dialog_key(route_id, key);
-            cx.notify();
-        }));
+        });
     if let Some(header) = snapshot.header.as_ref() {
         let mut header_element = proto_surface::dialog_header_element(header_id, header);
         if let Some(title) = snapshot.title.as_ref() {
@@ -2833,6 +2662,232 @@ fn desktop_session_available(
         .any(|value| !value.is_empty())
 }
 
+/// Proto component families exercised by the Sailbreak dashboard dogfood.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum DogfoodFamily {
+    Button,
+    Toggle,
+    Switch,
+    Checkbox,
+    Tabs,
+    Select,
+    Dropdown,
+    Dialog,
+    Textarea,
+    HoverCard,
+    Separator,
+}
+
+impl DogfoodFamily {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Button => "Button",
+            Self::Toggle => "Toggle",
+            Self::Switch => "Switch",
+            Self::Checkbox => "Checkbox",
+            Self::Tabs => "Tabs",
+            Self::Select => "Select",
+            Self::Dropdown => "Dropdown",
+            Self::Dialog => "Dialog",
+            Self::Textarea => "Textarea",
+            Self::HoverCard => "Hover Card",
+            Self::Separator => "Separator",
+        }
+    }
+}
+
+/// One resolved semantic surface in the executable dogfood inventory.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DogfoodSurface {
+    pub family: DogfoodFamily,
+    pub id: String,
+    pub label: String,
+    pub disabled: bool,
+    pub present: bool,
+    /// `None` means the current boolean value is intentionally unknown.
+    pub checked: Option<bool>,
+    pub active: Option<bool>,
+    pub unavailable_reason: Option<String>,
+}
+
+/// Resolved inventory and selected/presence facts from the actual Proto hosts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DogfoodInventory {
+    families: BTreeSet<DogfoodFamily>,
+    pub surfaces: Vec<DogfoodSurface>,
+    pub selected_tab: Option<String>,
+    pub present_content_ids: BTreeSet<String>,
+    pub modal_blocking: bool,
+}
+
+impl DogfoodInventory {
+    #[must_use]
+    pub fn has_family(&self, family: DogfoodFamily) -> bool {
+        self.families.contains(&family)
+    }
+
+    pub fn families(&self) -> impl Iterator<Item = &DogfoodFamily> {
+        self.families.iter()
+    }
+
+    #[must_use]
+    pub fn surface(&self, family: DogfoodFamily, id: &str) -> Option<&DogfoodSurface> {
+        self.surfaces
+            .iter()
+            .find(|surface| surface.family == family && surface.id == id)
+    }
+}
+
+/// A small executable controller for contract tests and headless dogfood.
+/// It owns the same Dashboard composition used by the desktop executable;
+/// no alternate component state or HAL path is introduced.
+pub struct DogfoodSession {
+    dashboard: Dashboard,
+}
+
+impl DogfoodSession {
+    #[must_use]
+    pub fn with_controller(
+        snapshot: DashboardSnapshot,
+        controller: Arc<dyn GuiController>,
+    ) -> Self {
+        Self {
+            dashboard: Dashboard::with_controller(snapshot, controller),
+        }
+    }
+
+    #[must_use]
+    pub fn inventory(&self) -> DogfoodInventory {
+        self.dashboard.dogfood_inventory()
+    }
+
+    #[must_use]
+    pub fn activate_button(&mut self, id: &str) -> bool {
+        let Some(action) = button_action(id) else {
+            return false;
+        };
+        let before = self
+            .dashboard
+            .proto
+            .button(id)
+            .map(|state| state.click_count);
+        self.dashboard
+            .handle_proto_click(id, action, InputSource::Accessibility);
+        let after = self
+            .dashboard
+            .proto
+            .button(id)
+            .map(|state| state.click_count);
+        matches!((before, after), (Some(before), Some(after)) if after == before + 1)
+    }
+
+    #[must_use]
+    pub fn activate_toggle(&mut self, id: &str) -> bool {
+        if id != PERFORMANCE_PREVIEW_TOGGLE_ID {
+            return false;
+        }
+        self.dashboard.handle_proto_toggle(
+            id,
+            DashboardAction::RunCommand(PERFORMANCE_DRY_RUN_COMMAND),
+            InputSource::Accessibility,
+        )
+    }
+
+    /// Dispatch a commit through the disabled, unknown-state Switch host.
+    /// Returns whether Proto UI emitted a checked-state change.
+    #[must_use]
+    pub fn activate_switch(&mut self) -> bool {
+        self.dashboard
+            .proto
+            .dispatch_switch(
+                CAPABILITY_SWITCH_ID,
+                InputKind::PressCommit,
+                InputSource::Accessibility,
+                None,
+            )
+            .is_ok_and(|outcome| outcome.checked_change_count == 1)
+    }
+
+    /// Dispatch a commit through the disabled, unknown-state Checkbox host.
+    /// Returns whether Proto UI emitted a checked-state change.
+    #[must_use]
+    pub fn activate_checkbox(&mut self) -> bool {
+        self.dashboard
+            .proto
+            .dispatch_checkbox(
+                CAPABILITY_CHECKBOX_ID,
+                InputKind::PressCommit,
+                InputSource::Accessibility,
+                None,
+            )
+            .is_ok_and(|outcome| outcome.checked_change_count == 1)
+    }
+
+    #[must_use]
+    pub fn activate_dropdown_item(&mut self, root_id: &str, item_id: &str) -> bool {
+        let Some(spec) = dropdown_specs(root_id)
+            .iter()
+            .find(|spec| spec.id == item_id)
+        else {
+            return false;
+        };
+        let Some(trigger_id) = dropdown_trigger_id(root_id) else {
+            return false;
+        };
+        let is_open = self
+            .dashboard
+            .proto
+            .dropdown_snapshot(root_id)
+            .map(|snapshot| snapshot.root.open)
+            .unwrap_or(false);
+        if !is_open {
+            self.dashboard
+                .handle_dropdown_trigger(root_id, trigger_id, InputSource::Accessibility);
+        }
+        self.dashboard.handle_dropdown_item(
+            root_id,
+            item_id,
+            spec.action,
+            InputSource::Accessibility,
+        )
+    }
+
+    #[must_use]
+    pub fn open_profile_confirmation(&mut self) -> bool {
+        self.dashboard
+            .open_profile_dialog(InputSource::Accessibility)
+    }
+
+    #[must_use]
+    pub fn confirm_profile(&mut self) -> bool {
+        self.dashboard.confirm_profile_dialog()
+    }
+
+    #[must_use]
+    pub fn open_bios_confirmation(&mut self) -> bool {
+        self.dashboard.open_bios_dialog(InputSource::Accessibility)
+    }
+
+    #[must_use]
+    pub fn confirm_bios(&mut self) -> bool {
+        self.dashboard.confirm_bios_dialog()
+    }
+}
+
+/// Build the executable dogfood inventory from the same Proto host graph used
+/// by [`Dashboard`].
+#[must_use]
+pub fn dogfood_inventory(snapshot: &DashboardSnapshot) -> DogfoodInventory {
+    let session = DogfoodSession::with_controller(
+        snapshot.clone(),
+        Arc::new(StaticController {
+            snapshot: snapshot.clone(),
+        }),
+    );
+    session.inventory()
+}
+
 /// GPUI view for the technical control-center dashboard.
 pub struct Dashboard {
     snapshot: DashboardSnapshot,
@@ -2901,20 +2956,13 @@ impl Dashboard {
         }
         for id in SIDEBAR_BUTTON_IDS {
             let handle = cx.focus_handle();
-            let focus_subscription = cx.on_focus(&handle, window, move |this, window, cx| {
-                let source = if window.last_input_was_keyboard() {
-                    InputSource::Keyboard
-                } else {
-                    InputSource::Mouse
-                };
-                this.handle_tab_focus(id, source, cx);
-                cx.notify();
-            });
-            let blur_subscription = cx.on_blur(&handle, window, move |this, _, cx| {
-                this.handle_tab_blur(id, cx);
-                cx.notify();
-            });
-
+            let (focus_subscription, blur_subscription) = proto_surface::focus_subscriptions(
+                cx,
+                window,
+                &handle,
+                move |this, source, cx| this.handle_tab_focus(id, source, cx),
+                move |this, cx| this.handle_tab_blur(id, cx),
+            );
             if let Err(error) = self.proto.set_tab_focus_ready(id, true) {
                 self.snapshot.status_message = format!("Proto UI tab focus unavailable: {error}");
             }
@@ -2923,6 +2971,7 @@ impl Dashboard {
             self.tab_focus_subscriptions.push(blur_subscription);
         }
     }
+
     fn ensure_dropdown_focus_handles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for (root_id, trigger_id) in [
             (
@@ -2938,19 +2987,13 @@ impl Dashboard {
                 continue;
             }
             let handle = cx.focus_handle();
-            let focus_subscription = cx.on_focus(&handle, window, move |this, window, cx| {
-                let source = if window.last_input_was_keyboard() {
-                    InputSource::Keyboard
-                } else {
-                    InputSource::Mouse
-                };
-                this.handle_dropdown_focus(root_id, trigger_id, source);
-                cx.notify();
-            });
-            let blur_subscription = cx.on_blur(&handle, window, move |this, _, cx| {
-                this.handle_dropdown_blur(root_id, trigger_id);
-                cx.notify();
-            });
+            let (focus_subscription, blur_subscription) = proto_surface::focus_subscriptions(
+                cx,
+                window,
+                &handle,
+                move |this, source, _| this.handle_dropdown_focus(root_id, trigger_id, source),
+                move |this, _| this.handle_dropdown_blur(root_id, trigger_id),
+            );
             if let Err(error) = self
                 .proto
                 .set_dropdown_focus_ready(root_id, trigger_id, true)
@@ -2982,19 +3025,13 @@ impl Dashboard {
                 continue;
             }
             let handle = cx.focus_handle();
-            let focus_subscription = cx.on_focus(&handle, window, move |this, window, cx| {
-                let source = if window.last_input_was_keyboard() {
-                    InputSource::Keyboard
-                } else {
-                    InputSource::Mouse
-                };
-                this.handle_dialog_focus(id, source);
-                cx.notify();
-            });
-            let blur_subscription = cx.on_blur(&handle, window, move |this, _, cx| {
-                this.handle_dialog_blur(id);
-                cx.notify();
-            });
+            let (focus_subscription, blur_subscription) = proto_surface::focus_subscriptions(
+                cx,
+                window,
+                &handle,
+                move |this, source, _| this.handle_dialog_focus(id, source),
+                move |this, _| this.handle_dialog_blur(id),
+            );
             if let Err(error) = self.proto.set_dialog_focus_ready(id, true) {
                 self.snapshot.status_message =
                     format!("Proto UI Dialog focus unavailable: {error}");
@@ -3022,20 +3059,14 @@ impl Dashboard {
             }
             let handle = cx.focus_handle();
             let focus_feature = feature.clone();
-            let focus_subscription = cx.on_focus(&handle, window, move |this, window, cx| {
-                let source = if window.last_input_was_keyboard() {
-                    InputSource::Keyboard
-                } else {
-                    InputSource::Mouse
-                };
-                this.handle_hover_focus(&focus_feature, source);
-                cx.notify();
-            });
             let blur_feature = feature.clone();
-            let blur_subscription = cx.on_blur(&handle, window, move |this, _, cx| {
-                this.handle_hover_blur(&blur_feature);
-                cx.notify();
-            });
+            let (focus_subscription, blur_subscription) = proto_surface::focus_subscriptions(
+                cx,
+                window,
+                &handle,
+                move |this, source, _| this.handle_hover_focus(&focus_feature, source),
+                move |this, _| this.handle_hover_blur(&blur_feature),
+            );
             if let Err(error) = self.proto.set_hover_focus_ready(&feature, true) {
                 self.snapshot.status_message =
                     format!("Proto UI Hover Card focus unavailable: {error}");
@@ -3078,17 +3109,12 @@ impl Dashboard {
         });
     }
 
-    fn handle_hover_pointer(&mut self, feature: &str, hovered: bool) {
-        let kind = if hovered {
-            InputKind::PointerEnter
-        } else {
-            InputKind::PointerLeave
-        };
-        if let Err(error) = self
-            .proto
-            .dispatch_hover_card(feature, kind, InputSource::Mouse)
-        {
-            self.snapshot.status_message = format!("Proto UI Hover Card pointer failed: {error}");
+    fn handle_hover_input(&mut self, feature: &str, kind: InputKind, source: InputSource) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
+        if let Err(error) = self.proto.dispatch_hover_card(feature, kind, source) {
+            self.snapshot.status_message = format!("Proto UI Hover Card input failed: {error}");
         }
     }
 
@@ -3134,21 +3160,20 @@ impl Dashboard {
             },
         );
         let focus_handle = input.read(cx).focus_handle();
-        let textarea_focus_subscription = cx.on_focus(&focus_handle, window, |this, window, cx| {
-            let source = if window.last_input_was_keyboard() {
-                InputSource::Keyboard
-            } else {
-                InputSource::Mouse
-            };
-            this.handle_textarea_focus(TUNING_PROFILE_EDITOR_ID, true, source, cx);
-            cx.notify();
-        });
         let blur_input = input.clone();
-        let textarea_blur_subscription = cx.on_blur(&focus_handle, window, move |this, _, cx| {
-            let changed = blur_input.update(cx, |input, _| input.take_dirty());
-            this.handle_textarea_blur(TUNING_PROFILE_EDITOR_ID, changed, cx);
-            cx.notify();
-        });
+        let (textarea_focus_subscription, textarea_blur_subscription) =
+            proto_surface::focus_subscriptions(
+                cx,
+                window,
+                &focus_handle,
+                move |this, source, cx| {
+                    this.handle_textarea_focus(TUNING_PROFILE_EDITOR_ID, true, source, cx);
+                },
+                move |this, cx| {
+                    let changed = blur_input.update(cx, |input, _| input.take_dirty());
+                    this.handle_textarea_blur(TUNING_PROFILE_EDITOR_ID, changed, cx);
+                },
+            );
         self.textarea_input = Some(input);
         self.textarea_subscription = Some(textarea_subscription);
         self.textarea_focus_subscription = Some(textarea_focus_subscription);
@@ -3266,6 +3291,63 @@ impl Dashboard {
             }
         }
     }
+    fn forward_dropdown_input(
+        &mut self,
+        root_id: &str,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
+        if let Err(error) = self
+            .proto
+            .dispatch_dropdown(root_id, id, kind, source, detail)
+        {
+            self.snapshot.status_message = format!("Proto UI Dropdown input failed: {error}");
+        }
+    }
+
+    fn forward_select_input(
+        &mut self,
+        root_id: &str,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
+        if let Err(error) = self
+            .proto
+            .dispatch_select(root_id, id, kind, source, detail)
+        {
+            self.snapshot.status_message = format!("Proto UI Select input failed: {error}");
+        }
+    }
+
+    fn handle_select_trigger(&mut self, root_id: &str, id: &str, source: InputSource) {
+        self.forward_select_input(root_id, id, InputKind::PressCommit, source, None);
+    }
+
+    fn forward_dialog_input(
+        &mut self,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        detail: Option<serde_json::Value>,
+    ) {
+        if !ProtoUiState::is_dialog_id(id) {
+            return;
+        }
+        if let Err(error) = self.proto.dispatch_dialog_input(id, kind, source, detail) {
+            self.snapshot.status_message = format!("Proto UI Dialog input failed: {error}");
+        }
+    }
+
     fn handle_dropdown_focus(&mut self, root_id: &str, trigger_id: &str, source: InputSource) {
         if self.proto.dialog_modal_blocking() {
             return;
@@ -3283,6 +3365,20 @@ impl Dashboard {
             Err(error) => {
                 self.snapshot.status_message = format!("Proto UI Dropdown focus failed: {error}");
             }
+        }
+    }
+    fn forward_tabs_input(
+        &mut self,
+        id: &str,
+        kind: InputKind,
+        source: InputSource,
+        _detail: Option<serde_json::Value>,
+    ) {
+        if self.proto.dialog_modal_blocking() {
+            return;
+        }
+        if let Err(error) = self.proto.dispatch_tab_input(id, kind, source) {
+            self.snapshot.status_message = format!("Proto UI tab input failed: {error}");
         }
     }
 
@@ -3319,19 +3415,23 @@ impl Dashboard {
         item_id: &str,
         action: DashboardAction,
         source: InputSource,
-    ) {
+    ) -> bool {
         if self.proto.dialog_modal_blocking() {
-            return;
+            return false;
         }
         match self
             .proto
             .dispatch_dropdown(root_id, item_id, InputKind::PressCommit, source, None)
         {
-            Ok(outcome) if outcome.item_select_count == 1 => self.apply_action(action),
-            Ok(_) => {}
+            Ok(outcome) if outcome.item_select_count == 1 => {
+                self.apply_action(action);
+                true
+            }
+            Ok(_) => false,
             Err(error) => {
                 self.snapshot.status_message =
                     format!("Proto UI Dropdown item activation failed: {error}");
+                false
             }
         }
     }
@@ -3363,18 +3463,20 @@ impl Dashboard {
         }
     }
 
-    fn open_profile_dialog(&mut self, source: InputSource) {
+    fn open_profile_dialog(&mut self, source: InputSource) -> bool {
         if self.proto.dialog_modal_blocking() {
-            return;
+            return false;
         }
         match self.proto.press_profile_trigger(source) {
             Ok(outcome) if outcome.trigger_press_count == 1 => {
                 self.snapshot.status_message =
                     "Profile apply requires explicit confirmation".to_owned();
+                true
             }
-            Ok(_) => {}
+            Ok(_) => false,
             Err(error) => {
                 self.snapshot.status_message = format!("Profile confirmation unavailable: {error}");
+                false
             }
         }
     }
@@ -3392,31 +3494,37 @@ impl Dashboard {
         }
     }
 
-    fn confirm_profile_dialog(&mut self) {
+    fn confirm_profile_dialog(&mut self) -> bool {
         match self
             .proto
             .press_profile_close(PROFILE_DIALOG_CONFIRM_ID, InputSource::Accessibility)
         {
-            Ok(outcome) if outcome.close_press_count == 1 => self.apply_profile_confirmed(),
-            Ok(_) => {}
+            Ok(outcome) if outcome.close_press_count == 1 => {
+                self.apply_profile_confirmed();
+                true
+            }
+            Ok(_) => false,
             Err(error) => {
                 self.snapshot.status_message = format!("Profile confirmation failed: {error}");
+                false
             }
         }
     }
 
-    fn open_bios_dialog(&mut self, source: InputSource) {
+    fn open_bios_dialog(&mut self, source: InputSource) -> bool {
         if self.proto.dialog_modal_blocking() {
-            return;
+            return false;
         }
         match self.proto.press_bios_trigger(source) {
             Ok(outcome) if outcome.trigger_press_count == 1 => {
                 self.snapshot.status_message =
                     "BIOS write requires explicit confirmation".to_owned();
+                true
             }
-            Ok(_) => {}
+            Ok(_) => false,
             Err(error) => {
                 self.snapshot.status_message = format!("BIOS confirmation unavailable: {error}");
+                false
             }
         }
     }
@@ -3433,15 +3541,19 @@ impl Dashboard {
         }
     }
 
-    fn confirm_bios_dialog(&mut self) {
+    fn confirm_bios_dialog(&mut self) -> bool {
         match self
             .proto
             .press_bios_close(BIOS_DIALOG_CONFIRM_ID, InputSource::Accessibility)
         {
-            Ok(outcome) if outcome.close_press_count == 1 => self.apply_bios_write(),
-            Ok(_) => {}
+            Ok(outcome) if outcome.close_press_count == 1 => {
+                self.apply_bios_write();
+                true
+            }
+            Ok(_) => false,
             Err(error) => {
                 self.snapshot.status_message = format!("BIOS confirmation failed: {error}");
+                false
             }
         }
     }
@@ -3607,18 +3719,19 @@ impl Dashboard {
         }
     }
 
-    fn handle_accessible_proto_click(&mut self, id: &str, action: DashboardAction) {
-        self.handle_proto_click(id, action, InputSource::Accessibility);
-    }
-
-    fn handle_proto_toggle(&mut self, id: &str, action: DashboardAction, source: InputSource) {
+    fn handle_proto_toggle(
+        &mut self,
+        id: &str,
+        action: DashboardAction,
+        source: InputSource,
+    ) -> bool {
         let Ok(current) = self.proto.toggle(id) else {
             self.snapshot.status_message = "Proto UI toggle is unavailable".to_owned();
-            return;
+            return false;
         };
         let next_active = !current.active;
         if !self.dispatch_proto_toggle(id, InputKind::PressCommit, source, None) {
-            return;
+            return false;
         }
 
         let command_succeeded = if next_active {
@@ -3646,22 +3759,296 @@ impl Dashboard {
         if command_succeeded && let Err(error) = self.proto.set_toggle_active(id, next_active) {
             self.snapshot.status_message = format!("Proto UI action failed: {error}");
         }
+        next_active && command_succeeded
     }
 
-    fn handle_accessible_proto_toggle(&mut self, id: &str, action: DashboardAction) {
-        self.handle_proto_toggle(id, action, InputSource::Accessibility);
-    }
-}
+    fn dogfood_inventory(&self) -> DogfoodInventory {
+        let mut families = BTreeSet::new();
+        let mut surfaces = Vec::new();
+        let mut present_content_ids = BTreeSet::new();
+        let mut add =
+            |family, id: &str, label: String, disabled, present, checked, active, reason| {
+                families.insert(family);
+                surfaces.push(DogfoodSurface {
+                    family,
+                    id: id.to_owned(),
+                    label,
+                    disabled,
+                    present,
+                    checked,
+                    active,
+                    unavailable_reason: reason,
+                });
+            };
 
-fn tab_navigation_key(key: &str) -> Option<&'static str> {
-    match key {
-        "left" | "ArrowLeft" => Some("ArrowLeft"),
-        "right" | "ArrowRight" => Some("ArrowRight"),
-        "up" | "ArrowUp" => Some("ArrowUp"),
-        "down" | "ArrowDown" => Some("ArrowDown"),
-        "home" | "Home" => Some("Home"),
-        "end" | "End" => Some("End"),
-        _ => None,
+        if self.proto.host.is_some() {
+            add(
+                DogfoodFamily::Button,
+                "refresh-status",
+                "REFRESH STATUS".to_owned(),
+                false,
+                true,
+                None,
+                None,
+                None,
+            );
+            add(
+                DogfoodFamily::Button,
+                TUNING_PROFILE_SAVE_ID,
+                "SAVE PROFILE".to_owned(),
+                false,
+                true,
+                None,
+                None,
+                None,
+            );
+        }
+        if let Ok(toggle) = self.proto.toggle(PERFORMANCE_PREVIEW_TOGGLE_ID) {
+            add(
+                DogfoodFamily::Toggle,
+                PERFORMANCE_PREVIEW_TOGGLE_ID,
+                toggle.label,
+                toggle.disabled,
+                true,
+                None,
+                Some(toggle.active),
+                None,
+            );
+        }
+        if let Some(switch) = self.proto.switch_snapshot() {
+            add(
+                DogfoodFamily::Switch,
+                CAPABILITY_SWITCH_ID,
+                switch.label.clone(),
+                switch.disabled,
+                true,
+                None,
+                None,
+                switch
+                    .disabled
+                    .then(|| "typed DeviceState readback unavailable".to_owned()),
+            );
+        }
+        if let Some(checkbox) = self.proto.checkbox_snapshot() {
+            add(
+                DogfoodFamily::Checkbox,
+                CAPABILITY_CHECKBOX_ID,
+                checkbox.label.clone(),
+                checkbox.disabled,
+                true,
+                None,
+                None,
+                checkbox
+                    .disabled
+                    .then(|| "typed DeviceState readback unavailable".to_owned()),
+            );
+        }
+        if let Some(tabs) = self.proto.tabs_snapshot() {
+            if let Some(root) = tabs.root.as_ref() {
+                add(
+                    DogfoodFamily::Tabs,
+                    &root.id,
+                    "Dashboard sections".to_owned(),
+                    false,
+                    true,
+                    None,
+                    None,
+                    None,
+                );
+                if !root.value.is_empty() {
+                    present_content_ids.insert(root.value.clone());
+                }
+            }
+            for trigger in &tabs.triggers {
+                add(
+                    DogfoodFamily::Tabs,
+                    &trigger.id,
+                    trigger.label.clone(),
+                    trigger.disabled,
+                    trigger.selected,
+                    None,
+                    None,
+                    None,
+                );
+            }
+            for content in &tabs.contents {
+                if content.present {
+                    present_content_ids.insert(content.id.clone());
+                }
+            }
+        }
+        for select in [
+            self.proto.performance_select_snapshot.as_ref(),
+            self.proto.tuning_select_snapshot.as_ref(),
+            self.proto.power_select_snapshot.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            add(
+                DogfoodFamily::Select,
+                &select.root.id,
+                select.root.label.clone(),
+                select.root.disabled,
+                true,
+                None,
+                None,
+                select
+                    .root
+                    .disabled
+                    .then(|| "typed value readback unavailable".to_owned()),
+            );
+            if let Some(content) = select.content.as_ref()
+                && content.present
+            {
+                present_content_ids.insert(content.id.clone());
+            }
+        }
+        for dropdown in [
+            self.proto.status_dropdown_snapshot.as_ref(),
+            self.proto.system_dropdown_snapshot.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            add(
+                DogfoodFamily::Dropdown,
+                &dropdown.root.id,
+                dropdown.root.label.clone(),
+                dropdown.root.disabled,
+                true,
+                None,
+                None,
+                None,
+            );
+            if let Some(content) = dropdown.content.as_ref()
+                && content.present
+            {
+                present_content_ids.insert(content.id.clone());
+            }
+        }
+        if let Some(profile) = self.proto.profile_dialog_snapshot.as_ref() {
+            add(
+                DogfoodFamily::Dialog,
+                &profile.root.id,
+                profile.root.label.clone(),
+                profile.root.disabled,
+                profile.root.open,
+                None,
+                None,
+                None,
+            );
+            if profile
+                .content
+                .as_ref()
+                .is_some_and(|content| content.present)
+            {
+                present_content_ids.insert(PROFILE_DIALOG_CONTENT_ID.to_owned());
+            }
+        }
+        if let Some(bios) = self.proto.bios_dialog_snapshot.as_ref() {
+            add(
+                DogfoodFamily::Dialog,
+                &bios.root.id,
+                bios.root.label.clone(),
+                bios.root.disabled,
+                bios.root.open,
+                None,
+                None,
+                None,
+            );
+        } else {
+            add(
+                DogfoodFamily::Dialog,
+                BIOS_DIALOG_ROOT_ID,
+                "Confirm BIOS write".to_owned(),
+                true,
+                false,
+                None,
+                None,
+                Some("typed BIOS readback unavailable".to_owned()),
+            );
+        }
+        if let Some(textarea) = self.proto.textarea_snapshot() {
+            add(
+                DogfoodFamily::Textarea,
+                &textarea.id,
+                textarea.label.clone(),
+                textarea.disabled,
+                true,
+                None,
+                None,
+                None,
+            );
+        }
+        for (feature, snapshot) in &self.proto.hover_card_snapshots {
+            add(
+                DogfoodFamily::HoverCard,
+                &format!("hover-card:{feature}"),
+                feature.clone(),
+                false,
+                snapshot
+                    .content
+                    .as_ref()
+                    .is_some_and(|content| content.present),
+                None,
+                None,
+                None,
+            );
+        }
+        if self.proto.hover_card_snapshots.is_empty() {
+            add(
+                DogfoodFamily::HoverCard,
+                EMPTY_HOVER_CARD_FEATURE_ID,
+                "Capability detail unavailable".to_owned(),
+                true,
+                false,
+                None,
+                None,
+                Some("no capability detail is reported".to_owned()),
+            );
+        }
+        for id in [
+            MAIN_HEADER_SEPARATOR_ID,
+            ACTION_SEPARATOR_ID,
+            CAPABILITY_SEPARATOR_ID,
+        ] {
+            if self.proto.separator_host.is_some() {
+                add(
+                    DogfoodFamily::Separator,
+                    id,
+                    "Layout separator".to_owned(),
+                    false,
+                    true,
+                    None,
+                    None,
+                    None,
+                );
+            }
+        }
+        let selected_tab = self
+            .proto
+            .tabs_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.root.as_ref())
+            .map(|root| root.value.clone());
+        let modal_blocking = self
+            .proto
+            .profile_dialog_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.root.open)
+            || self
+                .proto
+                .bios_dialog_snapshot
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.root.open);
+        DogfoodInventory {
+            families,
+            surfaces,
+            selected_tab,
+            present_content_ids,
+            modal_blocking,
+        }
     }
 }
 
@@ -3678,75 +4065,24 @@ fn tab_action(
     else {
         return unavailable_button(id, label);
     };
-    let disabled = state.disabled;
     let Some(focus_handle) = dashboard.tab_focus_handles.get(id).cloned() else {
         return unavailable_button(id, label);
     };
-    let dashboard_entity = cx.entity().downgrade();
-    let mouse_focus = focus_handle.clone();
-    proto_surface::tab_trigger_element(id, label, state, &focus_handle, move |_, _, cx| {
-        dashboard_entity
-            .update(cx, |this, cx| {
-                this.handle_tab_press(id, InputSource::Accessibility);
-                cx.notify();
-            })
-            .ok();
-    })
-    .on_hover(cx.listener(move |this, hovered, _, cx| {
-        let kind = if *hovered {
-            InputKind::PointerEnter
-        } else {
-            InputKind::PointerLeave
-        };
-        if let Err(error) = this.proto.dispatch_tab_input(id, kind, InputSource::Mouse) {
-            this.snapshot.status_message = format!("Proto UI tab hover failed: {error}");
-        }
-        cx.notify();
-    }))
-    .on_mouse_down(
-        gpui::MouseButton::Left,
-        cx.listener(move |this, _, window, cx| {
-            if !disabled {
-                window.focus(&mouse_focus, cx);
-            }
-            if let Err(error) =
-                this.proto
-                    .dispatch_tab_input(id, InputKind::PointerDown, InputSource::Mouse)
-            {
-                this.snapshot.status_message = format!("Proto UI tab press failed: {error}");
-            }
-            cx.notify();
-        }),
-    )
-    .on_mouse_up(
-        gpui::MouseButton::Left,
-        cx.listener(move |this, _, _, cx| {
-            if let Err(error) =
-                this.proto
-                    .dispatch_tab_input(id, InputKind::PointerUp, InputSource::Mouse)
-            {
-                this.snapshot.status_message = format!("Proto UI tab release failed: {error}");
-            }
-            cx.notify();
-        }),
-    )
-    .on_key_down(
-        cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
-            if let Some(key) = tab_navigation_key(&event.keystroke.key) {
+    proto_surface::tab_trigger_surface(
+        id,
+        state,
+        focus_handle,
+        cx,
+        move |this, kind, source, detail| {
+            this.forward_tabs_input(id, kind, source, detail);
+        },
+        move |this, source| this.handle_tab_press(id, source),
+        move |this, key, window, cx| {
+            if let Some(key) = proto_surface::tab_navigation_key(key) {
                 this.handle_tab_key(key, window, cx);
-                cx.notify();
             }
-        }),
+        },
     )
-    .on_click(cx.listener(move |this, event, _, cx| {
-        let source = match event {
-            gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
-            gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
-            gpui::ClickEvent::Touch(_) => InputSource::Touch,
-        };
-        this.handle_tab_press(id, source);
-        cx.notify();
-    }))
 }
 fn section_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Stateful<Div> {
     let index = dashboard.active_section.min(SECTION_VALUES.len() - 1);
@@ -3783,6 +4119,7 @@ fn section_panel(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Stateful
         panel = panel.child(bios_panel(dashboard, cx));
     } else {
         panel = panel
+            .child(boolean_capability_rows(dashboard, cx))
             .child(capability_matrix(dashboard, cx))
             .child(telemetry_panel(&dashboard.snapshot));
     }
@@ -4047,6 +4384,80 @@ fn capability_row_unavailable(
 /// portal. When the Hover Card host is unavailable the row keeps its plain
 /// Rust text — an explicit unavailable state, never a local interactive
 /// fallback.
+fn boolean_capability_rows(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> Div {
+    let switch = dashboard.proto.switch_snapshot().map(|state| {
+        let state = state.clone();
+        proto_surface::switch_surface(
+            CAPABILITY_SWITCH_ID,
+            &state,
+            None,
+            cx,
+            true,
+            move |this, kind, source, detail| {
+                if let Err(error) =
+                    this.proto
+                        .dispatch_switch(CAPABILITY_SWITCH_ID, kind, source, detail)
+                {
+                    this.snapshot.status_message = format!("Proto UI Switch input failed: {error}");
+                }
+            },
+            |_, _| {},
+        )
+    });
+    let checkbox = dashboard.proto.checkbox_snapshot().map(|state| {
+        let state = state.clone();
+        proto_surface::checkbox_surface(
+            CAPABILITY_CHECKBOX_ID,
+            &state,
+            None,
+            cx,
+            true,
+            move |this, kind, source, detail| {
+                if let Err(error) =
+                    this.proto
+                        .dispatch_checkbox(CAPABILITY_CHECKBOX_ID, kind, source, detail)
+                {
+                    this.snapshot.status_message =
+                        format!("Proto UI Checkbox input failed: {error}");
+                }
+            },
+            |_, _| {},
+        )
+    });
+    let mut rows = div().flex().flex_row().flex_wrap().gap_2();
+    if let Some(switch) = switch {
+        rows = rows.child(
+            div().flex().flex_col().gap_1().child(switch).child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(UNAVAILABLE))
+                    .child("BOOLEAN CAPABILITY / TYPED READBACK UNAVAILABLE"),
+            ),
+        );
+    }
+    if let Some(checkbox) = checkbox {
+        rows = rows.child(
+            div().flex().flex_col().gap_1().child(checkbox).child(
+                div()
+                    .text_xs()
+                    .text_color(rgb(UNAVAILABLE))
+                    .child("BOOLEAN CAPABILITY / TYPED READBACK UNAVAILABLE"),
+            ),
+        );
+    }
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .text_xs()
+                .text_color(rgb(MUTED))
+                .child("BOOLEAN CAPABILITIES"),
+        )
+        .child(rows)
+}
+
 fn capability_matrix(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl IntoElement {
     let rows = dashboard
         .snapshot
@@ -4082,64 +4493,27 @@ fn capability_matrix(dashboard: &Dashboard, cx: &mut Context<Dashboard>) -> impl
             let content_id = dashboard.proto.hover_card_content_id(feature);
             let hover_feature = feature.clone();
             let geometry_feature = feature.clone();
-            let press_focus = focus_handle.clone();
-            let key_focus = focus_handle.clone();
-            let trigger = proto_surface::hover_card_trigger_element(
+            let trigger = proto_surface::hover_card_trigger_surface(
                 trigger_id,
                 feature.clone(),
                 trigger_snapshot,
-                Some(&focus_handle),
-                |_, _, _| {},
-            )
-            .on_hover(cx.listener(move |this, hovered, _, cx| {
-                this.handle_hover_pointer(&hover_feature, *hovered);
-                cx.notify();
-            }))
-            .on_mouse_move(
-                cx.listener(move |this, event: &gpui::MouseMoveEvent, window, cx| {
-                    let viewport = window.viewport_size();
-                    let anchor = OverlayRect::new(
-                        f32::from(event.position.x),
-                        f32::from(event.position.y),
-                        1.0,
-                        1.0,
-                    );
-                    let viewport = OverlayRect::new(
-                        0.0,
-                        0.0,
-                        f32::from(viewport.width),
-                        f32::from(viewport.height),
-                    );
+                Some(focus_handle),
+                cx,
+                move |this, kind, source, _| {
+                    this.handle_hover_input(&hover_feature, kind, source);
+                },
+                move |this, anchor, floating_size, viewport| {
                     if let Err(error) = this.proto.set_hover_card_geometry(
                         &geometry_feature,
                         anchor,
-                        (320.0, 120.0),
+                        floating_size,
                         viewport,
                     ) {
                         this.snapshot.status_message =
                             format!("Proto UI Hover Card placement failed: {error}");
                     }
-                    cx.notify();
-                }),
-            )
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(move |_this, _, window, cx| {
-                    window.focus(&press_focus, cx);
-                    cx.notify();
-                }),
-            )
-            .on_key_down(cx.listener(
-                move |_this, event: &gpui::KeyDownEvent, window, cx| {
-                    if matches!(
-                        event.keystroke.key.as_ref(),
-                        "Tab" | "Shift-Tab" | "Enter" | "Space"
-                    ) {
-                        window.focus(&key_focus, cx);
-                    }
-                    cx.notify();
                 },
-            ));
+            );
 
             let slot_subtree = div()
                 .flex()
@@ -4628,11 +5002,11 @@ mod tests {
 
         impl GuiController for Recorder {
             fn refresh(&self) -> Result<DashboardSnapshot> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
                 Ok(DashboardSnapshot::unavailable(Platform::Linux, "refreshed"))
             }
 
             fn execute(&self, args: &[&str]) -> Result<String> {
-                self.calls.fetch_add(1, Ordering::SeqCst);
                 Ok(format!("executed {}", args.join(" ")))
             }
         }
@@ -4645,16 +5019,17 @@ mod tests {
             controller.clone(),
         );
 
-        dashboard.handle_accessible_proto_click(
-            "battery-status",
-            DashboardAction::RunCommand(BATTERY_STATUS_COMMAND),
+        dashboard.handle_proto_click(
+            "refresh-status",
+            DashboardAction::Refresh,
+            InputSource::Accessibility,
         );
 
         assert_eq!(controller.calls.load(Ordering::SeqCst), 1);
         assert_eq!(
             dashboard
                 .proto
-                .button("battery-status")
+                .button("refresh-status")
                 .unwrap()
                 .click_count,
             1
@@ -4695,9 +5070,10 @@ mod tests {
                 .unwrap()
                 .active
         );
-        dashboard.handle_accessible_proto_toggle(
+        dashboard.handle_proto_toggle(
             PERFORMANCE_PREVIEW_TOGGLE_ID,
             DashboardAction::RunCommand(PERFORMANCE_DRY_RUN_COMMAND),
+            InputSource::Accessibility,
         );
         assert_eq!(controller.calls.load(Ordering::SeqCst), 1);
         assert!(
@@ -4708,9 +5084,10 @@ mod tests {
                 .active
         );
 
-        dashboard.handle_accessible_proto_toggle(
+        dashboard.handle_proto_toggle(
             PERFORMANCE_PREVIEW_TOGGLE_ID,
             DashboardAction::RunCommand(PERFORMANCE_DRY_RUN_COMMAND),
+            InputSource::Accessibility,
         );
         assert_eq!(controller.calls.load(Ordering::SeqCst), 1);
         assert!(
@@ -4842,9 +5219,10 @@ mod tests {
         assert_eq!(controller.calls.load(Ordering::SeqCst), 0);
         dashboard.open_profile_dialog(InputSource::Keyboard);
         assert!(dashboard.proto.dialog_modal_blocking());
-        dashboard.handle_accessible_proto_click(
+        dashboard.handle_proto_click(
             "battery-status",
             DashboardAction::RunCommand(BATTERY_STATUS_COMMAND),
+            InputSource::Accessibility,
         );
         assert_eq!(controller.calls.load(Ordering::SeqCst), 0);
 

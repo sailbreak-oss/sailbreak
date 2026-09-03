@@ -194,7 +194,31 @@ enum LctrlError {
 二次确认内容必须含:将写入的键与值、生效时机(即时/重启)、恢复命令。
 `sailbreak bios defaults` 额外要求输入机型名确认(brick 风险,05 §6)。
 
-## 8. 插件化调优 trait(与 07 §6、10 §2 呼应)
+## 8. GUI Proto-UI dogfood composition
+
+`sailbreak-gui` is an executable dogfood host for eleven Proto families:
+Tabs, Select, Dropdown, Dialog, Toggle, Switch, Checkbox, Textarea, Hover
+Card, Separator, and Button. Each interactive surface is created by its
+Tasks 5–15 family host and projected through `proto_surface.rs`; the dashboard
+retains only host-owned headings, capability rows, telemetry cards, safety
+copy, and structural layout. `GuiController` is the only bridge to CLI, HAL,
+and configuration actions.
+
+The `DogfoodSession`/`DogfoodInventory` API exercises the resolved host graph,
+selected/present content, disabled channels, and action gateways. A semantic
+signal maps to one controller call. The performance preview is explicitly
+`--dry-run`; it never becomes a commit. Profile application is modal and only
+the confirmed `--yes` path can execute. BIOS confirmation is unavailable until
+the controller supplies a typed read/modify/write request.
+
+Without typed current values, Select remains disabled and representative
+Switch/Checkbox controls are disabled with explicit readback-unavailable
+copy. Their unchecked fallback is not exposed as hardware truth. This stage is
+dogfood integration only and makes no official Proto-UI A-GPUI conformance
+claim. Linux headless launches return the existing display-channel error, so
+visual desktop evidence requires `DISPLAY` or `WAYLAND_DISPLAY`.
+
+## 9. 插件化调优 trait(与 07 §6、10 §2 呼应)
 
 ```rust
 trait TuningTarget {                    // 一个可写参数面
@@ -210,14 +234,13 @@ struct Profile { goal: Vec<(TargetId, Value)>, triggers: Vec<Box<dyn Trigger>>,
 
 新参数面(如未来机型的 GPU 功率)只需注册新 `TuningTarget`,DSL/CLI/daemon 自动获得能力。
 
-## 9. 测试策略
-
+## 10. 测试策略
 - core/tune:纯逻辑单测(状态机、DSL 求值、触发优先级、回退计数);
 - hal:接口级 mock(trait 实现假后端)覆盖 CLI 行为契约;
 - 真机冒烟:`tests/smoke.rs`(仅手工运行,`--ignored`)逐项读操作 + 往返写(set→get→restore);
 - 不在 CI 跑任何需要硬件的测试。
 
-## 10. 里程碑建议
+## 11. 里程碑建议
 
 1. M1(通道层):hal-win WMI + EnergyDrv 打通,`info`/`battery status`/`perf temp` 只读可用;
 2. M2(P0 写路径):charge-mode/perf mode/kbd backlight/panel rate/bios get-set;

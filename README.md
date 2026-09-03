@@ -39,28 +39,23 @@ The CI workflow exercises Linux and Windows. Hardware smoke tests are intentiona
 
 ## GUI status
 
-The GUI pins Zed GPUI commit [`399258feeaf90ad8a3a208c99221ee87b6452f38`](https://github.com/zed-industries/zed/tree/399258feeaf90ad8a3a208c99221ee87b6452f38/crates/gpui) and embeds QuickJS. It executes the exact Proto-UI `main` snapshot recorded in `tools/proto-ui-bridge/upstream.json`; Bun is a bundle-generation tool only and is never spawned by the released GUI. The sidebar/action bar Buttons and the performance-preview Toggle are real Shadcn projections. Rust owns the native GPUI surface and Slot content; Proto UI owns component state, lifecycle, event semantics, accessibility intent, and style tokens.
+The GUI pins Zed GPUI commit [`399258feeaf90ad8a3a208c99221ee87b6452f38`](https://github.com/zed-industries/zed/tree/399258feeaf90ad8a3a208c99221ee87b6452f38/crates/gpui) and embeds QuickJS. It executes the exact Proto-UI `main` snapshot recorded in `tools/proto-ui-bridge/upstream.json`; Bun is a bundle-generation tool only and is never spawned by the released GUI. The dashboard now dogfoods the complete eleven-family surface: Tabs, Select, Dropdown, Dialog, Toggle, Switch, Checkbox, Textarea, Hover Card, Separator, and Button. Rust owns native GPUI layout, paint, focus handles, and Slot content; Proto UI owns each family’s state, lifecycle, event semantics, accessibility intent, and style tokens.
 
-The pinned revision changes the published 0.2.2 host API: accessibility builders live in `crates/gpui/src/elements/div.rs`, platform construction is `gpui_platform::application()` from `crates/gpui_platform/src/gpui_platform.rs`, and `ClickEvent` includes a `Touch` variant. Sailbreak records these deltas explicitly; it does not claim touch behavior beyond preserving the input source on the bridge.
+The pinned revision changes the published 0.2.2 host API: accessibility builders live in `crates/gpui/src/elements/div.rs`, platform construction is `gpui_platform::application()` from `crates/gpui_platform/src/gpui_platform.rs`, and `ClickEvent` includes a `Touch` variant. Sailbreak records these deltas explicitly. This is a dogfood integration, not an official Proto-UI A-GPUI conformance claim.
 
-The governed host profile admits Button, Toggle, composed Switch Root/Thumb, Checkbox Root/Indicator, and Separator; the dashboard renders Button, Toggle, and profile-backed layout separators while typed hardware-state readback for Switch/Checkbox remains deferred. Unsupported Host Caps return structured diagnostics rather than silently becoming local Rust controls.
+The dashboard mapping is structural: sidebar sections use Tabs, selectors use Select, action groups use Dropdown, confirmations use Dialog, profile editing uses Textarea, capability details use Hover Card, and layout rules use Separator plus Proto SVG. Headings, capability rows, telemetry cards, and safety copy remain host-owned structural layout.
 
-The GPUI integration is one Module-first `ProtoAdapter`, not one Adapter per prototype. It implements shared QuickJS sessions, lifecycle/ACK/input, bounded scheduling, opaque parent graphs, Context/Anatomy, Rule Meta, style, and A11y once. Prototype profiles are conformance fixtures and thin typed facades; later prototypes may add required Module Host Caps but must not copy Runtime semantics into Rust.
+The Dashboard exposes an executable `DogfoodSession`/`DogfoodInventory` contract so family presence, selected/present content, disabled channels, and semantic action routing are checked through resolved host snapshots rather than source-text fixtures. The `GuiController` remains the only CLI/HAL/config bridge.
 
-The embedded profile currently proves:
+The embedded dogfood contract currently proves:
 
-- every recorded Proto-UI Shadcn direct entry is resolved through one governed registry;
-- composed `shadcn-switch-root`/`shadcn-switch-thumb` covers controlled/uncontrolled checked state, disabled suppression, focus/dark rule meta, shared Context/Anatomy parent graph, remount, stale-parent rejection, replacement, and disposal;
-- composed `shadcn-checkbox-root`/`shadcn-checkbox-indicator` covers checked, unchecked, indeterminate, disabled suppression, Space activation, focus/dark styling, SVG indicator projection, stale-parent replacement, sibling isolation, remount, and disposal;
-- `shadcn-separator-root` provides contentless horizontal/vertical geometry, decorative hiding, semantic separator orientation, stable replacement, remount/disposal, and profile-backed dashboard region separators;
-- `shadcn-button` variants (`default`, `destructive`, `outline`, `secondary`, `ghost`, `link`) and sizes (`default`, `sm`, `lg`, `icon`) are projected from Runtime style tokens;
-- `shadcn-toggle` covers `default`/`outline`, `default`/`sm`/`lg`, controlled and uncontrolled active state, disabled suppression, focus-visible styling, replacement/disposal, and one `activeChange` per native activation;
-- pointer hover/press, keyboard and native GPUI click activation, disabled gating, focus intent, Slot content, and semantic a11y snapshots cross the bridge;
-- Button role, stable accessible label, disabled/toggled/selected node state, and `AccessibleAction::Click` are projected through native AccessKit; the explicit accessibility handler returns before GPUI's fallback click synthesis, so one request follows one Proto `PressCommit` path.
+- each admitted Proto family is mounted through its Task 5–15 family host and projected into the native GPUI surface; no local component state machine or HTML-like fallback is used;
+- native pointer, keyboard, focus, accessibility, Slot, and semantic activation facts are routed through `proto_surface.rs`, with one semantic signal producing at most one controller action;
+- Select controls stay disabled because the snapshot has no typed current value, and representative Switch/Checkbox controls stay disabled with explicit “typed readback unavailable” copy. Their unknown state is not rendered or exposed as unchecked/off;
+- profile confirmation is modal and only its explicit `--yes` confirmation reaches `GuiController::execute`; BIOS confirmation remains unavailable until a typed BIOS read/modify/write request exists;
+- the performance-preview Toggle invokes only `--dry-run`, and clearing it never turns into a commit. `GuiController` is the sole CLI/HAL/config gateway.
 
-Overlay/positioning, text-control, touch support guarantees, and a generic multi-process transport remain outside the current host profile. They are explicit omissions, not hidden local fallbacks or support claims.
-
-Writes remain guarded. The migrated performance-preview Toggle invokes only the existing `--dry-run` CLI command when activated; clearing it performs no command. Any future mutation remains subject to the CLI service layer's permission, readback, rollback, and unavailable-channel semantics.
+This is executable dogfood coverage, not official Proto-UI A-GPUI conformance. A headless Linux invocation intentionally returns the existing display-channel error; visual desktop evidence is unavailable without `DISPLAY` or `WAYLAND_DISPLAY`. The contract still exercises resolved host snapshots and safety behavior without claiming visual proof.
 
 ## Install
 

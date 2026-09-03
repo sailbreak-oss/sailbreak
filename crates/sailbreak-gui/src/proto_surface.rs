@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{ops::Range, rc::Rc};
 
 use gpui::accesskit::ActionData;
 use gpui::{
@@ -6,15 +6,16 @@ use gpui::{
     ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
     GlobalElementId, KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Orientation, PaintQuad, Pixels, Point, Role, ShapedLine, SharedString, Stateful,
-    Style, TextRun, Toggled, UTF16Selection, UnderlineStyle, Window, div, fill, point, prelude::*,
-    px, relative, rgb, rgba, size,
+    Style, Subscription, TextRun, Toggled, UTF16Selection, UnderlineStyle, Window, div, fill,
+    point, prelude::*, px, relative, rgb, rgba, size,
 };
 use proto_ui_gpui::{
     A11ySnapshot, ButtonStyle, ColorValue, DialogCloseSnapshot, DialogContentSnapshot,
     DialogDescriptionSnapshot, DialogFooterSnapshot, DialogHeaderSnapshot, DialogMaskSnapshot,
     DialogTitleSnapshot, DialogTriggerSnapshot, DropdownContentSnapshot, DropdownItemSnapshot,
-    DropdownTriggerSnapshot, HoverCardContentSnapshot, HoverCardTriggerSnapshot, PlacementSnapshot,
-    ProtoButtonState, ProtoSeparatorSnapshot, ProtoTextareaSnapshot, ProtoToggleSnapshot,
+    DropdownTriggerSnapshot, HoverCardContentSnapshot, HoverCardTriggerSnapshot, InputKind,
+    InputSource, OverlayRect, PlacementSnapshot, ProtoButtonState, ProtoCheckboxSnapshot,
+    ProtoSeparatorSnapshot, ProtoSwitchSnapshot, ProtoTextareaSnapshot, ProtoToggleSnapshot,
     SelectContentSnapshot, SelectItemSnapshot, SelectTriggerSnapshot, SelectValueSnapshot,
     SeparatorOrientation, TabsContentSnapshot, TabsListSnapshot, TabsTriggerSnapshot,
     TextControlEvent, TextControlEventType, TextControlSelection, TextControlSelectionDirection,
@@ -59,10 +60,527 @@ pub fn toggle_element(
     )
 }
 
+type SurfaceDispatch<T> =
+    Rc<dyn Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static>;
+type SurfaceCommit<T> = Rc<dyn Fn(&mut T, InputSource) + 'static>;
+type SurfaceKey<T> = Rc<dyn Fn(&mut T, &str, &mut Window, &mut Context<T>) + 'static>;
+
+fn click_source(event: &gpui::ClickEvent) -> InputSource {
+    match event {
+        gpui::ClickEvent::Mouse(_) => InputSource::Mouse,
+        gpui::ClickEvent::Keyboard(_) => InputSource::Keyboard,
+        gpui::ClickEvent::Touch(_) => InputSource::Touch,
+    }
+}
+
+fn a11y_without_unknown_state(snapshot: Option<&A11ySnapshot>) -> Option<A11ySnapshot> {
+    snapshot.cloned().map(|mut snapshot| {
+        snapshot.toggled = None;
+        snapshot.selected = None;
+        snapshot.actions.clear();
+        snapshot
+    })
+}
+
+fn a11y_commit<T: 'static>(
+    cx: &Context<T>,
+    commit: SurfaceCommit<T>,
+    disabled: bool,
+) -> impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static {
+    let entity = cx.entity().downgrade();
+    move |_, _, app| {
+        if disabled {
+            return;
+        }
+        entity
+            .update(app, |this, _| commit(this, InputSource::Accessibility))
+            .ok();
+    }
+}
+
+/// Attach the native pointer/key/click transport shared by Proto action
+/// surfaces. The callbacks only forward data to the caller; component
+/// semantics remain in the family host.
+fn wire_surface<T: 'static>(
+    mut element: Stateful<Div>,
+    cx: &mut Context<T>,
+    focus_handle: Option<FocusHandle>,
+    disabled: bool,
+    dispatch: SurfaceDispatch<T>,
+    commit: Option<SurfaceCommit<T>>,
+    key_handler: Option<SurfaceKey<T>>,
+) -> Stateful<Div> {
+    let dispatch_hover = Rc::clone(&dispatch);
+    element = element.on_hover(cx.listener(move |this, hovered, _, cx| {
+        let kind = if *hovered {
+            InputKind::PointerEnter
+        } else {
+            InputKind::PointerLeave
+        };
+        dispatch_hover(this, kind, InputSource::Mouse, None);
+        cx.notify();
+    }));
+
+    let dispatch_down = Rc::clone(&dispatch);
+    let mouse_focus = focus_handle.clone();
+    element = element.on_mouse_down(
+        MouseButton::Left,
+        cx.listener(move |this, _, window, cx| {
+            if !disabled && let Some(handle) = mouse_focus.as_ref() {
+                window.focus(handle, cx);
+            }
+            dispatch_down(this, InputKind::Focus, InputSource::Mouse, None);
+            dispatch_down(this, InputKind::PointerDown, InputSource::Mouse, None);
+            cx.notify();
+        }),
+    );
+
+    let dispatch_up = Rc::clone(&dispatch);
+    element = element.on_mouse_up(
+        MouseButton::Left,
+        cx.listener(move |this, _, _, cx| {
+            dispatch_up(this, InputKind::PointerUp, InputSource::Mouse, None);
+            cx.notify();
+        }),
+    );
+
+    if let Some(key_handler) = key_handler {
+        element = element.on_key_down(cx.listener(
+            move |this, event: &gpui::KeyDownEvent, window, cx| {
+                key_handler(this, event.keystroke.key.as_str(), window, cx);
+                cx.notify();
+            },
+        ));
+    } else {
+        let dispatch_key_down = Rc::clone(&dispatch);
+        element =
+            element.on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, _, cx| {
+                dispatch_key_down(this, InputKind::Focus, InputSource::Keyboard, None);
+                dispatch_key_down(
+                    this,
+                    InputKind::KeyDown,
+                    InputSource::Keyboard,
+                    Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
+                );
+                cx.notify();
+            }));
+
+        let dispatch_key_up = Rc::clone(&dispatch);
+        element = element.on_key_up(cx.listener(move |this, event: &gpui::KeyUpEvent, _, cx| {
+            dispatch_key_up(
+                this,
+                InputKind::KeyUp,
+                InputSource::Keyboard,
+                Some(serde_json::json!({ "key": event.keystroke.key.clone() })),
+            );
+            cx.notify();
+        }));
+    }
+
+    if let Some(commit) = commit {
+        element = element.on_click(cx.listener(move |this, event, _, cx| {
+            commit(this, click_source(event));
+            cx.notify();
+        }));
+    }
+    element
+}
+
+/// Install the two native focus subscriptions used by family hosts. Focus
+/// source and blur are transport facts; the supplied callbacks route them to
+/// the corresponding Proto host.
+pub(crate) fn focus_subscriptions<T: 'static>(
+    cx: &mut Context<T>,
+    window: &mut Window,
+    handle: &FocusHandle,
+    on_focus: impl Fn(&mut T, InputSource, &mut Context<T>) + 'static,
+    on_blur: impl Fn(&mut T, &mut Context<T>) + 'static,
+) -> (Subscription, Subscription) {
+    let focus_subscription = cx.on_focus(handle, window, move |this, window, cx| {
+        let source = if window.last_input_was_keyboard() {
+            InputSource::Keyboard
+        } else {
+            InputSource::Mouse
+        };
+        on_focus(this, source, cx);
+        cx.notify();
+    });
+    let blur_subscription = cx.on_blur(handle, window, move |this, _, cx| {
+        on_blur(this, cx);
+        cx.notify();
+    });
+    (focus_subscription, blur_subscription)
+}
+
+pub(crate) fn button_surface<T: 'static>(
+    id: &'static str,
+    label: &'static str,
+    state: &ProtoButtonState,
+    focus_handle: Option<FocusHandle>,
+    cx: &mut Context<T>,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_commit: impl Fn(&mut T, InputSource) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let commit = Rc::new(on_commit);
+    let commit_for_a11y = Rc::clone(&commit);
+    let a11y = a11y_commit(cx, commit_for_a11y, state.disabled());
+    let element = button_element(id, label, state, a11y);
+    wire_surface(
+        element,
+        cx,
+        focus_handle,
+        state.disabled(),
+        dispatch,
+        Some(commit),
+        None,
+    )
+}
+
+pub(crate) fn toggle_surface<T: 'static>(
+    id: &'static str,
+    label: &'static str,
+    state: &ProtoToggleSnapshot,
+    focus_handle: Option<FocusHandle>,
+    cx: &mut Context<T>,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_commit: impl Fn(&mut T, InputSource) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let commit = Rc::new(on_commit);
+    let commit_for_a11y = Rc::clone(&commit);
+    let a11y = a11y_commit(cx, commit_for_a11y, state.disabled);
+    let element = toggle_element(id, label, state, a11y);
+    wire_surface(
+        element,
+        cx,
+        focus_handle,
+        state.disabled,
+        dispatch,
+        Some(commit),
+        None,
+    )
+}
+
+/// Render an honest Switch surface when its typed hardware readback is absent.
+/// `unavailable` removes the runtime's unchecked/toggled projection and leaves
+/// only the disabled visual plus caller-owned unavailable copy.
+pub(crate) fn switch_surface<T: 'static>(
+    id: &'static str,
+    state: &ProtoSwitchSnapshot,
+    focus_handle: Option<FocusHandle>,
+    cx: &mut Context<T>,
+    unavailable: bool,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_commit: impl Fn(&mut T, InputSource) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let commit = Rc::new(on_commit);
+    let a11y = if unavailable {
+        a11y_without_unknown_state(state.a11y.as_ref())
+    } else {
+        state.a11y.clone()
+    };
+    let commit_for_a11y = Rc::clone(&commit);
+    let a11y_handler = a11y_commit(cx, commit_for_a11y, state.disabled || unavailable);
+    let element = action_element(
+        id,
+        state.label.clone(),
+        &state.root.resolved_style,
+        a11y.as_ref(),
+        focus_handle.as_ref(),
+        a11y_handler,
+    );
+    wire_surface(
+        element,
+        cx,
+        focus_handle,
+        state.disabled || unavailable,
+        dispatch,
+        Some(commit),
+        None,
+    )
+}
+
+/// Render an honest Checkbox surface when its typed hardware readback is
+/// absent. Unknown checked/indeterminate state is never projected as a11y
+/// checked=false or as a checkmark.
+pub(crate) fn checkbox_surface<T: 'static>(
+    id: &'static str,
+    state: &ProtoCheckboxSnapshot,
+    focus_handle: Option<FocusHandle>,
+    cx: &mut Context<T>,
+    unavailable: bool,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_commit: impl Fn(&mut T, InputSource) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let commit = Rc::new(on_commit);
+    let a11y = if unavailable {
+        a11y_without_unknown_state(state.a11y.as_ref())
+    } else {
+        state.a11y.clone()
+    };
+    let commit_for_a11y = Rc::clone(&commit);
+    let a11y_handler = a11y_commit(cx, commit_for_a11y, state.disabled || unavailable);
+    let element = action_element(
+        id,
+        state.label.clone(),
+        &state.root.resolved_style,
+        a11y.as_ref(),
+        focus_handle.as_ref(),
+        a11y_handler,
+    );
+    wire_surface(
+        element,
+        cx,
+        focus_handle,
+        state.disabled || unavailable,
+        dispatch,
+        Some(commit),
+        None,
+    )
+}
+
+pub(crate) fn tab_trigger_surface<T: 'static>(
+    id: &'static str,
+    state: &TabsTriggerSnapshot,
+    focus_handle: FocusHandle,
+    cx: &mut Context<T>,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_commit: impl Fn(&mut T, InputSource) + 'static,
+    on_key: impl Fn(&mut T, &str, &mut Window, &mut Context<T>) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let commit = Rc::new(on_commit);
+    let key = Rc::new(on_key);
+    let commit_for_a11y = Rc::clone(&commit);
+    let a11y = a11y_commit(cx, commit_for_a11y, state.disabled);
+    let element = tab_trigger_element(id, state.label.clone(), state, &focus_handle, a11y);
+    wire_surface(
+        element,
+        cx,
+        Some(focus_handle),
+        state.disabled,
+        dispatch,
+        Some(commit),
+        Some(key),
+    )
+}
+
+pub(crate) fn select_trigger_surface<T: 'static>(
+    id: &'static str,
+    label: &'static str,
+    state: &SelectTriggerSnapshot,
+    cx: &mut Context<T>,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_commit: impl Fn(&mut T, InputSource) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let commit = Rc::new(on_commit);
+    let commit_for_a11y = Rc::clone(&commit);
+    let a11y = a11y_commit(cx, commit_for_a11y, state.disabled);
+    let element = select_trigger_element(id, label, state, None, a11y);
+    wire_surface(
+        element,
+        cx,
+        None,
+        state.disabled,
+        dispatch,
+        Some(commit),
+        None,
+    )
+}
+
+pub(crate) fn select_item_surface<T: 'static>(
+    id: impl Into<String>,
+    state: &SelectItemSnapshot,
+    cx: &mut Context<T>,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_commit: impl Fn(&mut T, InputSource) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let commit = Rc::new(on_commit);
+    let commit_for_a11y = Rc::clone(&commit);
+    let a11y = a11y_commit(cx, commit_for_a11y, state.disabled);
+    let element = select_item_element(id, state, a11y);
+    wire_surface(
+        element,
+        cx,
+        None,
+        state.disabled,
+        dispatch,
+        Some(commit),
+        None,
+    )
+}
+
+pub(crate) fn dropdown_trigger_surface<T: 'static>(
+    id: &'static str,
+    label: &'static str,
+    state: &DropdownTriggerSnapshot,
+    focus_handle: FocusHandle,
+    cx: &mut Context<T>,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_commit: impl Fn(&mut T, InputSource) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let commit = Rc::new(on_commit);
+    let commit_for_a11y = Rc::clone(&commit);
+    let a11y = a11y_commit(cx, commit_for_a11y, state.disabled);
+    let element = dropdown_trigger_element(id, label, state, Some(&focus_handle), a11y);
+    wire_surface(
+        element,
+        cx,
+        Some(focus_handle),
+        state.disabled,
+        dispatch,
+        Some(commit),
+        None,
+    )
+}
+
+pub(crate) fn dropdown_item_surface<T: 'static>(
+    id: &'static str,
+    state: &DropdownItemSnapshot,
+    cx: &mut Context<T>,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_commit: impl Fn(&mut T, InputSource) + 'static,
+    on_key: impl Fn(&mut T, &str, &mut Window, &mut Context<T>) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let commit = Rc::new(on_commit);
+    let key = Rc::new(on_key);
+    let commit_for_a11y = Rc::clone(&commit);
+    let a11y = a11y_commit(cx, commit_for_a11y, state.disabled);
+    let element = dropdown_item_element(id, state, a11y);
+    wire_surface(
+        element,
+        cx,
+        None,
+        state.disabled,
+        dispatch,
+        Some(commit),
+        Some(key),
+    )
+}
+
+pub(crate) fn dialog_trigger_surface<T: 'static>(
+    id: &'static str,
+    state: &DialogTriggerSnapshot,
+    focus_handle: FocusHandle,
+    cx: &mut Context<T>,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_commit: impl Fn(&mut T, InputSource) + 'static,
+    on_key: impl Fn(&mut T, &str, &mut Window, &mut Context<T>) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let commit = Rc::new(on_commit);
+    let key = Rc::new(on_key);
+    let commit_for_a11y = Rc::clone(&commit);
+    let a11y = a11y_commit(cx, commit_for_a11y, state.disabled);
+    let element = dialog_trigger_element(id, state.label.clone(), state, Some(&focus_handle), a11y);
+    wire_surface(
+        element,
+        cx,
+        Some(focus_handle),
+        state.disabled,
+        dispatch,
+        Some(commit),
+        Some(key),
+    )
+}
+
+pub(crate) fn dialog_close_surface<T: 'static>(
+    id: &'static str,
+    state: &DialogCloseSnapshot,
+    focus_handle: Option<FocusHandle>,
+    cx: &mut Context<T>,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_commit: impl Fn(&mut T, InputSource) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let commit = Rc::new(on_commit);
+    let commit_for_a11y = Rc::clone(&commit);
+    let a11y = a11y_commit(cx, commit_for_a11y, state.disabled);
+    let element = dialog_close_element(id, state, focus_handle.as_ref(), a11y);
+    wire_surface(
+        element,
+        cx,
+        focus_handle,
+        state.disabled,
+        dispatch,
+        Some(commit),
+        None,
+    )
+}
+
+pub(crate) fn dialog_content_key_surface<T: 'static>(
+    mut element: Stateful<Div>,
+    cx: &mut Context<T>,
+    on_key: impl Fn(&mut T, &str, &mut Window, &mut Context<T>) + 'static,
+) -> Stateful<Div> {
+    let key = Rc::new(on_key);
+    element = element.on_key_down(cx.listener(
+        move |this, event: &gpui::KeyDownEvent, window, cx| {
+            key(this, event.keystroke.key.as_str(), window, cx);
+            cx.notify();
+        },
+    ));
+    element
+}
+
+pub(crate) fn hover_card_trigger_surface<T: 'static>(
+    id: impl Into<String>,
+    label: impl IntoElement,
+    state: &HoverCardTriggerSnapshot,
+    focus_handle: Option<FocusHandle>,
+    cx: &mut Context<T>,
+    on_input: impl Fn(&mut T, InputKind, InputSource, Option<serde_json::Value>) + 'static,
+    on_geometry: impl Fn(&mut T, OverlayRect, (f32, f32), OverlayRect) + 'static,
+) -> Stateful<Div> {
+    let dispatch = Rc::new(on_input);
+    let element = hover_card_trigger_element(id, label, state, focus_handle.as_ref(), |_, _, _| {});
+    let mut element = wire_surface(element, cx, focus_handle, false, dispatch, None, None);
+    let geometry = Rc::new(on_geometry);
+    element = element.on_mouse_move(cx.listener(
+        move |this, event: &MouseMoveEvent, window, cx| {
+            let viewport = window.viewport_size();
+            let anchor = OverlayRect::new(
+                f32::from(event.position.x),
+                f32::from(event.position.y),
+                1.0,
+                1.0,
+            );
+            let viewport = OverlayRect::new(
+                0.0,
+                0.0,
+                f32::from(viewport.width),
+                f32::from(viewport.height),
+            );
+            geometry(this, anchor, (320.0, 120.0), viewport);
+            cx.notify();
+        },
+    ));
+    element
+}
+
+pub(crate) fn tab_navigation_key(key: &str) -> Option<&'static str> {
+    match key {
+        "left" | "ArrowLeft" => Some("ArrowLeft"),
+        "right" | "ArrowRight" => Some("ArrowRight"),
+        "up" | "ArrowUp" => Some("ArrowUp"),
+        "down" | "ArrowDown" => Some("ArrowDown"),
+        "home" | "Home" => Some("Home"),
+        "end" | "End" => Some("End"),
+        _ => None,
+    }
+}
+
 /// Project one Tabs Trigger through a caller-owned GPUI focus handle.
 pub fn tab_trigger_element(
     id: &'static str,
-    label: &'static str,
+    label: impl IntoElement,
     state: &TabsTriggerSnapshot,
     focus_handle: &FocusHandle,
     on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
@@ -121,7 +639,7 @@ pub fn select_content_element(id: &'static str, state: &SelectContentSnapshot) -
 /// Project one Select option and its selected indicator through the same
 /// Proto-resolved action styling used by the trigger.
 pub fn select_item_element(
-    id: &'static str,
+    id: impl Into<String>,
     state: &SelectItemSnapshot,
     on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
@@ -248,7 +766,7 @@ pub fn dropdown_item_element(
 /// Project a Dialog Trigger through the caller-owned native focus handle.
 pub fn dialog_trigger_element(
     id: &'static str,
-    label: &'static str,
+    label: impl IntoElement,
     state: &DialogTriggerSnapshot,
     focus_handle: Option<&FocusHandle>,
     on_a11y_click: impl FnMut(Option<&ActionData>, &mut Window, &mut App) + 'static,
