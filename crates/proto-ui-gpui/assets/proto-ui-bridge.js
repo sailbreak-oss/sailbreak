@@ -12853,171 +12853,6 @@
       facade.apply();
     }
   });
-  // ../packages/prototypes/base/src/textarea/root.proto.ts
-  function setupTextareaRoot(def2) {
-    def2.props.define({
-      value: { type: "string", empty: "fallback" },
-      defaultValue: { type: "string", empty: "fallback" },
-      disabled: { type: "boolean", empty: "fallback" },
-      readOnly: { type: "boolean", empty: "fallback" },
-      placeholder: { type: "string", empty: "fallback" },
-      rows: { type: "number", empty: "fallback" },
-      required: { type: "boolean", empty: "fallback" },
-      name: { type: "string", empty: "fallback" },
-      autoComplete: { type: "string", empty: "fallback" },
-      minLength: { type: "number", empty: "fallback" },
-      maxLength: { type: "number", empty: "fallback" },
-      wrap: { type: "enum", empty: "fallback", options: ["soft", "hard"] },
-      ariaLabel: { type: "string", empty: "fallback" },
-      labelledBy: { type: "string", empty: "fallback" },
-      describedBy: { type: "string", empty: "fallback" }
-    });
-    def2.props.setDefaults({
-      defaultValue: "",
-      disabled: false,
-      readOnly: false,
-      placeholder: "",
-      rows: 2,
-      required: false,
-      name: "",
-      autoComplete: "",
-      minLength: -1,
-      maxLength: -1,
-      wrap: "soft",
-      ariaLabel: "",
-      labelledBy: "",
-      describedBy: ""
-    });
-    const control = asTextControl();
-    const focusable = asFocusable();
-    focusable.configure({ disabled: false });
-    const value = def2.state.string("value", "");
-    const disabled = def2.state.bool("disabled", false);
-    const readOnly = def2.state.bool("readOnly", false);
-    const composing = def2.state.bool("composing", false);
-    const ariaLabel = def2.state.string("textareaAriaLabel", "");
-    const labelledBy = def2.state.string("textareaLabelledBy", "");
-    const describedBy = def2.state.string("textareaDescribedBy", "");
-    const focused = focusable.focused;
-    const focusVisible = focusable.focusVisible;
-    def2.expose.state("value", value);
-    def2.expose.state("disabled", disabled);
-    def2.expose.state("readOnly", readOnly);
-    def2.expose.state("focused", focused);
-    def2.expose.state("focusVisible", focusVisible);
-    def2.expose.state("composing", composing);
-    def2.expose.method("focusSelf", (options) => {
-      if (!disabled.get())
-        focusable.focusSelf(options);
-    });
-    def2.expose.method("blurSelf", () => focusable.blur());
-    def2.expose.event("valueChange", { payload: "json" });
-    def2.expose.event("change", { payload: "json" });
-    def2.expose.event("compositionStart", { payload: "json" });
-    def2.expose.event("compositionUpdate", { payload: "json" });
-    def2.expose.event("compositionEnd", { payload: "json" });
-    def2.a11y.role("textbox");
-    def2.a11y.name(ariaLabel);
-    def2.a11y.state("disabled", disabled);
-    def2.a11y.state("readOnly", readOnly);
-    def2.a11y.relation("labelledBy", { target: labelledBy });
-    def2.a11y.relation("describedBy", { target: describedBy });
-    const sync = (props) => {
-      const isControlled = typeof props.value === "string";
-      const nextDisabled = props.disabled ?? false;
-      disabled.set(nextDisabled, "reason: textarea sync disabled");
-      readOnly.set(props.readOnly ?? false, "reason: textarea sync readonly");
-      ariaLabel.set(props.ariaLabel ?? "", "reason: textarea sync aria label");
-      labelledBy.set(props.labelledBy ?? "", "reason: textarea sync labelledby");
-      describedBy.set(props.describedBy ?? "", "reason: textarea sync describedby");
-      focusable.setDisabled(nextDisabled);
-      control.sync({
-        valueMode: isControlled ? "controlled" : "uncontrolled",
-        value: isControlled ? props.value : undefined,
-        defaultValue: props.defaultValue ?? "",
-        disabled: nextDisabled,
-        readOnly: props.readOnly ?? false,
-        placeholder: props.placeholder ?? "",
-        rows: props.rows ?? 2,
-        required: props.required ?? false,
-        name: props.name ?? "",
-        autoComplete: props.autoComplete ?? "",
-        minLength: props.minLength ?? -1,
-        maxLength: props.maxLength ?? -1,
-        wrap: props.wrap ?? "soft"
-      });
-      value.set(control.snapshot()?.value ?? "", "reason: textarea sync value");
-    };
-    def2.lifecycle.onCreated((run2) => sync(run2.props.get()));
-    def2.props.watch([
-      "value",
-      "defaultValue",
-      "disabled",
-      "readOnly",
-      "placeholder",
-      "rows",
-      "required",
-      "name",
-      "autoComplete",
-      "minLength",
-      "maxLength",
-      "wrap",
-      "ariaLabel",
-      "labelledBy",
-      "describedBy"
-    ], (_run, next) => sync(next));
-    control.on("input", (run2, event2) => {
-      value.set(control.snapshot()?.value ?? event2.value, "reason: textarea input value");
-      composing.set(event2.composing, "reason: textarea input composing");
-      const detail = Object.freeze({
-        value: event2.value,
-        composing: event2.composing,
-        data: event2.data,
-        inputType: event2.inputType
-      });
-      run2.expose.emit("valueChange", detail);
-    });
-    control.on("change", (run2, event2) => {
-      value.set(control.snapshot()?.value ?? event2.value, "reason: textarea change value");
-      run2.expose.emit("change", Object.freeze({ value: event2.value }));
-    });
-    const emitComposition = (run2, eventName, event2) => {
-      const detail = Object.freeze({
-        value: event2.value,
-        data: event2.data
-      });
-      run2.expose.emit(eventName, detail);
-    };
-    control.on("compositionstart", (run2, event2) => {
-      composing.set(true, "reason: textarea composition start");
-      emitComposition(run2, "compositionStart", event2);
-    });
-    control.on("compositionupdate", (run2, event2) => {
-      emitComposition(run2, "compositionUpdate", event2);
-    });
-    control.on("compositionend", (run2, event2) => {
-      composing.set(false, "reason: textarea composition end");
-      value.set(control.snapshot()?.value ?? event2.value, "reason: textarea composition end value");
-      emitComposition(run2, "compositionEnd", event2);
-    });
-    return () => null;
-  }
-  var asTextareaRoot = defineAsHook({
-    name: "as-textarea-root",
-    modules: [
-      declareTextControl({
-        content: "plain-text",
-        lineMode: "multiline",
-        engine: "host"
-      })
-    ],
-    setup: setupTextareaRoot
-  });
-  var textareaRoot = definePrototype({
-    name: "base-textarea-root",
-    modules: asTextareaRoot.modules,
-    setup: setupTextareaRoot
-  });
   // ../packages/prototypes/base/src/button/button.proto.ts
   function setupButton(def2) {
     asTrigger();
@@ -13763,7 +13598,7 @@
       });
     }
   });
-  var root_proto_default3 = checkboxRoot2;
+  var root_proto_default2 = checkboxRoot2;
   // ../packages/prototypes/base/src/switch/shared.ts
   var SWITCH_FAMILY = createAnatomyFamily("base-switch", {
     roles: {
@@ -14002,7 +13837,7 @@
       });
     }
   });
-  var root_proto_default5 = switchRoot2;
+  var root_proto_default4 = switchRoot2;
 
   // ../packages/prototypes/shadcn/src/switch/thumb.proto.ts
   var THUMB_TOKENS = [
@@ -14606,7 +14441,7 @@
       def2.feedback.style.use(tw("flex flex-col gap-2"));
     }
   });
-  var root_proto_default7 = tabsRoot2;
+  var root_proto_default6 = tabsRoot2;
 
   // ../packages/prototypes/shadcn/src/tabs/trigger.proto.ts
   var BASE_TOKENS = [
@@ -15480,7 +15315,7 @@
       def2.feedback.style.use(tw("relative inline-flex items-start"));
     }
   });
-  var root_proto_default9 = hoverCardRoot2;
+  var root_proto_default8 = hoverCardRoot2;
 
   // ../packages/prototypes/shadcn/src/hover-card/trigger.proto.ts
   var TRIGGER_BASE_TOKENS = "inline-flex cursor-pointer items-center text-sm font-medium underline-offset-4 outline-none";
@@ -16317,7 +16152,7 @@
       asDropdownRoot();
     }
   });
-  var root_proto_default11 = dropdownRoot2;
+  var root_proto_default10 = dropdownRoot2;
 
   // ../packages/prototypes/shadcn/src/dropdown/trigger.proto.ts
   var TRIGGER_BASE_TOKENS2 = [
@@ -17271,7 +17106,7 @@
       asSelectRoot();
     }
   });
-  var root_proto_default13 = selectRoot2;
+  var root_proto_default12 = selectRoot2;
 
   // ../packages/prototypes/shadcn/src/select/trigger.proto.ts
   function renderChevron(renderer) {
@@ -17497,7 +17332,7 @@
       return () => null;
     }
   });
-  var root_proto_default14 = separatorRoot2;
+  var root_proto_default13 = separatorRoot2;
   // ../packages/prototypes/base/src/dialog/shared.ts
   var nextDialogRootId = 0;
   function createDialogRootId() {
@@ -18258,7 +18093,7 @@
       def2.feedback.style.use(tw("relative inline-flex items-start"));
     }
   });
-  var root_proto_default16 = dialogRoot2;
+  var root_proto_default15 = dialogRoot2;
 
   // ../packages/prototypes/shadcn/src/dialog/title.proto.ts
   var dialogTitle2 = definePrototype({
@@ -18300,8 +18135,215 @@
     }
   });
   var footer_proto_default = dialogFooter;
+  // ../packages/prototypes/base/src/textarea/root.proto.ts
+  function setupTextareaRoot(def2) {
+    def2.props.define({
+      value: { type: "string", empty: "fallback" },
+      defaultValue: { type: "string", empty: "fallback" },
+      disabled: { type: "boolean", empty: "fallback" },
+      readOnly: { type: "boolean", empty: "fallback" },
+      placeholder: { type: "string", empty: "fallback" },
+      rows: { type: "number", empty: "fallback" },
+      required: { type: "boolean", empty: "fallback" },
+      name: { type: "string", empty: "fallback" },
+      autoComplete: { type: "string", empty: "fallback" },
+      minLength: { type: "number", empty: "fallback" },
+      maxLength: { type: "number", empty: "fallback" },
+      wrap: { type: "enum", empty: "fallback", options: ["soft", "hard"] },
+      ariaLabel: { type: "string", empty: "fallback" },
+      labelledBy: { type: "string", empty: "fallback" },
+      describedBy: { type: "string", empty: "fallback" }
+    });
+    def2.props.setDefaults({
+      defaultValue: "",
+      disabled: false,
+      readOnly: false,
+      placeholder: "",
+      rows: 2,
+      required: false,
+      name: "",
+      autoComplete: "",
+      minLength: -1,
+      maxLength: -1,
+      wrap: "soft",
+      ariaLabel: "",
+      labelledBy: "",
+      describedBy: ""
+    });
+    const control = asTextControl();
+    const focusable = asFocusable();
+    focusable.configure({ disabled: false });
+    const value = def2.state.string("value", "");
+    const disabled = def2.state.bool("disabled", false);
+    const readOnly = def2.state.bool("readOnly", false);
+    const composing = def2.state.bool("composing", false);
+    const ariaLabel = def2.state.string("textareaAriaLabel", "");
+    const labelledBy = def2.state.string("textareaLabelledBy", "");
+    const describedBy = def2.state.string("textareaDescribedBy", "");
+    const focused = focusable.focused;
+    const focusVisible = focusable.focusVisible;
+    def2.expose.state("value", value);
+    def2.expose.state("disabled", disabled);
+    def2.expose.state("readOnly", readOnly);
+    def2.expose.state("focused", focused);
+    def2.expose.state("focusVisible", focusVisible);
+    def2.expose.state("composing", composing);
+    def2.expose.method("focusSelf", (options) => {
+      if (!disabled.get())
+        focusable.focusSelf(options);
+    });
+    def2.expose.method("blurSelf", () => focusable.blur());
+    def2.expose.event("valueChange", { payload: "json" });
+    def2.expose.event("change", { payload: "json" });
+    def2.expose.event("compositionStart", { payload: "json" });
+    def2.expose.event("compositionUpdate", { payload: "json" });
+    def2.expose.event("compositionEnd", { payload: "json" });
+    def2.a11y.role("textbox");
+    def2.a11y.name(ariaLabel);
+    def2.a11y.state("disabled", disabled);
+    def2.a11y.state("readOnly", readOnly);
+    def2.a11y.relation("labelledBy", { target: labelledBy });
+    def2.a11y.relation("describedBy", { target: describedBy });
+    const sync = (props) => {
+      const isControlled = typeof props.value === "string";
+      const nextDisabled = props.disabled ?? false;
+      disabled.set(nextDisabled, "reason: textarea sync disabled");
+      readOnly.set(props.readOnly ?? false, "reason: textarea sync readonly");
+      ariaLabel.set(props.ariaLabel ?? "", "reason: textarea sync aria label");
+      labelledBy.set(props.labelledBy ?? "", "reason: textarea sync labelledby");
+      describedBy.set(props.describedBy ?? "", "reason: textarea sync describedby");
+      focusable.setDisabled(nextDisabled);
+      control.sync({
+        valueMode: isControlled ? "controlled" : "uncontrolled",
+        value: isControlled ? props.value : undefined,
+        defaultValue: props.defaultValue ?? "",
+        disabled: nextDisabled,
+        readOnly: props.readOnly ?? false,
+        placeholder: props.placeholder ?? "",
+        rows: props.rows ?? 2,
+        required: props.required ?? false,
+        name: props.name ?? "",
+        autoComplete: props.autoComplete ?? "",
+        minLength: props.minLength ?? -1,
+        maxLength: props.maxLength ?? -1,
+        wrap: props.wrap ?? "soft"
+      });
+      value.set(control.snapshot()?.value ?? "", "reason: textarea sync value");
+    };
+    def2.lifecycle.onCreated((run2) => sync(run2.props.get()));
+    def2.props.watch([
+      "value",
+      "defaultValue",
+      "disabled",
+      "readOnly",
+      "placeholder",
+      "rows",
+      "required",
+      "name",
+      "autoComplete",
+      "minLength",
+      "maxLength",
+      "wrap",
+      "ariaLabel",
+      "labelledBy",
+      "describedBy"
+    ], (_run, next) => sync(next));
+    control.on("input", (run2, event2) => {
+      value.set(control.snapshot()?.value ?? event2.value, "reason: textarea input value");
+      composing.set(event2.composing, "reason: textarea input composing");
+      const detail = Object.freeze({
+        value: event2.value,
+        composing: event2.composing,
+        data: event2.data,
+        inputType: event2.inputType
+      });
+      run2.expose.emit("valueChange", detail);
+    });
+    control.on("change", (run2, event2) => {
+      value.set(control.snapshot()?.value ?? event2.value, "reason: textarea change value");
+      run2.expose.emit("change", Object.freeze({ value: event2.value }));
+    });
+    const emitComposition = (run2, eventName, event2) => {
+      const detail = Object.freeze({
+        value: event2.value,
+        data: event2.data
+      });
+      run2.expose.emit(eventName, detail);
+    };
+    control.on("compositionstart", (run2, event2) => {
+      composing.set(true, "reason: textarea composition start");
+      emitComposition(run2, "compositionStart", event2);
+    });
+    control.on("compositionupdate", (run2, event2) => {
+      emitComposition(run2, "compositionUpdate", event2);
+    });
+    control.on("compositionend", (run2, event2) => {
+      composing.set(false, "reason: textarea composition end");
+      value.set(control.snapshot()?.value ?? event2.value, "reason: textarea composition end value");
+      emitComposition(run2, "compositionEnd", event2);
+    });
+    return () => null;
+  }
+  var asTextareaRoot = defineAsHook({
+    name: "as-textarea-root",
+    modules: [
+      declareTextControl({
+        content: "plain-text",
+        lineMode: "multiline",
+        engine: "host"
+      })
+    ],
+    setup: setupTextareaRoot
+  });
+  var textareaRoot = definePrototype({
+    name: "base-textarea-root",
+    modules: asTextareaRoot.modules,
+    setup: setupTextareaRoot
+  });
+  // ../packages/prototypes/shadcn/src/textarea/root.proto.ts
+  var ROOT_BASE_TOKENS4 = [
+    "flex",
+    "min-h-16",
+    "w-full",
+    "rounded-md",
+    "border",
+    "border-input",
+    "bg-transparent",
+    "px-3",
+    "py-2",
+    "text-base",
+    "shadow-xs",
+    "transition-[color,box-shadow]",
+    "duration-150",
+    "ease-in-out",
+    "outline-none"
+  ].join(" ");
+  var ShadcnTextareaRoot = definePrototype({
+    name: "shadcn-textarea-root",
+    modules: asTextareaRoot.modules,
+    setup(def2) {
+      const state2 = asTextareaRoot().stateHandles;
+      if (!state2) {
+        throw new Error("[shadcn-textarea-root] asTextareaRoot must project Textarea state handles.");
+      }
+      def2.feedback.style.use(tw(ROOT_BASE_TOKENS4));
+      def2.rule({
+        when: (w) => w.state(state2.focusVisible).eq(true),
+        intent: (i) => i.feedback.style.use(tw("border-ring ring-ring/50 ring-3"))
+      });
+      def2.rule({
+        when: (w) => w.state(state2.disabled).eq(true),
+        intent: (i) => i.feedback.style.use(tw("cursor-not-allowed opacity-50"))
+      });
+      def2.rule({
+        when: (w) => w.meta("colorScheme").eq("dark"),
+        intent: (i) => i.feedback.style.use(tw("bg-input/30"))
+      });
+      return () => null;
+    }
+  });
   // index.ts
-  globalThis.__sailbreak_proto_ui_metadata = { proto_ui_version: "0.3.0-alpha.0", proto_ui_commit: "40ba5fb9011aba78f4d0a41a668fb93421f96865" };
+  globalThis.__sailbreak_proto_ui_metadata = { proto_ui_version: "0.3.0-alpha.0", proto_ui_commit: "8c6dadc00554ad89040a5f36eb2df56eb9ad3c17" };
   var BUILD_METADATA = globalThis.__sailbreak_proto_ui_metadata;
   var PROTO_UI_VERSION = typeof BUILD_METADATA?.proto_ui_version === "string" ? BUILD_METADATA.proto_ui_version : "main-snapshot";
   var PROTO_UI_COMMIT = typeof BUILD_METADATA?.proto_ui_commit === "string" ? BUILD_METADATA.proto_ui_commit : "unrecorded";
@@ -18359,57 +18401,32 @@
         listener(event2);
     }
   }
-  var TEXTAREA_BASE_TOKENS = "flex min-h-16 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-none transition-colors";
-  var shadcnTextareaRoot = definePrototype({
-    name: "shadcn-textarea-root",
-    modules: asTextareaRoot.modules,
-    setup(def2) {
-      const base = asTextareaRoot();
-      const state2 = base.stateHandles;
-      if (!state2)
-        throw new Error("[shadcn-textarea-root] asTextareaRoot must project state handles.");
-      const { disabled, focusVisible } = state2;
-      def2.feedback.style.use(tw(TEXTAREA_BASE_TOKENS));
-      def2.rule({
-        when: (w) => w.state(focusVisible).eq(true),
-        intent: (i) => i.feedback.style.use(tw("border-ring ring-3 ring-ring/50"))
-      });
-      def2.rule({
-        when: (w) => w.state(disabled).eq(true),
-        intent: (i) => i.feedback.style.use(tw("cursor-not-allowed opacity-50"))
-      });
-      def2.rule({
-        when: (w) => w.all(w.meta("colorScheme").eq("dark"), w.state(disabled).eq(false)),
-        intent: (i) => i.feedback.style.use(tw("bg-input/30"))
-      });
-    }
-  });
   var registry = {
     "shadcn-button": button_proto_default,
     "shadcn-toggle": toggle_proto_default,
-    "shadcn-checkbox-root": root_proto_default3,
+    "shadcn-checkbox-root": root_proto_default2,
     "shadcn-checkbox-indicator": indicator_proto_default2,
-    "shadcn-separator-root": root_proto_default14,
-    "shadcn-switch-root": root_proto_default5,
+    "shadcn-separator-root": root_proto_default13,
+    "shadcn-switch-root": root_proto_default4,
     "shadcn-switch-thumb": thumb_proto_default2,
-    "shadcn-tabs-root": root_proto_default7,
-    "shadcn-textarea-root": shadcnTextareaRoot,
+    "shadcn-tabs-root": root_proto_default6,
+    "shadcn-textarea-root": ShadcnTextareaRoot,
     "shadcn-tabs-list": list_proto_default2,
     "shadcn-tabs-trigger": trigger_proto_default2,
     "shadcn-tabs-content": content_proto_default2,
-    "shadcn-hover-card-root": root_proto_default9,
+    "shadcn-hover-card-root": root_proto_default8,
     "shadcn-hover-card-trigger": trigger_proto_default4,
     "shadcn-hover-card-content": content_proto_default4,
-    "shadcn-dropdown-root": root_proto_default11,
+    "shadcn-dropdown-root": root_proto_default10,
     "shadcn-dropdown-trigger": trigger_proto_default6,
     "shadcn-dropdown-content": content_proto_default6,
     "shadcn-dropdown-item": item_proto_default2,
-    "shadcn-select-root": root_proto_default13,
+    "shadcn-select-root": root_proto_default12,
     "shadcn-select-trigger": trigger_proto_default8,
     "shadcn-select-value": value_proto_default2,
     "shadcn-select-content": content_proto_default8,
     "shadcn-select-item": item_proto_default4,
-    "shadcn-dialog-root": root_proto_default16,
+    "shadcn-dialog-root": root_proto_default15,
     "shadcn-dialog-trigger": trigger_proto_default10,
     "shadcn-dialog-mask": overlay_proto_default2,
     "shadcn-dialog-content": content_proto_default10,
