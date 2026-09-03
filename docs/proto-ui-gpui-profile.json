@@ -244,9 +244,24 @@
         "result": "Linux remains headless until an actual DISPLAY or WAYLAND_DISPLAY run is recorded; no Windows GUI smoke is recorded."
       },
       "windows_ci": {
-        "status": "pending_run_url",
-        "run_url": null,
-        "result": "CI compilation/tests may establish build coverage but cannot establish GUI, AccessKit, or hardware behavior."
+        "status": "passed_build_evidence",
+        "run_url": "https://github.com/sailbreak-oss/sailbreak/actions/runs/33722965284",
+        "head_sha": "a4b8c3fc4c0232c9df9ecd4ecb41be9d8c58603f",
+        "jobs": [
+          {
+            "name": "test (ubuntu-latest)",
+            "conclusion": "success"
+          },
+          {
+            "name": "test (windows-latest)",
+            "conclusion": "success"
+          }
+        ],
+        "rust_toolchain": "1.95.0",
+        "gpui_revision": "399258feeaf90ad8a3a208c99221ee87b6452f38",
+        "proto_ui_commit": "8c6dadc00554ad89040a5f36eb2df56eb9ad3c17",
+        "bundle_sha256": "sha256:e7cbcc7e45037c7e71117a1adc93bc075fc7cb7b404621d67c70093d353d26d0",
+        "result": "Ubuntu and Windows lint, workspace tests, and release builds passed; the Windows capability probe and artifact upload passed. CI is build/test evidence only, not GUI, AccessKit, or hardware proof."
       }
     }
   },

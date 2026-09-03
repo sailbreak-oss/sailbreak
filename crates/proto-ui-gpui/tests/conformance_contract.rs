@@ -336,7 +336,8 @@ fn dialog_admission_uses_mask_and_no_bogus_portal_overlay_or_native_close_icon()
 
 #[test]
 fn evidence_tiers_separate_fake_host_from_native_and_desktop_proof() {
-    let evidence = &profile()["evidence"];
+    let profile = profile();
+    let evidence = &profile["evidence"];
     let tiers = evidence["authority_tiers"]
         .as_object()
         .expect("authority_tiers object");
@@ -376,11 +377,29 @@ fn evidence_tiers_separate_fake_host_from_native_and_desktop_proof() {
 
     let observations = &evidence["observations"];
     assert_eq!(observations["desktop_smoke"]["status"], "not_observed");
+    let windows_ci = &observations["windows_ci"];
+    assert_eq!(windows_ci["status"], "passed_build_evidence");
     assert_eq!(
-        observations["windows_ci"]["status"], "pending_run_url",
-        "parent fills the CI run URL without schema changes"
+        windows_ci["run_url"],
+        "https://github.com/sailbreak-oss/sailbreak/actions/runs/33722965284"
     );
-    assert!(observations["windows_ci"]["run_url"].is_null());
+    assert_eq!(
+        windows_ci["head_sha"],
+        "a4b8c3fc4c0232c9df9ecd4ecb41be9d8c58603f"
+    );
+    let jobs = windows_ci["jobs"].as_array().expect("CI jobs array");
+    assert_eq!(jobs.len(), 2);
+    assert!(jobs.iter().all(|job| job["conclusion"] == "success"));
+    assert_eq!(
+        windows_ci["rust_toolchain"],
+        profile["host"]["rust_toolchain"]
+    );
+    assert_eq!(windows_ci["gpui_revision"], profile["host"]["zed_revision"]);
+    assert_eq!(windows_ci["proto_ui_commit"], profile["source"]["commit"]);
+    assert_eq!(
+        windows_ci["bundle_sha256"],
+        profile["source"]["bundle_sha256"]
+    );
     assert!(
         observations["native_gpui"]["status"]
             .as_str()
